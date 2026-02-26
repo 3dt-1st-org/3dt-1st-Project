@@ -388,7 +388,9 @@ def _crawl_once(conn: psycopg.Connection) -> tuple[int, int]:
                     if not title and not body:
                         continue
 
-                    post_key = _hash_key(_normalize_url(post_url))
+                    post_key = _hash_key(
+                        f"{target.city_name}:{target.dong_name}:{_normalize_url(post_url)}"
+                    )
                     _upsert_post(
                         conn=conn,
                         post_key=post_key,
