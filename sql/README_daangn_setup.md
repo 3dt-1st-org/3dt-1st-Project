@@ -20,3 +20,15 @@ psql "$DB_DSN" -f tests/sql/daangn_dedup_smoke_test.sql
 ```
 
 `post_cnt`, `comment_cnt`가 각각 `1`이면 중복 적재 방지가 정상입니다.
+
+팀원 빠른 실행(권장):
+
+```bash
+./scripts/ingest/bootstrap_and_run_daangn_once.sh
+```
+
+위 스크립트가 아래를 순서대로 수행합니다.
+- 로컬 DB 컨테이너 실행
+- `daangn` 스키마 SQL/시드 SQL 적용
+- 1회 크롤링 실행
+- 게시글/댓글 적재 건수 및 댓글 샘플 조회
