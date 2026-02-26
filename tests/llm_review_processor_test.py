@@ -11,16 +11,16 @@ load_dotenv()
 # ==============================================================================
 # Azure Portal > Azure OpenAI 리소스 > [키 및 엔드포인트] 에서 확인 후 .env 파일에 입력
 # Azure Portal의 [Azure OpenAI Studio] -> [Deployments]에서 확인 가능합니다.
-AZURE_OAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-AZURE_OAI_API_KEY = os.getenv("AZURE_OPENAI_KEY")
-AZURE_OAI_API_VERSION = os.getenv("AZURE_OPENAI_VERSION", "2024-02-15-preview") 
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "")
+AZURE_OPENAI_VERSION = os.getenv("AZURE_OPENAI_VERSION", "2024-02-15-preview") 
 DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini") # 배포한 모델 이름 (예: gpt-4o-mini)
 
 # AzureOpenAI 클라이언트 객체 생성
 client = AzureOpenAI(
-    azure_endpoint=AZURE_OAI_ENDPOINT,
-    api_key=AZURE_OAI_API_KEY,
-    api_version=AZURE_OAI_API_VERSION
+    azure_endpoint=AZURE_OPENAI_ENDPOINT,
+    api_key=AZURE_OPENAI_KEY,
+    api_version=AZURE_OPENAI_VERSION
 )
 
 # ==============================================================================
@@ -84,6 +84,9 @@ def extract_keywords_from_reviews(attraction_name, review_list):
         
         # 응답받은 JSON 문자열을 파이썬 딕셔너리로 변환
         result_json_str = response.choices[0].message.content
+        if result_json_str is None:
+            print("❌ API 응답 내용이 비어 있습니다.")
+            return None
         result_data = json.loads(result_json_str)
         
         return result_data
