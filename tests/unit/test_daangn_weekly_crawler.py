@@ -136,20 +136,22 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
 
     def test_extract_post_payload_returns_title_body(self):
         html = "<html><body><h1>맛집 추천</h1><div data-qa-id='article-content'>망포 먹자골목 어풍당당 추천</div></body></html>"
-        title, body, comments = self.module._extract_post_payload(html)
+        title, body, post_created_at, comments = self.module._extract_post_payload(html)
         self.assertEqual(title, "맛집 추천")
         self.assertEqual(body, "망포 먹자골목 어풍당당 추천")
+        self.assertIsNone(post_created_at)
         self.assertEqual(comments, [])
 
     def test_extract_post_payload_from_inline_json(self):
         html = """
         <script>
-        {"subject":"맛집","title":"곡반정동 삼겹살 가성비 맛집 추천","content":"친구한테 추천받아 방문했어요\\n가성비가 좋아요","status":"NORMAL","createdSortedComments":[{"id":"123","content":"어풍당당 추천해요","createdAt":"2026-01-01T00:00:00.000+00:00","subComments":[]}],"recentSortedComments":[]}
+        {"subject":"맛집","title":"곡반정동 삼겹살 가성비 맛집 추천","content":"친구한테 추천받아 방문했어요\\n가성비가 좋아요","status":"NORMAL","createdAt":"2026-02-11T11:37:20.051+00:00","createdSortedComments":[{"id":"123","content":"어풍당당 추천해요","createdAt":"2026-01-01T00:00:00.000+00:00","subComments":[]}],"recentSortedComments":[]}
         </script>
         """
-        title, body, comments = self.module._extract_post_payload(html)
+        title, body, post_created_at, comments = self.module._extract_post_payload(html)
         self.assertEqual(title, "곡반정동 삼겹살 가성비 맛집 추천")
         self.assertIn("가성비가 좋아요", body)
+        self.assertEqual(post_created_at, "2026-02-11T11:37:20.051+00:00")
         self.assertEqual(len(comments), 1)
         self.assertEqual(comments[0]["comment_id"], "123")
         self.assertEqual(comments[0]["content"], "어풍당당 추천해요")

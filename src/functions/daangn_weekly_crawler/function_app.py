@@ -166,9 +166,10 @@ def _extract_comments_from_inline_json(post_html: str) -> list[dict[str, Any]]:
     return flatten(comments_data)
 
 
-def _extract_post_payload(post_html: str) -> tuple[str, str, list[dict[str, Any]]]:
+def _extract_post_payload(post_html: str) -> tuple[str, str, Optional[str], list[dict[str, Any]]]:
     pattern = re.compile(
-        r'"subject":"(?:\\.|[^"\\])*","title":"((?:\\.|[^"\\])*)","content":"((?:\\.|[^"\\])*)","status":"NORMAL"'
+        r'"title":"((?:\\.|[^"\\])*)","content":"((?:\\.|[^"\\])*)","status":"NORMAL","createdAt":"([^"]+)"',
+        re.DOTALL,
     )
     match = pattern.search(post_html)
     comments_from_json = _extract_comments_from_inline_json(post_html)
@@ -176,7 +177,8 @@ def _extract_post_payload(post_html: str) -> tuple[str, str, list[dict[str, Any]
     if match:
         title = json.loads(f'"{match.group(1)}"')
         body = json.loads(f'"{match.group(2)}"')
-        return title, body, comments_from_json
+        post_created_at = match.group(3)
+        return title, body, post_created_at, comments_from_json
 
     soup = BeautifulSoup(post_html, "html.parser")
 
@@ -200,7 +202,7 @@ def _extract_post_payload(post_html: str) -> tuple[str, str, list[dict[str, Any]
     if not comments:
         comments = [{"comment_id": "", "content": c, "created_at": None} for c in _extract_comments(soup)]
 
-    return title, body, comments
+    return title, body, None, comments
 
 
 def _load_target_dongs(conn: psycopg.Connection) -> list[TargetDong]:
@@ -263,6 +265,7 @@ def _upsert_post(
     source_url: str,
     title: str,
     body: str,
+    post_created_at: Optional[str],
     city_name: str,
     dong_name: str,
     searched_keyword: str,
@@ -281,7 +284,7 @@ def _upsert_post(
                 post_created_at,
                 raw_payload
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, NULL, NULL)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
             ON CONFLICT (post_key)
             DO UPDATE SET
                 title = EXCLUDED.title,
@@ -289,9 +292,10 @@ def _upsert_post(
                 city_name = EXCLUDED.city_name,
                 dong_name = EXCLUDED.dong_name,
                 searched_keyword = EXCLUDED.searched_keyword,
+                post_created_at = COALESCE(EXCLUDED.post_created_at, daangn.community_posts.post_created_at),
                 crawled_at = NOW()
             """,
-            (post_key, source_url, title, body, city_name, dong_name, searched_keyword),
+            (post_key, source_url, title, body, city_name, dong_name, searched_keyword, post_created_at),
         )
 
 
@@ -380,7 +384,7 @@ def _crawl_once(conn: psycopg.Connection) -> tuple[int, int]:
             for post_url in post_links:
                 try:
                     post_html = _request_html(session, post_url)
-                    title, body, comments = _extract_post_payload(post_html)
+                    title, body, post_created_at, comments = _extract_post_payload(post_html)
                     if not title and not body:
                         continue
 
@@ -391,6 +395,7 @@ def _crawl_once(conn: psycopg.Connection) -> tuple[int, int]:
                         source_url=post_url,
                         title=title or "(no-title)",
                         body=body,
+                        post_created_at=post_created_at,
                         city_name=target.city_name,
                         dong_name=target.dong_name,
                         searched_keyword=keyword,
