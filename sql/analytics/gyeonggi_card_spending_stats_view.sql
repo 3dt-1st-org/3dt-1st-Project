@@ -48,10 +48,11 @@ SELECT
     END AS day_label,
     amt,
     cnt
-FROM locallink.gyeonggi_card_spending_stats;
+FROM locallink.gyeonggi_card_spending_stats
+ORDER BY ta_ymd;
 
 COMMENT ON VIEW locallink.vw_gyeonggi_card_spending_stats IS '경기도 카드소비 데이터 가독성 뷰(hour/sex/age/day 라벨 포함)';
-COMMENT ON COLUMN locallink.vw_gyeonggi_card_spending_stats.ta_ymd IS '기준년월일';
+COMMENT ON COLUMN locallink.vw_gyeonggi_card_spending_stats.ta_ymd IS '기준년월일(date 타입)';
 COMMENT ON COLUMN locallink.vw_gyeonggi_card_spending_stats.city IS '시군명';
 COMMENT ON COLUMN locallink.vw_gyeonggi_card_spending_stats.card_tpbuz_nm_1 IS '카드사_업종대분류명';
 COMMENT ON COLUMN locallink.vw_gyeonggi_card_spending_stats.card_tpbuz_nm_2 IS '카드사_업종중분류명';

@@ -77,7 +77,7 @@ INSERT INTO ${TARGET_TABLE} (
   hour, sex, age, day, amt, cnt
 )
 SELECT
-  ta_ymd, '${city_escaped}', card_tpbuz_nm_1, card_tpbuz_nm_2,
+  to_date(ta_ymd::text, 'YYYYMMDD'), '${city_escaped}', card_tpbuz_nm_1, card_tpbuz_nm_2,
   hour, sex, age, day, amt, cnt
 FROM gyeonggi_card_spending_stats_stg_tmp;
 SQL

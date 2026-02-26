@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS locallink.gyeonggi_card_spending_stats (
-    ta_ymd         CHAR(8),
+    ta_ymd         DATE,
     city           VARCHAR(50),
     card_tpbuz_nm_1 VARCHAR(100),
     card_tpbuz_nm_2 VARCHAR(100),
@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS locallink.gyeonggi_card_spending_stats (
     cnt            BIGINT
 );
 
-COMMENT ON COLUMN locallink.gyeonggi_card_spending_stats.ta_ymd IS '기준년월일(참고: 카드 매출이 발생한 시간적 범위)';
+COMMENT ON COLUMN locallink.gyeonggi_card_spending_stats.ta_ymd IS '기준년월일(date 타입, 카드 매출이 발생한 시간적 범위)';
 COMMENT ON COLUMN locallink.gyeonggi_card_spending_stats.city IS '시군명(파일명에서 추출한 값)';
 COMMENT ON COLUMN locallink.gyeonggi_card_spending_stats.card_tpbuz_nm_1 IS '카드사_업종대분류명(참고: 카드사 업종 분류 기준(대분류))';
 COMMENT ON COLUMN locallink.gyeonggi_card_spending_stats.card_tpbuz_nm_2 IS '카드사_업종중분류명(참고: 카드사 업종 분류 기준(중분류))';
