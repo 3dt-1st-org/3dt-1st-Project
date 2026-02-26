@@ -1,78 +1,70 @@
--- ================================================================================
--- NULL 값만 존재할 것 같은 의심되는 컬럼명 데이터 조사
--- ================================================================================
--- NULL 값 밖에 없는 컬럼명 확인 및 삭제
-SELECT * FROM locallink.gg_restaurants WHERE suspnbiz_begin_de IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN suspnbiz_begin_de;
+-- =====================================================================================
+-- 통합영업상태명과 영업상태명 비교
+SELECT unity_bsn_state_nm, bsn_state_nm 
+FROM locallink.gg_restaurant_info gri
+WHERE gri.unity_bsn_state_nm <> gri.bsn_state_nm;
+---- 통합영업상태명이 '영업/정상'일 때, 영업상태명은 '영업'으로 표기
+---- 통합영업상태명이 '폐업'일 때, 영업상태명은 '폐업'으로 표기 (중복)
 
-SELECT * FROM locallink.gg_restaurants WHERE suspnbiz_end_de IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN suspnbiz_end_de;
+-- 중복되지 않는 값이 있는지 확인
+SELECT unity_bsn_state_nm, bsn_state_nm 
+FROM locallink.gg_restaurant_info gri
+WHERE gri.unity_bsn_state_nm<>'영업/정상' AND gri.bsn_state_nm='영업';
+---- 그 외의 경우를 찾아봤을 때, 다른 경우가 없기에 통합엽업상태명을 삭제하기로 결정 ('영업/정상' 대신 '영업'으로 알림)
 
-SELECT * FROM locallink.gg_restaurants WHERE reopenbiz_de IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN reopenbiz_de;
-
-SELECT * FROM locallink.gg_restaurants WHERE locplc_faclt_telno IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN locplc_faclt_telno;
-
-SELECT * FROM locallink.gg_restaurants WHERE locplc_ar_info IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN locplc_ar_info;
-
-SELECT * FROM locallink.gg_restaurants WHERE bizcond_div_nm_info IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN bizcond_div_nm_info;
-
-SELECT * FROM locallink.gg_restaurants WHERE x_crdnt_vl IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN x_crdnt_vl;
-
-SELECT * FROM locallink.gg_restaurants WHERE y_crdnt_vl IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN y_crdnt_vl;
-
-SELECT * FROM locallink.gg_restaurants WHERE headofc_emply_cnt IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN headofc_emply_cnt;
-
-SELECT * FROM locallink.gg_restaurants WHERE factry_ofcrk_dut_emply_cnt IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN factry_ofcrk_dut_emply_cnt;
-
-SELECT * FROM locallink.gg_restaurants WHERE factry_sale_dut_emply_cnt IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN factry_sale_dut_emply_cnt;
-
-SELECT * FROM locallink.gg_restaurants WHERE factry_prodctn_dut_emply_cnt IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN factry_prodctn_dut_emply_cnt;
-
-SELECT * FROM locallink.gg_restaurants WHERE buldng_posesn_div_nm IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN buldng_posesn_div_nm;
-
-SELECT * FROM locallink.gg_restaurants WHERE assurnc_amt IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN assurnc_amt;
-
-SELECT * FROM locallink.gg_restaurants WHERE mtrent_amt IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN mtrent_amt;
-
-SELECT * FROM locallink.gg_restaurants WHERE faclt_tot_scale_info IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN faclt_tot_scale_info;
-
-SELECT * FROM locallink.gg_restaurants WHERE traditn_bizestbl_appont_no IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN traditn_bizestbl_appont_no;
-
-SELECT * FROM locallink.gg_restaurants WHERE traditn_bizestbl_chief_food_nm IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN traditn_bizestbl_chief_food_nm;
-
-SELECT * FROM locallink.gg_restaurants WHERE hmpg_url IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN hmpg_url;
-
-SELECT * FROM locallink.gg_restaurants WHERE licensg_cancl_de IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN licensg_cancl_de;
-
-SELECT * FROM locallink.gg_restaurants WHERE bsn_state_div_cd IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN bsn_state_div_cd;
-
-SELECT * FROM locallink.gg_restaurants WHERE unity_bsn_state_div_cd IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN unity_bsn_state_div_cd;
-
-SELECT * FROM locallink.gg_restaurants WHERE unity_bsn_state_nm IS NOT NULL;
-ALTER TABLE locallink.gg_restaurants DROP COLUMN unity_bsn_state_nm;
+-- 통합엽업상태명 컬럼 삭제
+ALTER TABLE locallink.gg_restaurant_info 
+DROP COLUMN unity_bsn_state_nm;
+-- =====================================================================================
 
 
--- 조사 결과, NOT NULL 값 존재
-SELECT * FROM locallink.gg_restaurants WHERE male_enflpsn_cnt IS NOT NULL;
-SELECT * FROM locallink.gg_restaurants WHERE tot_emply_cnt IS NOT NULL;
+-- =====================================================================================
+-- 업태구분명정보와 위생업태명 비교
+SELECT bizplc_nm, bizcond_div_nm_info, sanittn_bizcond_nm
+FROM locallink.gg_restaurant_info gri
+WHERE gri.bizcond_div_nm_info <> gri.sanittn_bizcond_nm;
+---- 결과적으로 증복된 값을 가지는 것은 아님으로 나왔지만, 컬럼 구분의 기준을 모르겠음
+---- 중복 결과는 아니므로 삭제 진행은 안함
+-- =====================================================================================
 
+
+-- =====================================================================================
+-- '폐업' 상태인 레코드를 제거
+-- 1단계: 삭제 대상 데이터 수 확인 (검증)
+SELECT COUNT(*) 
+FROM locallink.gg_restaurant_info 
+WHERE bsn_state_nm = '폐업';
+---- 62,098행
+SELECT COUNT(*) 
+FROM locallink.gg_restaurant_info 
+WHERE bsn_state_nm = '영업';
+---- 29,629행
+
+-- 2단계: 데이터 삭제 실행
+DELETE FROM locallink.gg_restaurant_info 
+WHERE bsn_state_nm = '폐업';
+
+-- 3단계: 결과 확인
+SELECT bsn_state_nm, COUNT(*) 
+FROM locallink.gg_restaurant_info 
+GROUP BY bsn_state_nm;
+---- 영업상태명이 '영업'인만 남은 것을 확인
+-- =====================================================================================
+
+
+-- =====================================================================================
+-- 휴업시작일자 데이터 조사
+SELECT suspnbiz_begin_de
+FROM locallink.gg_restaurant_info gri
+WHERE gri.suspnbiz_begin_de IS NOT NULL;
+---- 휴업재개일자 데이터 조사
+SELECT suspnbiz_end_de
+FROM locallink.gg_restaurant_info gri
+WHERE gri.suspnbiz_end_de IS NOT NULL;
+---- 재개업일자 데이터 조사
+SELECT reopenbiz_de
+FROM locallink.gg_restaurant_info gri
+WHERE gri.reopenbiz_de IS NOT NULL;
+---- 전체 데이터 없음
+---- 폐업한 음식점 데이터 삭제하면 모든 음식점이 다 영업중임을 알 수 있음
+-- =====================================================================================
