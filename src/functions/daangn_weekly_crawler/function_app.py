@@ -6,7 +6,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 import azure.functions as func
 import psycopg
@@ -105,16 +105,52 @@ def _extract_comments(soup: BeautifulSoup) -> list[str]:
     return comments
 
 
-def _extract_post_payload(post_html: str) -> tuple[str, str, list[str]]:
+def _extract_comments_from_inline_json(post_html: str) -> list[dict[str, Any]]:
+    pattern = re.compile(
+        r'"createdSortedComments":(\[.*?\]),"recentSortedComments":',
+        re.DOTALL,
+    )
+    match = pattern.search(post_html)
+    if not match:
+        return []
+
+    try:
+        comments_data = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return []
+
+    def flatten(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        parsed: list[dict[str, Any]] = []
+        for item in items:
+            content = (item.get("content") or "").strip()
+            if content:
+                parsed.append(
+                    {
+                        "comment_id": str(item.get("id") or ""),
+                        "content": content,
+                        "created_at": item.get("createdAt"),
+                    }
+                )
+
+            sub_items = item.get("subComments") or []
+            if isinstance(sub_items, list) and sub_items:
+                parsed.extend(flatten(sub_items))
+        return parsed
+
+    return flatten(comments_data)
+
+
+def _extract_post_payload(post_html: str) -> tuple[str, str, list[dict[str, Any]]]:
     pattern = re.compile(
         r'"subject":"(?:\\.|[^"\\])*","title":"((?:\\.|[^"\\])*)","content":"((?:\\.|[^"\\])*)","status":"NORMAL"'
     )
     match = pattern.search(post_html)
+    comments_from_json = _extract_comments_from_inline_json(post_html)
+
     if match:
         title = json.loads(f'"{match.group(1)}"')
         body = json.loads(f'"{match.group(2)}"')
-        comments = _extract_comments(BeautifulSoup(post_html, "html.parser"))
-        return title, body, comments
+        return title, body, comments_from_json
 
     soup = BeautifulSoup(post_html, "html.parser")
 
@@ -134,7 +170,9 @@ def _extract_post_payload(post_html: str) -> tuple[str, str, list[str]]:
             "main",
         ],
     )
-    comments = _extract_comments(soup)
+    comments = comments_from_json
+    if not comments:
+        comments = [{"comment_id": "", "content": c, "created_at": None} for c in _extract_comments(soup)]
 
     return title, body, comments
 
@@ -234,14 +272,22 @@ def _upsert_post(
 def _insert_comments(
     conn: psycopg.Connection,
     post_key: str,
-    comments: list[str],
+    comments: list[dict[str, Any]],
     city_name: str,
     dong_name: str,
 ) -> int:
     inserted = 0
     with conn.cursor() as cur:
         for comment in comments:
-            comment_key = _hash_key(f"{post_key}:{comment.strip()}")
+            comment_text = str(comment.get("content") or "").strip()
+            if not comment_text:
+                continue
+
+            comment_id = str(comment.get("comment_id") or "").strip()
+            key_source = f"{post_key}:{comment_id}" if comment_id else f"{post_key}:{comment_text}"
+            comment_key = _hash_key(key_source)
+            commented_at = comment.get("created_at")
+
             cur.execute(
                 """
                 INSERT INTO daangn.community_comments (
@@ -253,10 +299,10 @@ def _insert_comments(
                     commented_at,
                     raw_payload
                 )
-                VALUES (%s, %s, %s, %s, %s, NULL, NULL)
+                VALUES (%s, %s, %s, %s, %s, %s, NULL)
                 ON CONFLICT (comment_key) DO NOTHING
                 """,
-                (comment_key, post_key, comment, city_name, dong_name),
+                (comment_key, post_key, comment_text, city_name, dong_name, commented_at),
             )
             inserted += cur.rowcount
 

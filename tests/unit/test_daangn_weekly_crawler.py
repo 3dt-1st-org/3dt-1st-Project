@@ -138,13 +138,15 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
     def test_extract_post_payload_from_inline_json(self):
         html = """
         <script>
-        {"subject":"맛집","title":"곡반정동 삼겹살 가성비 맛집 추천","content":"친구한테 추천받아 방문했어요\\n가성비가 좋아요","status":"NORMAL"}
+        {"subject":"맛집","title":"곡반정동 삼겹살 가성비 맛집 추천","content":"친구한테 추천받아 방문했어요\\n가성비가 좋아요","status":"NORMAL","createdSortedComments":[{"id":"123","content":"어풍당당 추천해요","createdAt":"2026-01-01T00:00:00.000+00:00","subComments":[]}],"recentSortedComments":[]}
         </script>
         """
         title, body, comments = self.module._extract_post_payload(html)
         self.assertEqual(title, "곡반정동 삼겹살 가성비 맛집 추천")
         self.assertIn("가성비가 좋아요", body)
-        self.assertEqual(comments, [])
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(comments[0]["comment_id"], "123")
+        self.assertEqual(comments[0]["content"], "어풍당당 추천해요")
 
 
 if __name__ == "__main__":
