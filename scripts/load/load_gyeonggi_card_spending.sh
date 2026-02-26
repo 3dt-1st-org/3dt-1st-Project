@@ -14,7 +14,6 @@ CSV_DIR="${CSV_DIR:-${PROJECT_ROOT}/data/raw/경기도_카드소비_데이터_20
 PSQL_CONN="${PSQL_CONN:-host=localhost port=5433 dbname=postgres user=admin_user}"
 CSV_ENCODING="${CSV_ENCODING:-UTF8}"
 TARGET_TABLE="${TARGET_TABLE:-locallink.gyeonggi_card_spending_stats}"
-STG_TABLE="${STG_TABLE:-locallink.gyeonggi_card_spending_stats_stg}"
 DDL_FILE="${DDL_FILE:-${PROJECT_ROOT}/sql/ddl/gyeonggi_card_spending_status.sql}"
 
 if [[ -z "${PGPASSWORD:-}" ]]; then
@@ -48,8 +47,17 @@ SQL
 
 psql "$PSQL_CONN" -v ON_ERROR_STOP=1 -f "$DDL_FILE"
 
-psql "$PSQL_CONN" -v ON_ERROR_STOP=1 <<SQL
-CREATE TABLE IF NOT EXISTS ${STG_TABLE} (
+psql "$PSQL_CONN" -v ON_ERROR_STOP=1 -c "TRUNCATE TABLE ${TARGET_TABLE};"
+
+for f in "${files[@]}"; do
+  base="$(basename "$f" .csv)"
+  city="${base##*_}"
+  city_escaped="${city//\'/\'\'}"
+
+  echo "loading: $f (city=$city)"
+
+  psql "$PSQL_CONN" -v ON_ERROR_STOP=1 <<SQL
+CREATE TEMP TABLE gyeonggi_card_spending_stats_stg_tmp (
   ta_ymd CHAR(8),
   cty_rgn_no VARCHAR(20),
   admi_cty_no VARCHAR(20),
@@ -63,22 +71,7 @@ CREATE TABLE IF NOT EXISTS ${STG_TABLE} (
   amt NUMERIC,
   cnt BIGINT
 );
-SQL
-
-psql "$PSQL_CONN" -v ON_ERROR_STOP=1 -c "TRUNCATE TABLE ${TARGET_TABLE};"
-
-for f in "${files[@]}"; do
-  base="$(basename "$f" .csv)"
-  city="${base##*_}"
-  city_escaped="${city//\'/\'\'}"
-
-  echo "loading: $f (city=$city)"
-
-  psql "$PSQL_CONN" -v ON_ERROR_STOP=1 -c "TRUNCATE TABLE ${STG_TABLE};"
-
-  psql "$PSQL_CONN" -v ON_ERROR_STOP=1 -c "\\copy ${STG_TABLE} (ta_ymd, cty_rgn_no, admi_cty_no, card_tpbuz_cd, card_tpbuz_nm_1, card_tpbuz_nm_2, hour, sex, age, day, amt, cnt) FROM '$f' WITH (FORMAT csv, HEADER true, ENCODING '$CSV_ENCODING')"
-
-  psql "$PSQL_CONN" -v ON_ERROR_STOP=1 <<SQL
+\copy gyeonggi_card_spending_stats_stg_tmp (ta_ymd, cty_rgn_no, admi_cty_no, card_tpbuz_cd, card_tpbuz_nm_1, card_tpbuz_nm_2, hour, sex, age, day, amt, cnt) FROM '$f' WITH (FORMAT csv, HEADER true, ENCODING '$CSV_ENCODING')
 INSERT INTO ${TARGET_TABLE} (
   ta_ymd, city, card_tpbuz_nm_1, card_tpbuz_nm_2,
   hour, sex, age, day, amt, cnt
@@ -86,7 +79,7 @@ INSERT INTO ${TARGET_TABLE} (
 SELECT
   ta_ymd, '${city_escaped}', card_tpbuz_nm_1, card_tpbuz_nm_2,
   hour, sex, age, day, amt, cnt
-FROM ${STG_TABLE};
+FROM gyeonggi_card_spending_stats_stg_tmp;
 SQL
 done
 
