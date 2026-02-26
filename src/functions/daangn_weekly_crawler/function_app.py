@@ -1,6 +1,8 @@
 import hashlib
+import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -42,7 +44,7 @@ def _get_keywords() -> list[str]:
 def _request_html(session: requests.Session, url: str) -> str:
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
     response.raise_for_status()
-    return response.text
+    return response.content.decode("utf-8", errors="replace")
 
 
 def _extract_post_links(search_html: str) -> list[str]:
@@ -54,6 +56,8 @@ def _extract_post_links(search_html: str) -> list[str]:
         if "/kr/community/" not in href:
             continue
         if "/kr/community/s/" in href:
+            continue
+        if href.rstrip("/") == "/kr/community":
             continue
 
         if href.startswith("http"):
@@ -102,6 +106,16 @@ def _extract_comments(soup: BeautifulSoup) -> list[str]:
 
 
 def _extract_post_payload(post_html: str) -> tuple[str, str, list[str]]:
+    pattern = re.compile(
+        r'"subject":"(?:\\.|[^"\\])*","title":"((?:\\.|[^"\\])*)","content":"((?:\\.|[^"\\])*)","status":"NORMAL"'
+    )
+    match = pattern.search(post_html)
+    if match:
+        title = json.loads(f'"{match.group(1)}"')
+        body = json.loads(f'"{match.group(2)}"')
+        comments = _extract_comments(BeautifulSoup(post_html, "html.parser"))
+        return title, body, comments
+
     soup = BeautifulSoup(post_html, "html.parser")
 
     title = _extract_text_by_selectors(

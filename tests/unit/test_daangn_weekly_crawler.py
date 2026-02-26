@@ -113,6 +113,7 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
     def test_extract_post_links_filters_search_page(self):
         html = """
         <html><body>
+          <a href="/kr/community/">root</a>
           <a href="/kr/community/posts/1">p1</a>
           <a href="/kr/community/s/?in=망포동-4534&search=맛집">search</a>
           <a href="https://www.daangn.com/kr/community/posts/2?foo=1">p2</a>
@@ -132,6 +133,17 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
         title, body, comments = self.module._extract_post_payload(html)
         self.assertEqual(title, "맛집 추천")
         self.assertEqual(body, "망포 먹자골목 어풍당당 추천")
+        self.assertEqual(comments, [])
+
+    def test_extract_post_payload_from_inline_json(self):
+        html = """
+        <script>
+        {"subject":"맛집","title":"곡반정동 삼겹살 가성비 맛집 추천","content":"친구한테 추천받아 방문했어요\\n가성비가 좋아요","status":"NORMAL"}
+        </script>
+        """
+        title, body, comments = self.module._extract_post_payload(html)
+        self.assertEqual(title, "곡반정동 삼겹살 가성비 맛집 추천")
+        self.assertIn("가성비가 좋아요", body)
         self.assertEqual(comments, [])
 
 
