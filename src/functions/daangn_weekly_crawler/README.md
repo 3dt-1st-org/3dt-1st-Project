@@ -13,6 +13,11 @@ psql "$DB_DSN" -f sql/ddl/daangn_community_tables.sql
 psql "$DB_DSN" -f sql/dml/daangn_target_dongs_seed.sql
 ```
 
+또는:
+```bash
+psql "$DB_DSN" -f sql/migration/Script-daangn-community-260226.sql
+```
+
 ## 로컬 실행
 ```bash
 cd src/functions/daangn_weekly_crawler
@@ -31,3 +36,4 @@ func start
 ## 주의
 - `daangn.target_dongs.dong_slug`가 비어 있으면 해당 동은 스킵됩니다.
 - 페이지 셀렉터는 서비스 구조 변경 시 수정이 필요합니다.
+- 중복 적재는 `post_key`, `comment_key` 유니크 키로 차단됩니다.
