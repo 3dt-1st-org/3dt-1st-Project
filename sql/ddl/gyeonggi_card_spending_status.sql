@@ -1,4 +1,4 @@
-CREATE TABLE locallink.gyeonggi_card_spending_stats (
+CREATE TABLE IF NOT EXISTS locallink.gyeonggi_card_spending_stats (
     ta_ymd         CHAR(8),
     city           VARCHAR(50),
     card_tpbuz_nm_1 VARCHAR(100),
