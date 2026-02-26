@@ -14,14 +14,14 @@ from openai import AzureOpenAI
 load_dotenv()
 
 # 네이버 API 키
-NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
-NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
+NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID", "")
+NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET", "")
 
 # Azure OpenAI 키
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "") 
-AZURE_OPENAI_VERSION = os.getenv("AZURE_OPENAI_VERSION", "2024-02-15-preview")
-DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "")
+AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+AZURE_OPENAI_VERSION = os.getenv("AZURE_OPENAI_VERSION", "2024-02-01")
 
 # Azure OpenAI 임베딩 모델 설정
 EMBEDDING_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small")
@@ -29,11 +29,11 @@ EMBEDDING_API_VERSION = os.getenv("AZURE_OPENAI_EMBEDDING_API_VERSION", "2023-05
 
 # PostgreSQL DB 접속 정보 (Docker-compose 설정과 동일)
 DB_CONFIG = {
-    'dbname': 'postgres',
-    'user': 'admin_user',
-    'password': '1111',
-    'host': 'localhost',
-    'port': '5433'
+    "host": "localhost",
+    "port": 5433,
+    "database": "postgres",
+    "user": "admin_user",
+    "password": "1111"
 }
 
 # ==============================================================================
@@ -53,7 +53,7 @@ def clean_html(raw_html):
 def extract_keywords_with_llm(attraction_name, clean_reviews_list):
     """리뷰 텍스트 전체를 분석하여 핵심 형용사/명사를 JSON으로 추출합니다."""
     client = AzureOpenAI(
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,  # ✅ 검증 후 str로 확정
         api_key=AZURE_OPENAI_KEY,
         api_version=AZURE_OPENAI_VERSION
     )
@@ -70,10 +70,10 @@ def extract_keywords_with_llm(attraction_name, clean_reviews_list):
     
     user_prompt = f"명소: {attraction_name}\n\n[리뷰 텍스트]\n{combined_reviews}"
     
-    print(f"🧠 Azure OpenAI (gpt-4o-mini)로 '{attraction_name}' 키워드 추출 중...")
+    print(f"🧠 Azure OpenAI ({AZURE_OPENAI_DEPLOYMENT})로 '{attraction_name}' 키워드 추출 중...")
     try:
         response = client.chat.completions.create(
-            model=DEPLOYMENT_NAME,
+            model=AZURE_OPENAI_DEPLOYMENT,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -82,9 +82,20 @@ def extract_keywords_with_llm(attraction_name, clean_reviews_list):
             temperature=0.2,
             max_tokens=150
         )
-        # JSON 파싱 후 문자열로 결합 (예: "고즈넉한, 아름다운, 야경")
-        result_dict = json.loads(response.choices[0].message.content)
-        keywords_str = ", ".join(result_dict.get("adjectives", []) + result_dict.get("nouns", []))
+        content = response.choices[0].message.content
+
+        if not content:
+            print("❌ LLM 응답이 비어있습니다.")
+            return []
+
+        try:
+            data = json.loads(content)  # ✅ str 타입 확정
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON 파싱 오류: {e}")
+            print(f"원본 응답: {content}")
+            return []
+
+        keywords_str = ", ".join(data.get("adjectives", []) + data.get("nouns", []))
         return keywords_str
     
     except Exception as e:
@@ -94,26 +105,25 @@ def extract_keywords_with_llm(attraction_name, clean_reviews_list):
 # ==============================================================================
 # 3. 임베딩 생성 함수 (Azure OpenAI text-embedding-3-small)
 # ==============================================================================
-def generate_embeddings_batch(texts: list[str]) -> list[list[float] | None]:
+def generate_embeddings_batch(texts: list[str]) -> list[list[float]]:
     """텍스트 리스트를 한 번의 API 호출로 일괄 벡터 변환합니다. (비용 최적화)"""
     embedding_client = AzureOpenAI(
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
         api_key=AZURE_OPENAI_KEY,
         api_version=EMBEDDING_API_VERSION
     )
-    print(f"🔢 text-embedding-3-small로 {len(texts)}개 리뷰 임베딩 생성 중...")
+    print(f"🔢 {EMBEDDING_DEPLOYMENT_NAME}로 {len(texts)}개 리뷰 임베딩 생성 중...")
     try:
         response = embedding_client.embeddings.create(
             model=EMBEDDING_DEPLOYMENT_NAME,
             input=texts
         )
-        # API 응답은 입력 순서와 동일하게 반환됨
         embeddings = [item.embedding for item in response.data]
         print(f"✅ 임베딩 생성 완료: {len(embeddings)}개")
         return embeddings
     except Exception as e:
         print(f"❌ 임베딩 생성 에러: {e}")
-        return [None] * len(texts)
+        return []  # ✅ 빈 리스트 반환 (list[list[float]] 타입 유지)
 
 # ==============================================================================
 # 4. 메인 파이프라인 (API 호출 -> 전처리 -> DB Insert)
@@ -136,8 +146,13 @@ def run_review_pipeline(target_attraction):
         if response.getcode() != 200:
             print(f"❌ API 에러 발생. 코드: {response.getcode()}")
             return
-            
-        data = json.loads(response.read().decode('utf-8'))
+
+        raw_data = response.read()
+        if raw_data is None:
+            print("❌ API 응답 데이터가 없습니다.")
+            return
+
+        data = json.loads(raw_data.decode('utf-8'))
         items = data.get('items', [])
         print(f"✅ 네이버 API 호출 성공: {len(items)}개의 리뷰 데이터 확보")
         
@@ -179,7 +194,13 @@ def run_review_pipeline(target_attraction):
     # [STEP 3] PostgreSQL (Docker) DB 적재 (Bulk Insert)
     try:
         print("\n🗄️ 데이터베이스 적재 시작...")
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = psycopg2.connect(
+            host=DB_CONFIG["host"],
+            port=DB_CONFIG["port"],
+            database=DB_CONFIG["database"],
+            user=DB_CONFIG["user"],
+            password=DB_CONFIG["password"]
+        )
         cursor = conn.cursor()
 
         # Insert 쿼리문 준비 (embedding은 pgvector가 인식하는 '[v1,v2,...]' 문자열로 캐스팅)
