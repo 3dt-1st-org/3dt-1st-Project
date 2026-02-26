@@ -19,6 +19,21 @@ APP = func.FunctionApp()
 DEFAULT_SCHEDULE = os.getenv("TIMER_CRON", "0 0 3 * * 1")
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
 REQUEST_SLEEP_SECONDS = float(os.getenv("REQUEST_SLEEP_SECONDS", "0.3"))
+NOISE_EXACT_MATCHES = {
+    ",",
+    ".",
+    "..",
+    "...",
+    "ㅋ",
+    "ㅋㅋ",
+    "ㅋㅋㅋ",
+    "ㅎ",
+    "ㅎㅎ",
+    "ㅠ",
+    "ㅠㅠ",
+    "ㅜ",
+    "ㅜㅜ",
+}
 
 
 @dataclass(frozen=True)
@@ -34,6 +49,17 @@ def _normalize_url(url: str) -> str:
 
 def _hash_key(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _is_noise_comment(comment_text: str) -> bool:
+    text = comment_text.strip()
+    if not text:
+        return True
+    if text in NOISE_EXACT_MATCHES:
+        return True
+
+    # Keep only comments that contain at least one meaningful character.
+    return re.search(r"[0-9A-Za-z가-힣]", text) is None
 
 
 def _get_keywords() -> list[str]:
@@ -280,7 +306,7 @@ def _insert_comments(
     with conn.cursor() as cur:
         for comment in comments:
             comment_text = str(comment.get("content") or "").strip()
-            if not comment_text:
+            if _is_noise_comment(comment_text):
                 continue
 
             comment_id = str(comment.get("comment_id") or "").strip()

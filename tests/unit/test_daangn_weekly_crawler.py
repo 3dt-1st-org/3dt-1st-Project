@@ -105,6 +105,12 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
         self.assertEqual(key1, key2)
         self.assertEqual(len(key1), 64)
 
+    def test_noise_comment_filter(self):
+        self.assertTrue(self.module._is_noise_comment(","))
+        self.assertTrue(self.module._is_noise_comment("ㅋㅋ"))
+        self.assertTrue(self.module._is_noise_comment("   "))
+        self.assertFalse(self.module._is_noise_comment("어풍당당 추천해요"))
+
     def test_get_keywords_from_env(self):
         os.environ["DAANGN_KEYWORDS"] = "맛집, 명소 , 행사"
         keywords = self.module._get_keywords()
