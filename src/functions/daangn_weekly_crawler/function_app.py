@@ -4,7 +4,7 @@ import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import Iterable, Optional
 
 import azure.functions as func
 import psycopg
@@ -161,7 +161,7 @@ def _finish_run(
     status: str,
     post_count: int,
     comment_count: int,
-    error_message: str | None,
+    error_message: Optional[str],
 ) -> None:
     with conn.cursor() as cur:
         cur.execute(
