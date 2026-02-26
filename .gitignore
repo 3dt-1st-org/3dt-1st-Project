@@ -207,5 +207,7 @@ marimo/_lsp/
 __marimo__/
 
 # Project outputs and datasets
-data/
-artifacts/
+data/**
+artifacts/**
+!data/.gitkeep
+!artifacts/.gitkeep
