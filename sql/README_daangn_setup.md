@@ -27,6 +27,12 @@ psql "$DB_DSN" -f tests/sql/daangn_dedup_smoke_test.sql
 ./scripts/ingest/bootstrap_and_run_daangn_once.sh
 ```
 
+Windows(PowerShell):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\ingest\bootstrap_and_run_daangn_once.ps1
+```
+
 위 스크립트가 아래를 순서대로 수행합니다.
 - 로컬 DB 컨테이너 실행
 - `daangn` 스키마 SQL/시드 SQL 적용
