@@ -3,6 +3,30 @@ import os
 from pathlib import Path
 
 
+def _load_env_from_file(env_path: Path) -> None:
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+
+def _load_env() -> None:
+    root_env = Path(__file__).resolve().parents[2] / ".env"
+    local_env = Path.cwd() / ".env"
+    _load_env_from_file(root_env)
+    if local_env != root_env:
+        _load_env_from_file(local_env)
+
+
 def _load_function_module():
     module_path = (
         Path(__file__).resolve().parents[2]
@@ -21,9 +45,10 @@ def _load_function_module():
 
 
 def main():
+    _load_env()
     db_dsn = os.getenv("DB_DSN")
     if not db_dsn:
-        raise RuntimeError("DB_DSN environment variable is required")
+        raise RuntimeError("DB_DSN is required. Set it in environment or .env file.")
 
     app_module = _load_function_module()
 
