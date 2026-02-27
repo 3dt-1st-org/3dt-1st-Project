@@ -20,11 +20,8 @@ def _load_env_from_file(env_path: Path) -> None:
 
 
 def _load_env() -> None:
-    root_env = Path(__file__).resolve().parents[2] / ".env"
-    local_env = Path.cwd() / ".env"
-    _load_env_from_file(root_env)
-    if local_env != root_env:
-        _load_env_from_file(local_env)
+    fixed_env = Path(__file__).resolve().parents[2] / ".env"
+    _load_env_from_file(fixed_env)
 
 
 def _load_function_module():
