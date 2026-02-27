@@ -33,6 +33,16 @@ func start
 - `WEBSITE_TIME_ZONE`: `Korea Standard Time`
 - `DB_DSN`: PostgreSQL 접속 문자열
 
+## Key Vault 권장 설정
+- 운영 환경에서는 `DB_DSN`을 코드/파일에 하드코딩하지 않고 Azure Key Vault에서 주입합니다.
+- Function App의 Managed Identity를 활성화하고 Key Vault `Secrets User` 권한을 부여합니다.
+- App Setting 예시:
+  - `DB_DSN = @Microsoft.KeyVault(SecretUri=https://<keyvault-name>.vault.azure.net/secrets/db-dsn/)`
+
+## 로컬 실행 시 필수 환경변수
+- `DB_DSN`
+- `POSTGRES_PASSWORD` (docker compose postgres 컨테이너 기동 시 필요)
+
 ## 주의
 - `daangn.target_dongs.dong_slug`가 비어 있으면 해당 동은 스킵됩니다.
 - 페이지 셀렉터는 서비스 구조 변경 시 수정이 필요합니다.
