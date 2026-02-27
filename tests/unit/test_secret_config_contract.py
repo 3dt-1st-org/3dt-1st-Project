@@ -21,6 +21,7 @@ def _load_run_once_module():
 class TestSecretConfigContract(unittest.TestCase):
     def test_run_once_requires_db_dsn(self):
         module = _load_run_once_module()
+        module._load_env = lambda: None
         previous = os.environ.pop("DB_DSN", None)
         try:
             with self.assertRaises(RuntimeError):
@@ -33,8 +34,7 @@ class TestSecretConfigContract(unittest.TestCase):
         # These files are part of runtime and local execution paths.
         target_files = [
             ROOT_DIR / "infra" / "docker" / "docker-compose.yml",
-            ROOT_DIR / "scripts" / "ingest" / "bootstrap_and_run_daangn_once.sh",
-            ROOT_DIR / "scripts" / "ingest" / "bootstrap_and_run_daangn_once.ps1",
+            ROOT_DIR / "scripts" / "ingest" / "bootstrap_and_run_daangn_once.py",
             ROOT_DIR / "src" / "collectors" / "load_review_pipeline.py",
             ROOT_DIR / "src" / "functions" / "daangn_weekly_crawler" / "local.settings.sample.json",
         ]

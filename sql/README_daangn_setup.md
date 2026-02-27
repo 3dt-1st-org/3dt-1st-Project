@@ -24,13 +24,7 @@ psql "$DB_DSN" -f tests/sql/daangn_dedup_smoke_test.sql
 팀원 빠른 실행(권장):
 
 ```bash
-./scripts/ingest/bootstrap_and_run_daangn_once.sh
-```
-
-Windows(PowerShell):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\ingest\bootstrap_and_run_daangn_once.ps1
+./.venv/bin/python scripts/ingest/bootstrap_and_run_daangn_once.py
 ```
 
 위 스크립트가 아래를 순서대로 수행합니다.

@@ -1,6 +1,10 @@
 import importlib.util
+import logging
 import os
 from pathlib import Path
+
+
+LOG = logging.getLogger("daangn-run-once")
 
 
 def _load_env() -> None:
@@ -38,12 +42,14 @@ def _load_function_module():
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
     _load_env()
     db_dsn = os.getenv("DB_DSN")
     if not db_dsn:
         raise RuntimeError("DB_DSN is required. Set it in environment or .env file.")
 
     app_module = _load_function_module()
+    LOG.info("Starting one-time daangn crawl run.")
 
     with app_module.psycopg.connect(db_dsn) as conn:
         run_id = app_module._insert_run_start(conn)
@@ -69,9 +75,9 @@ def main():
             )
             raise
 
-    print(f"run_id={run_id}")
-    print(f"post_count={post_count}")
-    print(f"comment_count={comment_count}")
+    LOG.info("run_id=%s", run_id)
+    LOG.info("post_count=%d", post_count)
+    LOG.info("comment_count=%d", comment_count)
 
 
 if __name__ == "__main__":
