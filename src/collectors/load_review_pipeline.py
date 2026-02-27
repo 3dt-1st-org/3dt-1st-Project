@@ -29,11 +29,11 @@ EMBEDDING_API_VERSION = os.getenv("AZURE_OPENAI_EMBEDDING_API_VERSION", "2023-05
 
 # PostgreSQL DB 접속 정보 (Docker-compose 설정과 동일)
 DB_CONFIG = {
-    "host": "localhost",
-    "port": 5433,
-    "database": "postgres",
-    "user": "admin_user",
-    "password": "1111"
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": int(os.getenv("DB_PORT", "5433")),
+    "database": os.getenv("DB_NAME", "postgres"),
+    "user": os.getenv("DB_USER", "admin_user"),
+    "password": os.getenv("DB_PASSWORD", "")
 }
 
 # ==============================================================================

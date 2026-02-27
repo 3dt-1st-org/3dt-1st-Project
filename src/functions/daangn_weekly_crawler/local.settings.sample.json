@@ -3,7 +3,7 @@
   "Values": {
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "FUNCTIONS_WORKER_RUNTIME": "python",
-    "DB_DSN": "postgresql://admin_user:1111@localhost:5433/postgres",
+    "DB_DSN": "SET_IN_LOCAL_ENV_OR_KEY_VAULT",
     "TIMER_CRON": "0 0 3 * * 1",
     "WEBSITE_TIME_ZONE": "Korea Standard Time",
     "DAANGN_KEYWORDS": "맛집,명소,행사",
