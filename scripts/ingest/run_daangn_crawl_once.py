@@ -3,7 +3,8 @@ import os
 from pathlib import Path
 
 
-def _load_env_from_file(env_path: Path) -> None:
+def _load_env() -> None:
+    env_path = Path(__file__).resolve().parents[2] / ".env"
     if not env_path.exists():
         return
 
@@ -17,11 +18,6 @@ def _load_env_from_file(env_path: Path) -> None:
         value = value.strip().strip('"').strip("'")
         if key:
             os.environ.setdefault(key, value)
-
-
-def _load_env() -> None:
-    fixed_env = Path(__file__).resolve().parents[2] / ".env"
-    _load_env_from_file(fixed_env)
 
 
 def _load_function_module():
