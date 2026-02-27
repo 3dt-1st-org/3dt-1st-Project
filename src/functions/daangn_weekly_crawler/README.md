@@ -28,6 +28,15 @@ cp local.settings.sample.json local.settings.json
 func start
 ```
 
+## Azure Functions 배포
+- Function 프로젝트 루트: `src/functions/daangn_weekly_crawler`
+- 현재 디렉터리에 `function_app.py`, `host.json`, `requirements.txt`가 있어 Python v2 모델 배포 가능 상태입니다.
+- 배포 예시:
+```bash
+cd src/functions/daangn_weekly_crawler
+func azure functionapp publish <YOUR_FUNCTION_APP_NAME> --python
+```
+
 ## 운영 설정
 - `TIMER_CRON`: 기본값 `0 0 3 * * 1` (매주 월요일 03:00)
 - `WEBSITE_TIME_ZONE`: `Korea Standard Time`
