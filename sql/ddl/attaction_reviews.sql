@@ -76,3 +76,34 @@ CREATE TABLE locallink.attraction_reviews (
 );
 
 COMMENT ON TABLE locallink.attraction_reviews IS '관광지별 블로그 리뷰 데이터 및 벡터 정보';
+
+
+
+-- 1. 부모 테이블 생성 (attraction_name에 UNIQUE 추가)
+CREATE TABLE locallink.gyeonggi_attractions (
+    attraction_name TEXT NOT NULL UNIQUE, -- "이 이름은 중복될 수 없다"고 선언합니다.
+    phone_number TEXT,
+    additional_info TEXT,
+    base_date DATE,
+    road_address TEXT,
+    lot_address TEXT,
+    zip_code VARCHAR(10),
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    city_county_name VARCHAR(50)
+);
+
+-- 2. 자식 테이블 생성 (attraction_name을 텍스트로 참조)
+CREATE TABLE locallink.attraction_reviews (
+    id SERIAL PRIMARY KEY,
+    -- 참조하는 쪽과 참조받는 쪽 모두 TEXT 타입으로 완전히 동일해야 합니다.
+    attraction_name TEXT REFERENCES locallink.gyeonggi_attractions(attraction_name) ON DELETE CASCADE,
+    title TEXT,                  
+    description TEXT,            
+    post_date DATE,              
+    post_link TEXT,              
+    clean_text TEXT,             
+    extracted_keywords TEXT,     
+    embedding VECTOR(1536),      
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
