@@ -7,6 +7,13 @@ from azure.core.exceptions import ResourceNotFoundError, HttpResponseError
 # 1. 로컬의 .env 파일에서 KEY_VAULT_URL을 불러옵니다.
 load_dotenv()
 
+_instance = None
+
+def get_vault_manager():
+    global _instance
+    if _instance is None:
+        _instance = KeyVaultManager()
+    return _instance
 
 class KeyVaultManager:
     def __init__(self):
@@ -27,7 +34,7 @@ class KeyVaultManager:
             print(f"❌ Key Vault 인증 또는 연결에 실패했습니다: {e}")
             raise
 
-    def get_secret(self, secret_name: str) -> str:
+    def get_secret(self, secret_name: str) -> str | None:  # ✅ None 반환 가능성 명시
         """Key Vault에서 주어진 이름의 시크릿 값을 가져옵니다."""
         try:
             retrieved_secret = self.client.get_secret(secret_name)
@@ -40,29 +47,44 @@ class KeyVaultManager:
             print(f"⚠️ Key Vault 접근 중 오류 발생 (권한 문제일 수 있습니다): {e}")
             return None
 
+    def list_secret_names(self) -> list[str]:
+        """Key Vault에 저장된 모든 시크릿의 이름 목록을 반환합니다."""
+        try:
+            return [prop.name for prop in self.client.list_properties_of_secrets() if prop.name is not None]  # ✅ None 필터링
+        except HttpResponseError as e:
+            print(f"⚠️ 시크릿 목록 조회 중 오류 발생: {e}")
+            return []
+
+    def get_all_secrets(self) -> dict[str, str]:
+        """Key Vault에 저장된 모든 시크릿을 {이름: 값} 딕셔너리로 반환합니다."""
+        if hasattr(self, "_cache"):
+            return self._cache
+
+        secret_names = self.list_secret_names()
+        secrets: dict[str, str] = {}
+        failed: list[str] = []
+
+        for name in secret_names:
+            value = self.get_secret(name)
+            if value is not None:
+                print(f"  ✅ [{name}] 로드 성공")
+                secrets[name] = value
+            else:
+                print(f"  ❌ [{name}] 로드 실패")
+                failed.append(name)
+
+        print(f"\n📋 시크릿 로드 결과: 성공 {len(secrets)}개 / 실패 {len(failed)}개")
+        if failed:
+            print(f"   실패 목록: {failed}")
+
+        self._cache = secrets
+        return secrets
+
 
 def main():
     print("데이터 파이프라인 설정을 초기화합니다...")
-
-    vault = KeyVaultManager()
-
-    # Key Vault에 저장된 이름(하이픈 방식)으로 요청하여 실제 값을 변수에 할당합니다.
-    db_dsn = vault.get_secret("db-dsn")
-    weather_api_key = vault.get_secret("weather-api-key")
-    naver_client_id = vault.get_secret("naver-client-id")
-    azure_openai_key = vault.get_secret("azure-openai-key")
-    azure_openai_endpoint = vault.get_secret("azure-openai-endpoint")
-
-    if db_dsn:
-        print("✅ DB DSN을 성공적으로 가져왔습니다.")
-        # engine = create_engine(db_dsn)
-
-    if azure_openai_key:
-        print("✅ Azure OpenAI API Key를 성공적으로 가져왔습니다.")
-
-    if not naver_client_id:
-        print("❌ 네이버 클라이언트 ID를 가져오지 못했습니다. Key Vault 설정과 시크릿 이름을 확인하세요.")
-
+    vault = get_vault_manager()
+    vault.get_all_secrets()
 
 if __name__ == "__main__":
     main()
