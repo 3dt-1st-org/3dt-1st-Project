@@ -23,11 +23,18 @@ struct MainMapView: View {
                 userTrackingMode: $userTrackingMode,
                 annotationItems: viewModel.places
             ) { place in
-                MapMarker(
-                    coordinate: place.coordinate,
-                    tint: Color(AppThemeColor.south.rawValue)
-                )
+                MapAnnotation(coordinate: place.coordinate) {
+                    PlacePinView(
+                        title: place.name(in: appViewModel.selectedLanguage),
+                        categorySymbol: place.categoryKind.symbolName,
+                        isSelected: viewModel.selectedPlaceID == place.id
+                    )
+                    .onTapGesture {
+                        viewModel.handleMapPinTap(place, language: appViewModel.selectedLanguage)
+                    }
+                }
             }
+            .mapStyle(.standard(pointsOfInterest: .excludingAll))
             .ignoresSafeArea()
 
             overlayContent
@@ -87,40 +94,49 @@ struct MainMapView: View {
     }
 
     private var placeCarousel: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(viewModel.places) { place in
-                    Button {
-                        viewModel.handlePlaceTap(place, language: appViewModel.selectedLanguage)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(place.name(in: appViewModel.selectedLanguage))
-                                .font(.system(size: 16 * appViewModel.fontScale, weight: .bold))
-                                .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                                .lineLimit(1)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(viewModel.places) { place in
+                        Button {
+                            viewModel.handlePlaceTap(place, language: appViewModel.selectedLanguage)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(place.name(in: appViewModel.selectedLanguage))
+                                    .font(.system(size: 16 * appViewModel.fontScale, weight: .bold))
+                                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                                    .lineLimit(1)
 
-                            Text(place.category(in: appViewModel.selectedLanguage))
-                                .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
-                                .foregroundStyle(Color(AppThemeColor.east.rawValue))
+                                Text(place.category(in: appViewModel.selectedLanguage))
+                                    .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
+                                    .foregroundStyle(Color(AppThemeColor.east.rawValue))
 
-                            Text(place.district(in: appViewModel.selectedLanguage))
-                                .font(.system(size: 12 * appViewModel.fontScale, weight: .medium))
-                                .foregroundStyle(.secondary)
+                                Text(place.district(in: appViewModel.selectedLanguage))
+                                    .font(.system(size: 12 * appViewModel.fontScale, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(width: 210, alignment: .leading)
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(Color.white.opacity(0.92))
+                            )
+                            .overlay {
+                                AnimatedObangBorder(cornerRadius: 16, isActive: viewModel.selectedPlaceID == place.id)
+                            }
                         }
-                        .frame(width: 210, alignment: .leading)
-                        .padding(14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color.white.opacity(0.92))
-                        )
-                        .overlay {
-                            AnimatedObangBorder(cornerRadius: 16, isActive: viewModel.selectedPlaceID == place.id)
-                        }
+                        .buttonStyle(.plain)
+                        .id(place.id)
                     }
-                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 14)
+            }
+            .onChange(of: viewModel.selectedPlaceID) { _, selectedID in
+                guard let selectedID else { return }
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    proxy.scrollTo(selectedID, anchor: .center)
                 }
             }
-            .padding(.horizontal, 14)
         }
     }
 
@@ -258,5 +274,49 @@ private struct AnimatedObangBorder: View {
                 phaseStart = Date()
             }
         }
+    }
+}
+
+private struct PlacePinView: View {
+    let title: String
+    let categorySymbol: String
+    let isSelected: Bool
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .frame(maxWidth: 160)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.black.opacity(0.72))
+                )
+
+            ZStack {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: isSelected ? 34 : 28, height: isSelected ? 34 : 28)
+                    .shadow(color: .black.opacity(0.20), radius: 4, y: 2)
+
+                Circle()
+                    .fill(
+                        isSelected
+                            ? Color(AppThemeColor.south.rawValue)
+                            : Color(AppThemeColor.north.rawValue).opacity(0.88)
+                    )
+                    .frame(width: isSelected ? 22 : 18, height: isSelected ? 22 : 18)
+
+                Image(systemName: categorySymbol)
+                    .font(.system(size: isSelected ? 11 : 9, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(maxWidth: 150)
     }
 }
