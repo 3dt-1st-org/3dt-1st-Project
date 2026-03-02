@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import MapKit
+import AVFoundation
 
 @MainActor
 final class MainMapViewModel: ObservableObject {
@@ -16,8 +17,10 @@ final class MainMapViewModel: ObservableObject {
     @Published var subtitle = ""
     @Published var weatherSymbol = "cloud.sun.fill"
     @Published var weatherValue = "13°C"
+    @Published var selectedPlaceID: UUID?
 
     let places: [PlaceRecommendation]
+    private let speechSynthesizer = AVSpeechSynthesizer()
 
     private let initialRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 36.35, longitude: 127.9),
@@ -35,6 +38,8 @@ final class MainMapViewModel: ObservableObject {
                 categoryEn: "Historic Site",
                 districtKo: "고양시",
                 districtEn: "Goyang",
+                guideKo: "행주산성은 한강 전망과 성곽 산책이 좋은 역사 명소예요. 근처 로컬 식당도 함께 추천해드릴게요.",
+                guideEn: "Haengjusanseong offers scenic fortress walks and river views. I can also recommend nearby local restaurants.",
                 coordinate: CLLocationCoordinate2D(latitude: 37.6001, longitude: 126.8171)
             ),
             PlaceRecommendation(
@@ -44,6 +49,8 @@ final class MainMapViewModel: ObservableObject {
                 categoryEn: "Local Trekking",
                 districtKo: "광주시",
                 districtEn: "Gwangju",
+                guideKo: "남한산성 전통길은 숲길과 성곽 풍경을 함께 즐기기 좋은 코스입니다. 초행자에게도 부담이 적어요.",
+                guideEn: "Namhansanseong Trail is a great local course with forest paths and fortress scenery, suitable even for first-time visitors.",
                 coordinate: CLLocationCoordinate2D(latitude: 37.4767, longitude: 127.1830)
             ),
             PlaceRecommendation(
@@ -53,6 +60,8 @@ final class MainMapViewModel: ObservableObject {
                 categoryEn: "Night Walk",
                 districtKo: "수원시",
                 districtEn: "Suwon",
+                guideKo: "화성행궁 주변은 밤에 조명이 아름다워 산책하기 좋아요. 전통 간식과 골목 맛집도 가까이에 있습니다.",
+                guideEn: "The Hwaseong Haenggung area is ideal for night walks with beautiful lighting, plus local snack spots nearby.",
                 coordinate: CLLocationCoordinate2D(latitude: 37.2810, longitude: 127.0143)
             ),
             PlaceRecommendation(
@@ -62,6 +71,8 @@ final class MainMapViewModel: ObservableObject {
                 categoryEn: "Local Eats",
                 districtKo: "포천시",
                 districtEn: "Pocheon",
+                guideKo: "포천 이동갈비 골목은 현지인도 자주 찾는 대표 맛집 거리예요. 대기 시간을 줄일 수 있는 매장도 안내해드릴게요.",
+                guideEn: "Pocheon Galbi Alley is a well-known local food street. I can guide you to places with shorter wait times.",
                 coordinate: CLLocationCoordinate2D(latitude: 37.8939, longitude: 127.2006)
             )
         ]
@@ -75,7 +86,28 @@ final class MainMapViewModel: ObservableObject {
 
     func toggleVoiceGuidance(for language: AppLanguage) {
         isVoiceGuidanceEnabled.toggle()
+        if !isVoiceGuidanceEnabled, speechSynthesizer.isSpeaking {
+            speechSynthesizer.stopSpeaking(at: .immediate)
+        }
         refreshSubtitle(for: language)
+    }
+
+    func handlePlaceTap(_ place: PlaceRecommendation, language: AppLanguage) {
+        if selectedPlaceID == place.id {
+            selectedPlaceID = nil
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.stopSpeaking(at: .immediate)
+            }
+            refreshSubtitle(for: language)
+            return
+        }
+
+        selectedPlaceID = place.id
+        subtitle = place.guide(in: language)
+
+        if isVoiceGuidanceEnabled {
+            speak(subtitle, language: language)
+        }
     }
 
     func weatherA11yText(for language: AppLanguage) -> String {
@@ -98,6 +130,17 @@ final class MainMapViewModel: ObservableObject {
         }
 
         return "Voice guidance is off. Tap the bottom button to resume."
+    }
+
+    private func speak(_ text: String, language: AppLanguage) {
+        if speechSynthesizer.isSpeaking {
+            speechSynthesizer.stopSpeaking(at: .immediate)
+        }
+
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = AVSpeechSynthesisVoice(language: language == .korean ? "ko-KR" : "en-US")
+        utterance.rate = 0.5
+        speechSynthesizer.speak(utterance)
     }
 
     func clampRegion(_ candidate: MKCoordinateRegion) -> MKCoordinateRegion {

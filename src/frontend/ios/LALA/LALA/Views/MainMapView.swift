@@ -71,26 +71,34 @@ struct MainMapView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 ForEach(viewModel.places) { place in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(place.name(in: appViewModel.selectedLanguage))
-                            .font(.system(size: 16 * appViewModel.fontScale, weight: .bold))
-                            .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                            .lineLimit(1)
+                    Button {
+                        viewModel.handlePlaceTap(place, language: appViewModel.selectedLanguage)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(place.name(in: appViewModel.selectedLanguage))
+                                .font(.system(size: 16 * appViewModel.fontScale, weight: .bold))
+                                .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                                .lineLimit(1)
 
-                        Text(place.category(in: appViewModel.selectedLanguage))
-                            .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
-                            .foregroundStyle(Color(AppThemeColor.east.rawValue))
+                            Text(place.category(in: appViewModel.selectedLanguage))
+                                .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
+                                .foregroundStyle(Color(AppThemeColor.east.rawValue))
 
-                        Text(place.district(in: appViewModel.selectedLanguage))
-                            .font(.system(size: 12 * appViewModel.fontScale, weight: .medium))
-                            .foregroundStyle(.secondary)
+                            Text(place.district(in: appViewModel.selectedLanguage))
+                                .font(.system(size: 12 * appViewModel.fontScale, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(width: 210, alignment: .leading)
+                        .padding(14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.white.opacity(0.92))
+                        )
+                        .overlay {
+                            AnimatedObangBorder(cornerRadius: 16, isActive: viewModel.selectedPlaceID == place.id)
+                        }
                     }
-                    .frame(width: 210, alignment: .leading)
-                    .padding(14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.white.opacity(0.92))
-                    )
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 14)
@@ -142,6 +150,9 @@ struct MainMapView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(Color.white.opacity(0.92))
             )
+            .overlay {
+                AnimatedObangBorder(cornerRadius: 16, isActive: viewModel.selectedPlaceID != nil)
+            }
             .padding(.horizontal, 14)
     }
 
@@ -174,5 +185,42 @@ struct MainMapView: View {
 #Preview {
     NavigationStack {
         MainMapView(appViewModel: AppViewModel())
+    }
+}
+
+private struct AnimatedObangBorder: View {
+    let cornerRadius: CGFloat
+    let isActive: Bool
+    @State private var phaseStart = Date()
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !isActive)) { timeline in
+            let elapsed = timeline.date.timeIntervalSince(phaseStart)
+            let angle = (elapsed * 120.0).truncatingRemainder(dividingBy: 360.0)
+
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(
+                    AngularGradient(
+                        colors: [
+                            Color(AppThemeColor.north.rawValue),
+                            Color(AppThemeColor.east.rawValue),
+                            Color(AppThemeColor.south.rawValue),
+                            Color(AppThemeColor.west.rawValue),
+                            Color(AppThemeColor.center.rawValue),
+                            Color(AppThemeColor.north.rawValue)
+                        ],
+                        center: .center,
+                        angle: .degrees(angle)
+                    ),
+                    lineWidth: 3
+                )
+                .opacity(isActive ? 1 : 0)
+                .allowsHitTesting(false)
+        }
+        .onChange(of: isActive) { _, active in
+            if active {
+                phaseStart = Date()
+            }
+        }
     }
 }
