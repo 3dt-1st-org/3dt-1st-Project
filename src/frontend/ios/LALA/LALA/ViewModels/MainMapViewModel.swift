@@ -107,41 +107,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     func handlePlaceTap(_ place: PlaceRecommendation, language: AppLanguage) {
-        if selectedPlaceID == place.id {
-            selectedPlaceID = nil
-            if speechSynthesizer.isSpeaking {
-                speechSynthesizer.stopSpeaking(at: .immediate)
-            }
-            refreshSubtitle(for: language)
-            return
-        }
-
-        selectedPlaceID = place.id
-        subtitle = place.guide(in: language)
-        centerOnPlace(place, animated: true)
-
-        if isVoiceGuidanceEnabled {
-            speak(subtitle, language: language)
-        }
+        applySelection(for: place, language: language)
     }
 
     func handleMapPinTap(_ place: PlaceRecommendation, language: AppLanguage) {
-        if selectedPlaceID == place.id {
-            selectedPlaceID = nil
-            if speechSynthesizer.isSpeaking {
-                speechSynthesizer.stopSpeaking(at: .immediate)
-            }
-            refreshSubtitle(for: language)
-            return
-        }
-
-        selectedPlaceID = place.id
-        subtitle = place.guide(in: language)
-        centerOnPlace(place, animated: true)
-
-        if isVoiceGuidanceEnabled {
-            speak(subtitle, language: language)
-        }
+        applySelection(for: place, language: language)
     }
 
     func weatherA11yText(for language: AppLanguage) -> String {
@@ -175,6 +145,33 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         utterance.voice = AVSpeechSynthesisVoice(language: language == .korean ? "ko-KR" : "en-US")
         utterance.rate = 0.5
         speechSynthesizer.speak(utterance)
+    }
+
+    private func applySelection(for place: PlaceRecommendation, language: AppLanguage) {
+        let result = MapGuidanceLogic.reduceSelection(
+            currentSelectedPlaceID: selectedPlaceID,
+            tappedPlaceID: place.id,
+            tappedSubtitle: place.guide(in: language),
+            defaultSubtitle: defaultSubtitle(for: language),
+            isVoiceGuidanceEnabled: isVoiceGuidanceEnabled
+        )
+
+        selectedPlaceID = result.selectedPlaceID
+        subtitle = result.subtitle
+
+        if result.shouldStopSpeaking, speechSynthesizer.isSpeaking {
+            speechSynthesizer.stopSpeaking(at: .immediate)
+        }
+        if result.shouldCenterMap {
+            centerOnPlace(place, animated: true)
+        }
+        if result.shouldSpeak {
+            speak(result.subtitle, language: language)
+        }
+    }
+
+    private func defaultSubtitle(for language: AppLanguage) -> String {
+        isVoiceGuidanceEnabled ? voiceOnSubtitle(for: language) : voiceOffSubtitle(for: language)
     }
 
     func clampRegion(_ candidate: MKCoordinateRegion) -> MKCoordinateRegion {
