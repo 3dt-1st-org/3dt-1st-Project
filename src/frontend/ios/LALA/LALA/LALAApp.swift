@@ -12,6 +12,7 @@ struct LALAApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .tint(Color(AppThemeColor.east.rawValue))
         }
     }
 }
