@@ -9,6 +9,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
+    @State private var showPrivacyDetail = false
 
     var body: some View {
         ScrollView {
@@ -32,10 +33,35 @@ struct SettingsView: View {
             Text(viewModel.privacyBody(in: viewModel.selectedLanguage))
                 .font(.system(size: 14 * viewModel.fontScale, weight: .regular))
                 .foregroundStyle(.secondary)
+            Button(viewModel.selectedLanguage == .korean ? "자세히 보기" : "View Details") {
+                showPrivacyDetail = true
+            }
+            .font(.system(size: 13 * viewModel.fontScale, weight: .semibold))
+            .foregroundStyle(Color(AppThemeColor.east.rawValue))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(cardStyle)
+        .sheet(isPresented: $showPrivacyDetail) {
+            NavigationStack {
+                ScrollView {
+                    Text(viewModel.privacyDetail(in: viewModel.selectedLanguage))
+                        .font(.system(size: 14 * viewModel.fontScale))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                }
+                .navigationTitle(viewModel.privacyTitle(in: viewModel.selectedLanguage))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(viewModel.selectedLanguage == .korean ? "닫기" : "Close") {
+                            showPrivacyDetail = false
+                        }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
     }
 
     private var locationConsentCard: some View {

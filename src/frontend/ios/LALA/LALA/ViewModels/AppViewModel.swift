@@ -10,6 +10,9 @@ import Combine
 
 @MainActor
 final class AppViewModel: ObservableObject {
+    @Published var hasAcceptedPrivacyNotice: Bool {
+        didSet { defaults.set(hasAcceptedPrivacyNotice, forKey: Keys.hasAcceptedPrivacyNotice) }
+    }
     @Published var hasCompletedOnboarding: Bool {
         didSet { defaults.set(hasCompletedOnboarding, forKey: Keys.hasCompletedOnboarding) }
     }
@@ -22,15 +25,18 @@ final class AppViewModel: ObservableObject {
     @Published var fontScale: Double {
         didSet { defaults.set(fontScale, forKey: Keys.fontScale) }
     }
+    @Published var showPrivacyNoticeSheet = false
+    @Published var showLocationConsentSheet = false
 
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
+        hasAcceptedPrivacyNotice = defaults.bool(forKey: Keys.hasAcceptedPrivacyNotice)
         hasCompletedOnboarding = defaults.bool(forKey: Keys.hasCompletedOnboarding)
         isLocationConsentEnabled = defaults.object(forKey: Keys.isLocationConsentEnabled) == nil
-            ? true
+            ? false
             : defaults.bool(forKey: Keys.isLocationConsentEnabled)
 
         if let raw = defaults.string(forKey: Keys.selectedLanguage),
@@ -47,9 +53,39 @@ final class AppViewModel: ObservableObject {
     func completeOnboarding() {
         hasCompletedOnboarding = true
     }
+
+    func startConsentFlowIfNeeded() {
+        if !hasAcceptedPrivacyNotice {
+            showPrivacyNoticeSheet = true
+            showLocationConsentSheet = false
+            return
+        }
+
+        if !isLocationConsentEnabled {
+            showLocationConsentSheet = true
+        }
+    }
+
+    func acceptPrivacyNotice() {
+        hasAcceptedPrivacyNotice = true
+        showPrivacyNoticeSheet = false
+        if !isLocationConsentEnabled {
+            showLocationConsentSheet = true
+        }
+    }
+
+    func acceptLocationConsent() {
+        isLocationConsentEnabled = true
+        showLocationConsentSheet = false
+    }
+
+    func revokeLocationConsent() {
+        isLocationConsentEnabled = false
+    }
 }
 
 private enum Keys {
+    static let hasAcceptedPrivacyNotice = "hasAcceptedPrivacyNotice"
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
     static let isLocationConsentEnabled = "isLocationConsentEnabled"
     static let selectedLanguage = "selectedLanguage"

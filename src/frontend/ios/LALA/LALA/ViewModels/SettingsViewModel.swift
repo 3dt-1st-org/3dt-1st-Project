@@ -44,4 +44,18 @@ final class SettingsViewModel: ObservableObject {
 
         return "We only use minimal usage data and location-based context to improve recommendations."
     }
+
+    func privacyDetail(in language: AppLanguage) -> String {
+        if language == .korean {
+            return PrivacyNoticeContent.detailKo
+        }
+
+        return """
+Terms of Consent (Summary)
+
+LALA collects only essential data including current location to provide nearby local recommendations.
+Data is used for service operation, voice guidance, and quality improvement, and is deleted when no longer needed unless retention is required by law.
+You can refuse consent, but key location-based functions will be unavailable.
+"""
+    }
 }
