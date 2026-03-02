@@ -113,4 +113,19 @@ final class MainMapViewModel: ObservableObject {
 
         return next
     }
+
+    func updateRegionFromMap(_ candidate: MKCoordinateRegion) {
+        let clamped = clampRegion(candidate)
+        guard !isNearlyEqual(region, clamped) else { return }
+        Task { @MainActor [clamped] in
+            self.region = clamped
+        }
+    }
+
+    private func isNearlyEqual(_ lhs: MKCoordinateRegion, _ rhs: MKCoordinateRegion) -> Bool {
+        abs(lhs.center.latitude - rhs.center.latitude) < 0.000_01 &&
+            abs(lhs.center.longitude - rhs.center.longitude) < 0.000_01 &&
+            abs(lhs.span.latitudeDelta - rhs.span.latitudeDelta) < 0.000_01 &&
+            abs(lhs.span.longitudeDelta - rhs.span.longitudeDelta) < 0.000_01
+    }
 }

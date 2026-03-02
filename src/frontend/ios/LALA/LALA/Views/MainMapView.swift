@@ -41,7 +41,7 @@ struct MainMapView: View {
         Binding(
             get: { viewModel.region },
             set: { newValue in
-                viewModel.region = viewModel.clampRegion(newValue)
+                viewModel.updateRegionFromMap(newValue)
             }
         )
     }

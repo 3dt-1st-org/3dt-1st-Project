@@ -19,7 +19,7 @@ final class LocationPermissionManager: NSObject, ObservableObject, CLLocationMan
 
     override init() {
         authorizationStatus = manager.authorizationStatus
-        isLocationServicesEnabled = CLLocationManager.locationServicesEnabled()
+        isLocationServicesEnabled = false
         super.init()
         manager.delegate = self
         refresh()
@@ -34,14 +34,27 @@ final class LocationPermissionManager: NSObject, ObservableObject, CLLocationMan
     }
 
     func requestWhenInUsePermission() {
-        refresh()
-        guard CLLocationManager.locationServicesEnabled() else { return }
-        manager.requestWhenInUseAuthorization()
+        Task {
+            let enabled = await Task.detached(priority: .userInitiated) {
+                CLLocationManager.locationServicesEnabled()
+            }.value
+            if enabled {
+                manager.requestWhenInUseAuthorization()
+            } else {
+                refresh()
+            }
+        }
     }
 
     func refresh() {
-        isLocationServicesEnabled = CLLocationManager.locationServicesEnabled()
-        authorizationStatus = manager.authorizationStatus
+        let currentStatus = manager.authorizationStatus
+        Task {
+            let enabled = await Task.detached(priority: .userInitiated) {
+                CLLocationManager.locationServicesEnabled()
+            }.value
+            isLocationServicesEnabled = enabled
+            authorizationStatus = currentStatus
+        }
     }
 
     func openAppSettings() {
