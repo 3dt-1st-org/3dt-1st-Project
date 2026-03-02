@@ -16,6 +16,8 @@ struct PlaceRecommendation: Identifiable {
     let categoryEn: String
     let districtKo: String
     let districtEn: String
+    let guideKo: String
+    let guideEn: String
     let coordinate: CLLocationCoordinate2D
 
     func name(in language: AppLanguage) -> String {
@@ -28,5 +30,9 @@ struct PlaceRecommendation: Identifiable {
 
     func district(in language: AppLanguage) -> String {
         language == .korean ? districtKo : districtEn
+    }
+
+    func guide(in language: AppLanguage) -> String {
+        language == .korean ? guideKo : guideEn
     }
 }

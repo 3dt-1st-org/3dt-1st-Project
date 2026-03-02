@@ -12,10 +12,17 @@ struct MainMapView: View {
     @ObservedObject var appViewModel: AppViewModel
     @StateObject private var viewModel = MainMapViewModel()
     @State private var showSettings = false
+    @State private var userTrackingMode: MapUserTrackingMode = .none
 
     var body: some View {
         ZStack {
-            Map(coordinateRegion: boundedRegionBinding, annotationItems: viewModel.places) { place in
+            Map(
+                coordinateRegion: boundedRegionBinding,
+                interactionModes: [.pan, .zoom],
+                showsUserLocation: true,
+                userTrackingMode: $userTrackingMode,
+                annotationItems: viewModel.places
+            ) { place in
                 MapMarker(
                     coordinate: place.coordinate,
                     tint: Color(AppThemeColor.south.rawValue)
@@ -27,9 +34,13 @@ struct MainMapView: View {
         }
         .onAppear {
             viewModel.refreshSubtitle(for: appViewModel.selectedLanguage)
+            viewModel.configureLocationUpdates(consentEnabled: appViewModel.isLocationConsentEnabled)
         }
         .onChange(of: appViewModel.selectedLanguage) { _, newValue in
             viewModel.refreshSubtitle(for: newValue)
+        }
+        .onChange(of: appViewModel.isLocationConsentEnabled) { _, consent in
+            viewModel.configureLocationUpdates(consentEnabled: consent)
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $showSettings) {
@@ -61,7 +72,15 @@ struct MainMapView: View {
             Spacer()
 
             subtitleView
-            voiceToggleButton
+            ZStack {
+                voiceToggleButton
+                HStack {
+                    Spacer()
+                    currentLocationButton
+                }
+                .padding(.horizontal, 16)
+            }
+            .frame(height: 74)
         }
         .safeAreaPadding(.top, 10)
         .safeAreaPadding(.bottom, 8)
@@ -179,6 +198,23 @@ struct MainMapView: View {
                 ? "음성 안내 토글"
                 : "Toggle voice guidance"
         )
+    }
+
+    private var currentLocationButton: some View {
+        Button {
+            userTrackingMode = .none
+            viewModel.centerOnUserLocation(animated: true)
+        } label: {
+            Image(systemName: "location.fill")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 46, height: 46)
+                .background(
+                    Circle().fill(Color(AppThemeColor.east.rawValue))
+                )
+        }
+        .accessibilityLabel(appViewModel.selectedLanguage == .korean ? "현재 위치로 이동" : "Go to current location")
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
     }
 }
 
