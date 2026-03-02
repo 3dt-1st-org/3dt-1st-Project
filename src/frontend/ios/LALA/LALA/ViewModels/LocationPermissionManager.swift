@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import CoreLocation
+import UIKit
 
 @MainActor
 final class LocationPermissionManager: NSObject, ObservableObject, CLLocationManagerDelegate {
@@ -41,6 +42,13 @@ final class LocationPermissionManager: NSObject, ObservableObject, CLLocationMan
     func refresh() {
         isLocationServicesEnabled = CLLocationManager.locationServicesEnabled()
         authorizationStatus = manager.authorizationStatus
+    }
+
+    func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        DispatchQueue.main.async {
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+        }
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {

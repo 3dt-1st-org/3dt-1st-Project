@@ -6,13 +6,11 @@
 //
 
 import SwiftUI
-import UIKit
 
 struct ContentView: View {
     @StateObject private var appViewModel = AppViewModel()
     @StateObject private var locationPermissionManager = LocationPermissionManager()
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         NavigationStack {
@@ -62,8 +60,7 @@ struct ContentView: View {
                     language: appViewModel.selectedLanguage,
                     fontScale: appViewModel.fontScale,
                     openSettings: {
-                        guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
-                        openURL(settingsURL)
+                        locationPermissionManager.openAppSettings()
                     },
                     refresh: {
                         locationPermissionManager.refresh()
