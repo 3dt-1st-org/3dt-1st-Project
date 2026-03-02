@@ -52,11 +52,9 @@ struct MainMapView: View {
                 .padding(.top, 4)
 
             HStack {
+                settingsButton
                 Spacer()
-                VStack(spacing: 10) {
-                    weatherView
-                    settingsButton
-                }
+                weatherView
             }
             .padding(.horizontal, 16)
 
