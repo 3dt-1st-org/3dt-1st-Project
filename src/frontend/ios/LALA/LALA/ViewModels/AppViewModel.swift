@@ -25,13 +25,18 @@ final class AppViewModel: ObservableObject {
     @Published var fontScale: Double {
         didSet { defaults.set(fontScale, forKey: Keys.fontScale) }
     }
+    @Published var shouldShowSplash: Bool
     @Published var showPrivacyNoticeSheet = false
     @Published var showLocationConsentSheet = false
+    let isFirstInstallLaunch: Bool
 
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        let hasEverLaunched = defaults.bool(forKey: Keys.hasEverLaunched)
+        isFirstInstallLaunch = !hasEverLaunched
+        shouldShowSplash = hasEverLaunched
 
         hasAcceptedPrivacyNotice = defaults.bool(forKey: Keys.hasAcceptedPrivacyNotice)
         hasCompletedOnboarding = defaults.bool(forKey: Keys.hasCompletedOnboarding)
@@ -48,6 +53,10 @@ final class AppViewModel: ObservableObject {
 
         let savedScale = defaults.double(forKey: Keys.fontScale)
         fontScale = savedScale == 0 ? 1.0 : min(max(savedScale, 0.85), 1.3)
+
+        if !hasEverLaunched {
+            defaults.set(true, forKey: Keys.hasEverLaunched)
+        }
     }
 
     func completeOnboarding() {
@@ -83,6 +92,12 @@ final class AppViewModel: ObservableObject {
         isLocationConsentEnabled = false
     }
 
+    func finishSplashIfNeeded() {
+        if shouldShowSplash {
+            shouldShowSplash = false
+        }
+    }
+
     private static func detectInitialLanguage() -> AppLanguage {
         guard let preferred = Locale.preferredLanguages.first?.lowercased() else {
             return .english
@@ -92,6 +107,7 @@ final class AppViewModel: ObservableObject {
 }
 
 private enum Keys {
+    static let hasEverLaunched = "hasEverLaunched"
     static let hasAcceptedPrivacyNotice = "hasAcceptedPrivacyNotice"
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
     static let isLocationConsentEnabled = "isLocationConsentEnabled"

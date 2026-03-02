@@ -13,13 +13,13 @@ import UIKit
 @MainActor
 final class LocationPermissionManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published private(set) var authorizationStatus: CLAuthorizationStatus
-    @Published private(set) var isLocationServicesEnabled: Bool
+    @Published private(set) var isLocationServicesEnabled: Bool?
 
     private let manager = CLLocationManager()
 
     override init() {
         authorizationStatus = manager.authorizationStatus
-        isLocationServicesEnabled = false
+        isLocationServicesEnabled = nil
         super.init()
         manager.delegate = self
         refresh()
@@ -30,7 +30,8 @@ final class LocationPermissionManager: NSObject, ObservableObject, CLLocationMan
     }
 
     var requiresSettingsAction: Bool {
-        !isLocationServicesEnabled || authorizationStatus == .denied || authorizationStatus == .restricted
+        guard let enabled = isLocationServicesEnabled else { return false }
+        return !enabled || authorizationStatus == .denied || authorizationStatus == .restricted
     }
 
     func requestWhenInUsePermission() {

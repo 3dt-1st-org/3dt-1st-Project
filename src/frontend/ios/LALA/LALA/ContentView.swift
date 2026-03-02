@@ -13,24 +13,44 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if appViewModel.hasCompletedOnboarding {
-                    MainMapView(appViewModel: appViewModel)
-                } else {
-                    OnboardingView(appViewModel: appViewModel)
+        ZStack {
+            NavigationStack {
+                Group {
+                    if appViewModel.hasCompletedOnboarding {
+                        MainMapView(appViewModel: appViewModel)
+                    } else {
+                        OnboardingView(appViewModel: appViewModel)
+                    }
                 }
             }
+            .environment(\.locale, Locale(identifier: appViewModel.selectedLanguage.rawValue))
+
+            if appViewModel.shouldShowSplash {
+                LaunchSplashView()
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
         }
-        .environment(\.locale, Locale(identifier: appViewModel.selectedLanguage.rawValue))
         .onAppear {
-            appViewModel.startConsentFlowIfNeeded()
             locationPermissionManager.refresh()
+            if appViewModel.shouldShowSplash {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 1_100_000_000)
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        appViewModel.finishSplashIfNeeded()
+                    }
+                    appViewModel.startConsentFlowIfNeeded()
+                }
+            } else {
+                appViewModel.startConsentFlowIfNeeded()
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 locationPermissionManager.refresh()
-                appViewModel.startConsentFlowIfNeeded()
+                if !appViewModel.shouldShowSplash {
+                    appViewModel.startConsentFlowIfNeeded()
+                }
             }
         }
         .sheet(isPresented: $appViewModel.showPrivacyNoticeSheet) {
@@ -85,6 +105,35 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+}
+
+private struct LaunchSplashView: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(AppThemeColor.east.rawValue).opacity(0.26),
+                    Color(AppThemeColor.center.rawValue).opacity(0.95)
+                ],
+                startPoint: .topTrailing,
+                endPoint: .bottomLeading
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Image("LaunchLogo")
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 118, height: 118)
+                    .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    .shadow(color: .black.opacity(0.16), radius: 14, y: 8)
+
+                Text("LALA")
+                    .font(.system(size: 24, weight: .heavy))
+                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+            }
+        }
+    }
 }
 
 private struct PrivacyNoticeSheet: View {
