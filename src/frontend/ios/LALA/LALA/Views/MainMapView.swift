@@ -15,20 +15,12 @@ struct MainMapView: View {
 
     var body: some View {
         ZStack {
-            Map(
-                position: $viewModel.cameraPosition,
-                bounds: viewModel.mapBounds,
-                interactionModes: [.pan, .zoom]
-            ) {
-                ForEach(viewModel.places) { place in
-                    Marker(
-                        place.name(in: appViewModel.selectedLanguage),
-                        coordinate: place.coordinate
-                    )
-                    .tint(Color(AppThemeColor.south.rawValue))
-                }
+            Map(coordinateRegion: boundedRegionBinding, annotationItems: viewModel.places) { place in
+                MapMarker(
+                    coordinate: place.coordinate,
+                    tint: Color(AppThemeColor.south.rawValue)
+                )
             }
-            .mapStyle(.standard(elevation: .realistic))
             .ignoresSafeArea()
 
             overlayContent
@@ -43,6 +35,15 @@ struct MainMapView: View {
         .navigationDestination(isPresented: $showSettings) {
             SettingsView(viewModel: SettingsViewModel(appViewModel: appViewModel))
         }
+    }
+
+    private var boundedRegionBinding: Binding<MKCoordinateRegion> {
+        Binding(
+            get: { viewModel.region },
+            set: { newValue in
+                viewModel.region = viewModel.clampRegion(newValue)
+            }
+        )
     }
 
     private var overlayContent: some View {

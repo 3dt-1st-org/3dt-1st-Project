@@ -6,31 +6,26 @@
 //
 
 import Foundation
+import Combine
 import MapKit
 
 @MainActor
 final class MainMapViewModel: ObservableObject {
-    @Published var cameraPosition: MapCameraPosition
+    @Published var region: MKCoordinateRegion
     @Published var isVoiceGuidanceEnabled = true
     @Published var subtitle = ""
     @Published var weatherSymbol = "cloud.sun.fill"
     @Published var weatherValue = "13°C"
 
-    let mapBounds: MapCameraBounds
     let places: [PlaceRecommendation]
 
-    private let koreaRegion = MKCoordinateRegion(
+    private let initialRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 36.35, longitude: 127.9),
         span: MKCoordinateSpan(latitudeDelta: 7.0, longitudeDelta: 8.0)
     )
 
     init() {
-        cameraPosition = .region(koreaRegion)
-        mapBounds = MapCameraBounds(
-            centerCoordinateBounds: Self.koreaMapRect(),
-            minimumDistance: 80_000,
-            maximumDistance: 1_500_000
-        )
+        region = initialRegion
 
         places = [
             PlaceRecommendation(
@@ -105,18 +100,17 @@ final class MainMapViewModel: ObservableObject {
         return "Voice guidance is off. Tap the bottom button to resume."
     }
 
-    private static func koreaMapRect() -> MKMapRect {
-        let northWest = CLLocationCoordinate2D(latitude: 38.8, longitude: 124.0)
-        let southEast = CLLocationCoordinate2D(latitude: 33.0, longitude: 132.2)
+    func clampRegion(_ candidate: MKCoordinateRegion) -> MKCoordinateRegion {
+        var next = candidate
 
-        let a = MKMapPoint(northWest)
-        let b = MKMapPoint(southEast)
+        // Keep the visible center inside Korea bounds.
+        next.center.latitude = min(max(next.center.latitude, 33.0), 38.8)
+        next.center.longitude = min(max(next.center.longitude, 124.0), 132.2)
 
-        return MKMapRect(
-            x: min(a.x, b.x),
-            y: min(a.y, b.y),
-            width: abs(a.x - b.x),
-            height: abs(a.y - b.y)
-        )
+        // Limit zoom-out and zoom-in ranges.
+        next.span.latitudeDelta = min(max(next.span.latitudeDelta, 0.08), 8.0)
+        next.span.longitudeDelta = min(max(next.span.longitudeDelta, 0.08), 8.0)
+
+        return next
     }
 }
