@@ -43,7 +43,7 @@ final class AppViewModel: ObservableObject {
            let language = AppLanguage(rawValue: raw) {
             selectedLanguage = language
         } else {
-            selectedLanguage = .english
+            selectedLanguage = Self.detectInitialLanguage()
         }
 
         let savedScale = defaults.double(forKey: Keys.fontScale)
@@ -81,6 +81,13 @@ final class AppViewModel: ObservableObject {
 
     func revokeLocationConsent() {
         isLocationConsentEnabled = false
+    }
+
+    private static func detectInitialLanguage() -> AppLanguage {
+        guard let preferred = Locale.preferredLanguages.first?.lowercased() else {
+            return .english
+        }
+        return preferred.hasPrefix("ko") ? .korean : .english
     }
 }
 
