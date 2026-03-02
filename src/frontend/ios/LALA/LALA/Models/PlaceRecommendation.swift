@@ -8,10 +8,27 @@
 import Foundation
 import CoreLocation
 
+enum PlaceCategoryKind: String {
+    case history
+    case trekking
+    case nightWalk
+    case localEats
+
+    var symbolName: String {
+        switch self {
+        case .history: return "building.columns.fill"
+        case .trekking: return "figure.hiking"
+        case .nightWalk: return "moon.stars.fill"
+        case .localEats: return "fork.knife"
+        }
+    }
+}
+
 struct PlaceRecommendation: Identifiable {
     let id = UUID()
     let nameKo: String
     let nameEn: String
+    let categoryKind: PlaceCategoryKind
     let categoryKo: String
     let categoryEn: String
     let districtKo: String

@@ -40,6 +40,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             PlaceRecommendation(
                 nameKo: "행주산성",
                 nameEn: "Haengjusanseong Fortress",
+                categoryKind: .history,
                 categoryKo: "역사 명소",
                 categoryEn: "Historic Site",
                 districtKo: "고양시",
@@ -51,6 +52,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             PlaceRecommendation(
                 nameKo: "남한산성 전통길",
                 nameEn: "Namhansanseong Trail",
+                categoryKind: .trekking,
                 categoryKo: "로컬 트레킹",
                 categoryEn: "Local Trekking",
                 districtKo: "광주시",
@@ -62,6 +64,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             PlaceRecommendation(
                 nameKo: "화성행궁 야간거리",
                 nameEn: "Hwaseong Haenggung Night Street",
+                categoryKind: .nightWalk,
                 categoryKo: "야간 산책",
                 categoryEn: "Night Walk",
                 districtKo: "수원시",
@@ -73,6 +76,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             PlaceRecommendation(
                 nameKo: "포천 이동갈비 골목",
                 nameEn: "Pocheon Galbi Alley",
+                categoryKind: .localEats,
                 categoryKo: "로컬 맛집",
                 categoryEn: "Local Eats",
                 districtKo: "포천시",
@@ -114,6 +118,26 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
         selectedPlaceID = place.id
         subtitle = place.guide(in: language)
+        centerOnPlace(place, animated: true)
+
+        if isVoiceGuidanceEnabled {
+            speak(subtitle, language: language)
+        }
+    }
+
+    func handleMapPinTap(_ place: PlaceRecommendation, language: AppLanguage) {
+        if selectedPlaceID == place.id {
+            selectedPlaceID = nil
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.stopSpeaking(at: .immediate)
+            }
+            refreshSubtitle(for: language)
+            return
+        }
+
+        selectedPlaceID = place.id
+        subtitle = place.guide(in: language)
+        centerOnPlace(place, animated: true)
 
         if isVoiceGuidanceEnabled {
             speak(subtitle, language: language)
@@ -161,8 +185,8 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         next.center.longitude = min(max(next.center.longitude, 124.0), 132.2)
 
         // Limit zoom-out and zoom-in ranges.
-        next.span.latitudeDelta = min(max(next.span.latitudeDelta, 0.08), 8.0)
-        next.span.longitudeDelta = min(max(next.span.longitudeDelta, 0.08), 8.0)
+        next.span.latitudeDelta = min(max(next.span.latitudeDelta, 0.002), 8.0)
+        next.span.longitudeDelta = min(max(next.span.longitudeDelta, 0.002), 8.0)
 
         return next
     }
@@ -204,11 +228,26 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
         let focused = MKCoordinateRegion(
             center: coordinate,
-            span: MKCoordinateSpan(latitudeDelta: 0.12, longitudeDelta: 0.12)
+            span: MKCoordinateSpan(latitudeDelta: 0.002, longitudeDelta: 0.002)
         )
         let clamped = clampRegion(focused)
         if animated {
             withAnimation(.easeInOut(duration: 0.55)) {
+                region = clamped
+            }
+        } else {
+            region = clamped
+        }
+    }
+
+    func centerOnPlace(_ place: PlaceRecommendation, animated: Bool) {
+        let focused = MKCoordinateRegion(
+            center: place.coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+        )
+        let clamped = clampRegion(focused)
+        if animated {
+            withAnimation(.easeInOut(duration: 0.45)) {
                 region = clamped
             }
         } else {
