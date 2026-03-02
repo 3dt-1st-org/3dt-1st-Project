@@ -8,24 +8,19 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var viewModel = HomeViewModel()
+    @StateObject private var appViewModel = AppViewModel()
 
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 36, weight: .semibold))
-                .foregroundStyle(Color(viewModel.accentColorAsset))
-
-            Text(viewModel.title)
-                .font(.system(size: 30, weight: .bold))
-
-            Text(viewModel.subtitle)
-                .font(.subheadline)
-                .foregroundStyle(Color(viewModel.titleColorAsset).opacity(0.9))
+        NavigationStack {
+            Group {
+                if appViewModel.hasCompletedOnboarding {
+                    MainMapView(appViewModel: appViewModel)
+                } else {
+                    OnboardingView(appViewModel: appViewModel)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .foregroundStyle(Color(viewModel.titleColorAsset))
-        .background(Color(viewModel.backgroundColorAsset).ignoresSafeArea())
+        .environment(\.locale, Locale(identifier: appViewModel.selectedLanguage.rawValue))
     }
 }
 
