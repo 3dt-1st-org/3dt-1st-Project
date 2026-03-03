@@ -7,39 +7,27 @@ import psycopg2
 from datetime import datetime
 from dotenv import load_dotenv
 from openai import AzureOpenAI
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
 
 # ==============================================================================
 # 0. Key Vault에서 시크릿 로드
 # ==============================================================================
 load_dotenv()  # KEY_VAULT_URL을 .env에서 읽기 위해 유지
 
-_vault_url = os.getenv("KEY_VAULT_URL")
-if not _vault_url:
-    raise ValueError("❌ .env에 KEY_VAULT_URL이 설정되지 않았습니다.")
-
-print(f"🔐 Key Vault 연결 중: {_vault_url}")
-_credential = DefaultAzureCredential()
-_kv_client = SecretClient(vault_url=_vault_url, credential=_credential)
-
-def _get_secret(name: str) -> str:
-    """Key Vault에서 시크릿 값을 가져옵니다."""
-    return _kv_client.get_secret(name).value
+from config.vault_manager import vault
 
 # 네이버 API 키
-NAVER_CLIENT_ID     = _get_secret("naver-client-id")
-NAVER_CLIENT_SECRET = _get_secret("naver-client-secret")
+NAVER_CLIENT_ID     = vault.get_secret("naver-client-id")
+NAVER_CLIENT_SECRET = vault.get_secret("naver-client-secret")
 
 # Azure OpenAI 키
-AZURE_OPENAI_ENDPOINT  = _get_secret("azure-openai-endpoint")
-AZURE_OPENAI_KEY       = _get_secret("azure-openai-key")
-AZURE_OPENAI_DEPLOYMENT = _get_secret("azure-openai-deployment-name")
-AZURE_OPENAI_VERSION   = _get_secret("azure-openai-version")
+AZURE_OPENAI_ENDPOINT   = vault.get_secret("azure-openai-endpoint")
+AZURE_OPENAI_KEY        = vault.get_secret("azure-openai-key")
+AZURE_OPENAI_DEPLOYMENT = vault.get_secret("azure-openai-deployment-name")
+AZURE_OPENAI_VERSION    = vault.get_secret("azure-openai-version")
 
 # Azure OpenAI 임베딩 모델 설정
-EMBEDDING_DEPLOYMENT_NAME = _get_secret("azure-openai-embedding-deployment-name")
-EMBEDDING_API_VERSION     = _get_secret("azure-openai-embedding-api-version")
+EMBEDDING_DEPLOYMENT_NAME = vault.get_secret("azure-openai-embedding-deployment-name")
+EMBEDDING_API_VERSION     = vault.get_secret("azure-openai-embedding-api-version")
 
 # PostgreSQL DB 접속 정보
 DB_CONFIG = {
@@ -47,7 +35,7 @@ DB_CONFIG = {
     "port": int(os.getenv("DB_PORT", "5433")),
     "database": os.getenv("DB_NAME", "postgres"),
     "user": os.getenv("DB_USER", "admin_user"),
-    "password": _get_secret("db-password"),
+    "password": vault.get_secret("db-password"),
 }
 
 print("✅ Key Vault에서 모든 시크릿을 성공적으로 로드했습니다.")
@@ -150,7 +138,7 @@ def run_review_pipeline(target_attraction):
     print("==========================================================\n")
 
     # [STEP 1] 네이버 블로그 API 호출 (최대 100개)
-    search_word = urllib.parse.quote(f"{target_attraction} 리뷰")
+    search_word = urllib.parse.quote(f"{target_attraction} 설명")
     url = f"https://openapi.naver.com/v1/search/blog?query={search_word}&display=100&sort=sim"
     
     request = urllib.request.Request(url)
