@@ -197,6 +197,7 @@ function _renderCards(places) {
         </div>
         <div class="place-card__name">${p.name}</div>
         <div class="place-card__addr">${p.address || '주소 정보 없음'}</div>
+        <div class="place-card__ai">AI가 이 장소를 추천하는 이유를 분석 중…</div>
       </div>
     </div>
   `).join('');
@@ -253,10 +254,77 @@ function _selectPlace(idx) {
     _swiper.slideTo(idx, 300);
     setTimeout(() => { _syncing = false; }, 350);
   }
+
+  // AI 추천 박스 + TTS FAB 표시
+  const aiBox = document.getElementById('ai-recommendation');
+  if (aiBox) aiBox.style.display = 'block';
+  const ttsFab = document.getElementById('tts-fab');
+  if (ttsFab) ttsFab.style.display = 'flex';
+
+  // TTS 재생 중이면 중지 (다른 장소 선택)
+  if (_ttsSpeaking && window.speechSynthesis) {
+    speechSynthesis.cancel();
+    _ttsSpeaking = false;
+    const icon = document.getElementById('tts-icon');
+    const fab  = document.getElementById('tts-fab');
+    if (icon) icon.textContent = '🔊';
+    if (fab)  fab.classList.remove('tts-active');
+  }
 }
 
 // 전역 노출
 window._selectPlace = _selectPlace;
+
+// ══════════════════════════════════════════════════════════════
+// 6. 날씨 위젯
+// ══════════════════════════════════════════════════════════════
+async function _loadWeather(lat, lng) {
+  try {
+    const r = await fetch(`/api/weather?lat=${lat}&lng=${lng}`);
+    const d = await r.json();
+    if (d.error) { console.warn('[LALA weather]', d.error); return; }
+    document.getElementById('weather-icon').textContent = d.icon;
+    document.getElementById('weather-temp').textContent = d.temp + '°C';
+    document.getElementById('weather-widget').style.display = 'flex';
+  } catch (e) {
+    console.warn('[LALA weather] 호출 실패:', e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 7. TTS (Web Speech API)
+// ══════════════════════════════════════════════════════════════
+let _ttsSpeaking = false;
+
+function _toggleTTS() {
+  if (!window.speechSynthesis) return;
+  const fab  = document.getElementById('tts-fab');
+  const icon = document.getElementById('tts-icon');
+  if (_ttsSpeaking) {
+    speechSynthesis.cancel();
+    _ttsSpeaking = false;
+    if (icon) icon.textContent = '🔊';
+    if (fab)  fab.classList.remove('tts-active');
+    return;
+  }
+  const activeCard = document.querySelector('.place-card--active');
+  if (!activeCard) return;
+  const name    = activeCard.querySelector('.place-card__name')?.textContent?.trim() || '';
+  const address = activeCard.querySelector('.place-card__addr')?.textContent?.trim() || '';
+  const text    = name + (address ? '. ' + address : '');
+  const langMap = { ko: 'ko-KR', en: 'en-US', ja: 'ja-JP' };
+  const utt     = new SpeechSynthesisUtterance(text);
+  utt.lang = langMap[sessionStorage.getItem('lang') || 'ko'] || 'ko-KR';
+  utt.onend = () => {
+    _ttsSpeaking = false;
+    if (icon) icon.textContent = '🔊';
+    if (fab)  fab.classList.remove('tts-active');
+  };
+  speechSynthesis.speak(utt);
+  _ttsSpeaking = true;
+  if (icon) icon.textContent = '⏹';
+  if (fab)  fab.classList.add('tts-active');
+}
 
 // ── 유틸 ──────────────────────────────────────────────────────
 function _showLoading(show) {

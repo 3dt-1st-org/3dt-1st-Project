@@ -2,9 +2,46 @@ import os
 import math
 import psycopg2
 import psycopg2.extras
+import requests as http_requests
+from datetime import datetime, timedelta
 from flask import Blueprint, render_template, request, jsonify
 
 main_map_bp = Blueprint("main_map", __name__)
+
+# ==============================================================================
+# 기상청 LCC 격자 변환 (notebooks/validation/api-test.ipynb 참고)
+# ==============================================================================
+_RE, _GRID = 6371.00877, 5.0
+_SLAT1, _SLAT2, _OLON, _OLAT, _XO, _YO = 30.0, 60.0, 126.0, 38.0, 43, 136
+
+def _latlon_to_grid(lat: float, lon: float) -> tuple:
+    DEGRAD = math.pi / 180.0
+    re = _RE / _GRID
+    slat1, slat2 = _SLAT1 * DEGRAD, _SLAT2 * DEGRAD
+    olon, olat   = _OLON  * DEGRAD, _OLAT  * DEGRAD
+    sn = math.log(math.cos(slat1) / math.cos(slat2)) / \
+         math.log(math.tan(math.pi * .25 + slat2 * .5) / math.tan(math.pi * .25 + slat1 * .5))
+    sf = (math.tan(math.pi * .25 + slat1 * .5) ** sn) * math.cos(slat1) / sn
+    ro = re * sf / (math.tan(math.pi * .25 + olat * .5) ** sn)
+    ra = re * sf / (math.tan(math.pi * .25 + lat * DEGRAD * .5) ** sn)
+    theta = (lon * DEGRAD - olon) * sn
+    if theta >  math.pi: theta -= 2 * math.pi
+    if theta < -math.pi: theta += 2 * math.pi
+    return int(ra * math.sin(theta) + _XO + .5), int(ro - ra * math.cos(theta) + _YO + .5)
+
+_PTY_ICON = {"0": "☀️", "1": "🌧️", "2": "🌨️", "3": "❄️",
+             "5": "🌦️", "6": "🌨️", "7": "🌨️"}
+
+# 기본 좌표 (수원시청) — 위치 권한 거부 시 fallback
+_DEFAULT_LAT    = 37.2636
+_DEFAULT_LNG    = 127.0286
+_DEFAULT_RADIUS = 3_000   # 미터
+
+# 기상청 초단기실황 API URL
+_WEATHER_API_URL = (
+    "http://apis.data.go.kr/1360000/"
+    "VilageFcstInfoService_2.0/getUltraSrtNcst"
+)
 
 # ==============================================================================
 # DB 연결 헬퍼
@@ -30,6 +67,62 @@ def map_view():
 
 
 # ==============================================================================
+# /api/weather  — 기상청 초단기실황 (T1H 기온, PTY 강수형태)
+#
+# Query params: lat (float), lng (float)
+# ==============================================================================
+@main_map_bp.route("/api/weather")
+def api_weather():
+    try:
+        lat = float(request.args.get("lat", _DEFAULT_LAT))
+        lng = float(request.args.get("lng", _DEFAULT_LNG))
+    except ValueError:
+        return jsonify({"error": "잘못된 파라미터"}), 400
+
+    # .env 우선, 없으면 Key Vault fallback (Windows \r 제거)
+    api_key = os.getenv("WEATHER_API_KEY", "").strip()
+    if not api_key:
+        try:
+            from config.vault_manager import vault
+            api_key = (vault.get_secret("weather-api-key") or "").strip()
+        except Exception:
+            pass
+
+    if not api_key:
+        return jsonify({"error": "WEATHER_API_KEY 없음"}), 503
+
+    # 기상청 API는 ~10분 지연 → 안전하게 1시간 전 기준시 사용
+    now = datetime.now() - timedelta(hours=1)
+    base_date = now.strftime("%Y%m%d")
+    base_time = now.strftime("%H00")
+    nx, ny = _latlon_to_grid(lat, lng)
+
+    try:
+        resp = http_requests.get(
+            _WEATHER_API_URL,
+            params={
+                "pageNo": "1", "numOfRows": "20", "dataType": "JSON",
+                "base_date": base_date, "base_time": base_time,
+                "nx": nx, "ny": ny, "serviceKey": api_key,
+            },
+            timeout=5,
+        )
+        resp.raise_for_status()
+        body = resp.json()["response"]["body"]
+        if resp.json()["response"]["header"]["resultCode"] != "00":
+            return jsonify({"error": resp.json()["response"]["header"]["resultMsg"]}), 502
+
+        items = {i["category"]: i["obsrValue"] for i in body["items"]["item"]}
+        temp = items.get("T1H", "--")
+        pty  = items.get("PTY", "0")
+        icon = _PTY_ICON.get(str(int(float(pty))), "🌡️")
+        return jsonify({"temp": temp, "icon": icon})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ==============================================================================
 # /api/places  — PostGIS 반경 조회 JSON API
 #
 # Query params:
@@ -41,9 +134,9 @@ def map_view():
 @main_map_bp.route("/api/places")
 def api_places():
     try:
-        lat    = float(request.args.get("lat",    37.2636))
-        lng    = float(request.args.get("lng",    127.0286))
-        radius = int(request.args.get("radius",   3000))
+        lat    = float(request.args.get("lat",    _DEFAULT_LAT))
+        lng    = float(request.args.get("lng",    _DEFAULT_LNG))
+        radius = int(request.args.get("radius",   _DEFAULT_RADIUS))
         category = request.args.get("category", "all")
     except ValueError:
         return jsonify({"error": "잘못된 파라미터입니다."}), 400

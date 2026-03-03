@@ -18,4 +18,11 @@ exclude = [
     ".venv*",
     "tests*",
     "data*",
+    "docs*",
+    "infra*",
+    "notebooks*",
+    "scripts*",
+    "sql*",
+    "artifacts*",
+    "src.frontend.ios*"
 ]
