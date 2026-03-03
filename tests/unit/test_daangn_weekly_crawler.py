@@ -13,6 +13,13 @@ def _load_module():
     class TimerRequest:
         pass
 
+    class QueueMessage:
+        def __init__(self, body: bytes):
+            self._body = body
+
+        def get_body(self):
+            return self._body
+
     class FunctionApp:
         def schedule(self, **_kwargs):
             def decorator(func):
@@ -20,7 +27,14 @@ def _load_module():
 
             return decorator
 
+        def queue_trigger(self, **_kwargs):
+            def decorator(func):
+                return func
+
+            return decorator
+
     azure_functions_mod.TimerRequest = TimerRequest
+    azure_functions_mod.QueueMessage = QueueMessage
     azure_functions_mod.FunctionApp = FunctionApp
     azure_mod.functions = azure_functions_mod
 
@@ -155,6 +169,12 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
         self.assertEqual(len(comments), 1)
         self.assertEqual(comments[0]["comment_id"], "123")
         self.assertEqual(comments[0]["content"], "어풍당당 추천해요")
+
+    def test_decode_queue_body(self):
+        msg = self.module.func.QueueMessage(b'{"task_id":"abc","run_id":"def"}')
+        payload = self.module._decode_queue_body(msg)
+        self.assertEqual(payload["task_id"], "abc")
+        self.assertEqual(payload["run_id"], "def")
 
 
 if __name__ == "__main__":

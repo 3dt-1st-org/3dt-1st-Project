@@ -1,4 +1,5 @@
 azure-functions
+azure-storage-queue
 requests
 beautifulsoup4
 psycopg[binary]
