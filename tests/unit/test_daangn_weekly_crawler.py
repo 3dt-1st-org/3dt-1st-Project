@@ -3,6 +3,7 @@ import os
 import sys
 import types
 import unittest
+import base64
 from pathlib import Path
 
 
@@ -172,6 +173,13 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
 
     def test_decode_queue_body(self):
         msg = self.module.func.QueueMessage(b'{"task_id":"abc","run_id":"def"}')
+        payload = self.module._decode_queue_body(msg)
+        self.assertEqual(payload["task_id"], "abc")
+        self.assertEqual(payload["run_id"], "def")
+
+    def test_decode_queue_body_base64(self):
+        encoded = base64.b64encode(b'{"task_id":"abc","run_id":"def"}')
+        msg = self.module.func.QueueMessage(encoded)
         payload = self.module._decode_queue_body(msg)
         self.assertEqual(payload["task_id"], "abc")
         self.assertEqual(payload["run_id"], "def")

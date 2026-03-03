@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import logging
@@ -479,7 +480,9 @@ def _enqueue_task_message(task_id: str, run_id: str) -> None:
     except Exception:
         pass
 
-    queue_client.send_message(json.dumps({"task_id": task_id, "run_id": run_id}))
+    raw_payload = json.dumps({"task_id": task_id, "run_id": run_id})
+    encoded_payload = base64.b64encode(raw_payload.encode("utf-8")).decode("utf-8")
+    queue_client.send_message(encoded_payload)
 
 
 def _decode_queue_body(message: func.QueueMessage) -> dict[str, Any]:
@@ -488,7 +491,11 @@ def _decode_queue_body(message: func.QueueMessage) -> dict[str, Any]:
         raw = payload.decode("utf-8", errors="replace")
     else:
         raw = str(payload)
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        decoded_raw = base64.b64decode(raw).decode("utf-8", errors="replace")
+        data = json.loads(decoded_raw)
     if not isinstance(data, dict):
         raise ValueError("Queue payload must be a JSON object.")
     return data
