@@ -11,6 +11,7 @@ psql "$DB_DSN" -f sql/dml/daangn_target_dongs_seed.sql
 
 ```bash
 psql "$DB_DSN" -f sql/migration/Script-daangn-community-260226.sql
+psql "$DB_DSN" -f sql/migration/Script-daangn-crawl-tasks-260303.sql
 ```
 
 중복 방지 스모크 테스트:

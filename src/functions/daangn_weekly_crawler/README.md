@@ -2,6 +2,10 @@
 
 주 1회 동네생활 글을 수집해 `daangn` 스키마에 저장하는 Azure Function입니다.
 
+구조:
+- `daangn_weekly_crawler`(Timer): 대상 동/키워드별 작업을 큐에 등록
+- `daangn_crawl_worker`(Queue): 작업 1건(동+키워드) 단위로 실제 크롤링/적재
+
 ## 저장 대상
 - 게시글: 제목, 본문, 시, 동, 원본 URL
 - 댓글: 댓글 본문, 시, 동
@@ -16,6 +20,7 @@ psql "$DB_DSN" -f sql/dml/daangn_target_dongs_seed.sql
 또는:
 ```bash
 psql "$DB_DSN" -f sql/migration/Script-daangn-community-260226.sql
+psql "$DB_DSN" -f sql/migration/Script-daangn-crawl-tasks-260303.sql
 ```
 
 ## 로컬 실행
@@ -39,7 +44,7 @@ func azure functionapp publish <YOUR_FUNCTION_APP_NAME> --python
 
 ## 운영 설정
 - `TIMER_CRON`: 기본값 `0 0 3 * * 1` (매주 월요일 03:00)
-- `WEBSITE_TIME_ZONE`: `Korea Standard Time`
+- `DAANGN_TASK_QUEUE`: 큐 이름(기본 `daangn-crawl-tasks`)
 - `DB_DSN`: PostgreSQL 접속 문자열
 - `MAX_POSTS_PER_DONG`: 동/키워드당 최대 게시글 수 (기본 5)
 - `MAX_TOTAL_POSTS_PER_RUN`: 1회 실행당 최대 게시글 수 (기본 60)
