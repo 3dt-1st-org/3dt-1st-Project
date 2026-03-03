@@ -88,6 +88,6 @@ if __name__ == "__main__":
             # 상호명(bizplc_nm)은 0번째 인덱스, 계산된 거리는 마지막 인덱스
             print(f"{i}. {res[0]} (Distance: {res[-1]:.2f}m)")
     else:
-        print("⚠️ No data found within the 80m radius.")
+        print("⚠️ No data found within the 150m radius.")
 
     print("=" * 60)
