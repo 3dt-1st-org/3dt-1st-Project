@@ -354,13 +354,19 @@ def _crawl_once(conn: psycopg.Connection) -> tuple[int, int]:
     total_comments = 0
 
     keywords = _get_keywords()
-    max_posts_per_dong = int(os.getenv("MAX_POSTS_PER_DONG", "30"))
+    max_posts_per_dong = int(os.getenv("MAX_POSTS_PER_DONG", "5"))
+    max_total_posts_per_run = int(os.getenv("MAX_TOTAL_POSTS_PER_RUN", "60"))
 
     target_dongs = _load_target_dongs(conn)
     LOGGER.info("Loaded %d active target dongs.", len(target_dongs))
 
+    stop_requested = False
     for target in target_dongs:
+        if stop_requested:
+            break
         for keyword in keywords:
+            if stop_requested:
+                break
             search_url = (
                 "https://www.daangn.com/kr/community/s/"
                 f"?in={target.dong_slug}&search={keyword}"
@@ -382,6 +388,13 @@ def _crawl_once(conn: psycopg.Connection) -> tuple[int, int]:
             )
 
             for post_url in post_links:
+                if total_posts >= max_total_posts_per_run:
+                    LOGGER.info(
+                        "Reached MAX_TOTAL_POSTS_PER_RUN=%d. Stopping early.",
+                        max_total_posts_per_run,
+                    )
+                    stop_requested = True
+                    break
                 try:
                     post_html = _request_html(session, post_url)
                     title, body, post_created_at, comments = _extract_post_payload(post_html)

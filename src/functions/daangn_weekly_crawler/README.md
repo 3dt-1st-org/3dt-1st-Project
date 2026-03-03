@@ -41,6 +41,8 @@ func azure functionapp publish <YOUR_FUNCTION_APP_NAME> --python
 - `TIMER_CRON`: 기본값 `0 0 3 * * 1` (매주 월요일 03:00)
 - `WEBSITE_TIME_ZONE`: `Korea Standard Time`
 - `DB_DSN`: PostgreSQL 접속 문자열
+- `MAX_POSTS_PER_DONG`: 동/키워드당 최대 게시글 수 (기본 5)
+- `MAX_TOTAL_POSTS_PER_RUN`: 1회 실행당 최대 게시글 수 (기본 60)
 
 ## Key Vault 권장 설정
 - 운영 환경에서는 `DB_DSN`을 코드/파일에 하드코딩하지 않고 Azure Key Vault에서 주입합니다.
@@ -56,3 +58,4 @@ func azure functionapp publish <YOUR_FUNCTION_APP_NAME> --python
 - `daangn.target_dongs.dong_slug`가 비어 있으면 해당 동은 스킵됩니다.
 - 페이지 셀렉터는 서비스 구조 변경 시 수정이 필요합니다.
 - 중복 적재는 `post_key`, `comment_key` 유니크 키로 차단됩니다.
+- Linux Function App은 `WEBSITE_TIME_ZONE`이 적용되지 않으므로 `TIMER_CRON`을 UTC 기준으로 설정해야 합니다.
