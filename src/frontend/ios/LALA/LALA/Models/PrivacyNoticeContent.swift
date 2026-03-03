@@ -1,0 +1,61 @@
+//
+//  PrivacyNoticeContent.swift
+//  LALA
+//
+//  Created by Codex on 3/2/26.
+//
+
+import Foundation
+
+struct PrivacyNoticeContent {
+    static let titleKo = "개인정보 및 위치기반서비스 동의 안내"
+    static let summaryKo = "LALA는 경기도 로컬 추천 제공을 위해 위치정보를 포함한 최소한의 개인정보를 수집합니다."
+    static let titleEn = "Privacy and Location Consent Notice"
+    static let summaryEn = "LALA collects minimal personal data including location to provide local recommendations in Gyeonggi-do."
+
+    static let detailKo = """
+제1조(수집 항목)
+LALA는 서비스 제공을 위해 다음 정보를 수집합니다.
+- 필수: 기기 식별 정보, 서비스 이용 로그, 현재 위치(위도/경도)
+- 선택: 언어, 글꼴 크기 등 앱 설정 정보
+
+제2조(이용 목적)
+수집된 정보는 다음 목적에 한하여 이용됩니다.
+- 사용자 주변의 로컬 명소/맛집 추천 제공
+- 음성 안내 및 자막 기반 경로/장소 안내 제공
+- 서비스 품질 개선 및 오류 분석
+
+제3조(보유 및 이용 기간)
+개인정보는 목적 달성 후 지체 없이 파기하며, 관련 법령에서 정한 보관 의무가 있는 경우 해당 기간 동안 보관합니다.
+
+제4조(제3자 제공)
+회사는 원칙적으로 이용자의 개인정보를 외부에 제공하지 않습니다. 다만, 법령에 근거가 있거나 이용자 동의가 있는 경우에 한해 제공합니다.
+
+제5조(동의 거부 권리 및 불이익)
+이용자는 개인정보 및 위치정보 수집·이용에 대한 동의를 거부할 수 있습니다.
+단, 위치기반 핵심 기능 특성상 동의를 거부하거나 iOS 위치 권한을 해제하면 앱 서비스 이용이 제한됩니다.
+"""
+
+    static let detailEn = """
+Article 1 (Data Collected)
+LALA collects the following information to provide services.
+- Required: Device identifier, usage logs, and current location (latitude/longitude)
+- Optional: App settings such as language and font size
+
+Article 2 (Purpose of Use)
+Collected information is used only for the following purposes.
+- Providing nearby local attractions and food recommendations
+- Delivering voice guidance and subtitle-based navigation
+- Improving service quality and analyzing errors
+
+Article 3 (Retention Period)
+Personal data is deleted without delay once the purpose is achieved, except where retention is required by applicable laws.
+
+Article 4 (Third-Party Sharing)
+As a rule, we do not provide personal data to third parties, unless required by law or separately consented by the user.
+
+Article 5 (Right to Refuse and Impact)
+You may refuse consent to personal data and location data processing.
+However, because core features are location-based, refusing consent or disabling iOS location permission will restrict app usage.
+"""
+}
