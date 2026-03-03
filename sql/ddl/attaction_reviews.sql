@@ -78,10 +78,12 @@ CREATE TABLE locallink.attraction_reviews (
 COMMENT ON TABLE locallink.attraction_reviews IS '관광지별 블로그 리뷰 데이터 및 벡터 정보';
 
 
-
--- 1. 부모 테이블 생성 (attraction_name에 UNIQUE 추가)
+-- 1. 테이블 생성 (컬럼명은 영어)
+-- DROP TABLE locallink.attraction_reviews;
+-- DROP TABLE locallink.gyeonggi_attractions;
 CREATE TABLE locallink.gyeonggi_attractions (
-    attraction_name TEXT NOT NULL UNIQUE, -- "이 이름은 중복될 수 없다"고 선언합니다.
+    id SERIAL PRIMARY KEY,
+	attraction_name TEXT NOT NULL UNIQUE ,
     phone_number TEXT,
     additional_info TEXT,
     base_date DATE,
@@ -93,17 +95,41 @@ CREATE TABLE locallink.gyeonggi_attractions (
     city_county_name VARCHAR(50)
 );
 
--- 2. 자식 테이블 생성 (attraction_name을 텍스트로 참조)
+INSERT INTO locallink.gyeonggi_attractions (
+    attraction_name,
+    phone_number,
+    additional_info,
+    base_date,
+    road_address,
+    lot_address,
+    zip_code,
+    latitude,
+    longitude,
+    city_county_name
+) VALUES (
+    '경복궁',                     -- 파이프라인 에러를 해결할 핵심 Key 값입니다. (UNIQUE)
+    '02-3700-3900',             -- 실제 경복궁 대표 전화번호
+    '조선 왕조 제일의 법궁(궁궐)',   -- 부가 설명
+    CURRENT_DATE,               -- 데이터 삽입 기준일 (오늘 날짜가 자동으로 들어갑니다)
+    '서울특별시 종로구 사직로 161',  -- 정확한 도로명 주소
+    '서울특별시 종로구 세종로 1-1',  -- 정확한 지번 주소
+    '03045',                    -- 우편번호
+    37.579617,                  -- 위도 (PostGIS 공간 인덱싱을 위해 필수)
+    126.977041,                 -- 경도 (PostGIS 공간 인덱싱을 위해 필수)
+    '서울특별시 종로구'              -- 시/군/구 명칭
+);
+
 CREATE TABLE locallink.attraction_reviews (
     id SERIAL PRIMARY KEY,
-    -- 참조하는 쪽과 참조받는 쪽 모두 TEXT 타입으로 완전히 동일해야 합니다.
     attraction_name TEXT REFERENCES locallink.gyeonggi_attractions(attraction_name) ON DELETE CASCADE,
-    title TEXT,                  
-    description TEXT,            
-    post_date DATE,              
-    post_link TEXT,              
-    clean_text TEXT,             
-    extracted_keywords TEXT,     
-    embedding VECTOR(1536),      
+    title TEXT,                  -- 블로그 제목 (원본)
+    description TEXT,            -- 블로그 요약 내용 (원본)
+    post_date DATE,              -- 리뷰 작성 일자
+    post_link TEXT,              -- 블로그 링크
+    clean_text TEXT,             -- HTML 태그 제거 및 정제된 텍스트
+    extracted_keywords TEXT,     -- NLP로 추출된 형용사/명사 (예: "조용한, 아늑한, 커피, 뷰")
+    embedding VECTOR(1536),      -- 정제된 텍스트를 OpenAI 등으로 변환한 벡터 (추후 사용)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+COMMENT ON TABLE locallink.attraction_reviews IS '관광지별 블로그 리뷰 데이터 및 벡터 정보';

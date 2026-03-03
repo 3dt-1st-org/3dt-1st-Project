@@ -81,9 +81,12 @@ class KeyVaultManager:
         return secrets
 
 
+# 모듈 레벨 싱글톤 인스턴스 - 다른 모듈에서 바로 import해서 사용
+vault = get_vault_manager()
+
+
 def main():
     print("데이터 파이프라인 설정을 초기화합니다...")
-    vault = get_vault_manager()
     vault.get_all_secrets()
 
 if __name__ == "__main__":
