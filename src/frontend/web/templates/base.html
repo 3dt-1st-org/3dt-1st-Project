@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="{{ current_lang() }}">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>{% block title %}LALA{% endblock %}</title>
+
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- 오방색 테마 & 레이아웃 -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}" />
+
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+  <!-- GNB -->
+  <nav class="gnb">
+    <a href="/" class="gnb__logo obang-border">LALA</a>
+    <div class="gnb__actions">
+      <a href="/map"      class="text-sm text-gray-500 hover:text-blue-700 px-2">{{ t('nav_map') }}</a>
+      <a href="/settings" class="text-sm text-gray-500 hover:text-blue-700 px-2">⚙️ {{ t('nav_settings') }}</a>
+    </div>
+  </nav>
+
+  <!-- 페이지 본문 -->
+  <main class="page-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

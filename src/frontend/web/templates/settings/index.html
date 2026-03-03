@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}LALA — {{ t('settings_title') }}{% endblock %}
+
+{% block content %}
+<div class="settings-page">
+
+  <!-- ── 언어 설정 섹션 ────────────────────────────────── -->
+  <section class="settings-section">
+    <h2 class="settings-section__title">{{ t('settings_lang') }}</h2>
+    <p class="settings-section__desc">{{ t('settings_lang_desc') }}</p>
+
+    <div class="lang-selector">
+      {% for code, label, emoji in [('ko', '한국어', '🇰🇷'), ('en', 'English', '🇺🇸'), ('ja', '日本語', '🇯🇵')] %}
+      <form method="POST" action="/settings/lang/{{ code }}" style="flex:1;">
+        <button type="submit"
+                class="lang-btn {% if current_lang() == code %}lang-btn--active{% endif %}">
+          <span class="lang-btn__emoji">{{ emoji }}</span>
+          <span class="lang-btn__label">{{ label }}</span>
+          {% if current_lang() == code %}
+          <span class="lang-btn__check">✓</span>
+          {% endif %}
+        </button>
+      </form>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- ── 위치 권한 재설정 섹션 ────────────────────────── -->
+  <section class="settings-section">
+    <h2 class="settings-section__title">{{ t('settings_location') }}</h2>
+    <p class="settings-section__desc">{{ t('settings_loc_desc') }}</p>
+
+    <div class="location-guide">
+      <div class="location-guide__item">
+        <img src="https://www.google.com/chrome/static/images/chrome-logo.svg"
+             alt="Chrome" class="location-guide__icon" onerror="this.style.display='none'">
+        <div>
+          <div class="location-guide__browser">Chrome</div>
+          <div class="location-guide__step">{{ t('settings_loc_chrome') }}</div>
+        </div>
+      </div>
+      <div class="location-guide__item">
+        <span class="location-guide__icon" style="font-size:1.8rem;">🦊</span>
+        <div>
+          <div class="location-guide__browser">Firefox</div>
+          <div class="location-guide__step">{{ t('settings_loc_firefox') }}</div>
+        </div>
+      </div>
+      <div class="location-guide__item">
+        <span class="location-guide__icon" style="font-size:1.8rem;">🧭</span>
+        <div>
+          <div class="location-guide__browser">Safari</div>
+          <div class="location-guide__step">{{ t('settings_loc_safari') }}</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="settings-section__hint">💡 {{ t('settings_loc_reset') }}</p>
+
+    <button onclick="window.location.reload()"
+            class="btn-primary" style="width:100%;margin-top:0.75rem;">
+      🔄 {{ t('settings_loc_reset') }}
+    </button>
+  </section>
+
+  <!-- ── 앱 정보 섹션 ─────────────────────────────────── -->
+  <section class="settings-section">
+    <h2 class="settings-section__title">{{ t('settings_about') }}</h2>
+    <div class="settings-meta">
+      <span>{{ t('settings_version') }}</span>
+      <span class="settings-meta__value">0.1.0-alpha</span>
+    </div>
+    <div class="settings-meta">
+      <span>Kakao Maps API</span>
+      <span class="settings-meta__value" style="font-size:0.75rem;color:#A0AEC0;">
+        b95e9836…566bc
+      </span>
+    </div>
+  </section>
+
+</div>
+
+<!-- ── 인라인 스타일 ──────────────────────────────────── -->
+<style>
+.settings-page {
+  padding: 1.5rem 1rem;
+  max-width: 540px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.settings-section {
+  background: #fff;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 1.25rem 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.settings-section__title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-primary);
+}
+
+.settings-section__desc {
+  font-size: 0.85rem;
+  color: #718096;
+}
+
+.settings-section__hint {
+  font-size: 0.8rem;
+  color: #A0AEC0;
+}
+
+/* 언어 선택 버튼 그룹 */
+.lang-selector {
+  display: flex;
+  gap: 8px;
+  margin-top: 0.25rem;
+}
+
+.lang-btn {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 6px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.lang-btn--active {
+  border-color: var(--color-primary);
+  background: #EBF8FF;
+}
+
+.lang-btn__emoji { font-size: 1.5rem; }
+.lang-btn__label { font-size: 0.78rem; font-weight: 600; color: var(--color-text); }
+.lang-btn__check {
+  position: absolute;
+  top: 6px; right: 8px;
+  font-size: 0.72rem;
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+/* 위치 가이드 */
+.location-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 0.25rem;
+}
+
+.location-guide__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #F7FAFC;
+  border-radius: 10px;
+}
+
+.location-guide__icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.location-guide__browser {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.location-guide__step {
+  font-size: 0.78rem;
+  color: #718096;
+  margin-top: 2px;
+  line-height: 1.5;
+}
+
+/* 앱 정보 행 */
+.settings-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: #4A5568;
+  padding: 4px 0;
+  border-bottom: 1px solid #EDF2F7;
+}
+.settings-meta:last-child { border-bottom: none; }
+.settings-meta__value { font-weight: 600; }
+</style>
+{% endblock %}

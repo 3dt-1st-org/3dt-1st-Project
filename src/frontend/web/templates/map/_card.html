@@ -1,0 +1,12 @@
+{# _card.html — 장소 카드 Jinja partial (map_logic.js에서 동적으로 생성) #}
+{# 이 파일은 JS 렌더링 참고용 템플릿입니다. #}
+<div class="place-card">
+  <div class="place-card__meta">
+    <span class="place-card__badge badge-{{ place.category }}">
+      {{ '🏛 명소' if place.category == 'attraction' else '🍽 음식점' }}
+    </span>
+    <span>{{ place.distance_m }}m</span>
+  </div>
+  <div class="place-card__name">{{ place.name }}</div>
+  <div class="place-card__addr">{{ place.address }}</div>
+</div>

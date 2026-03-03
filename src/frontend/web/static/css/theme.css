@@ -1,0 +1,59 @@
+/* ================================================
+   오방색 (五方色) 테마 팔레트
+   중앙(황), 동(청), 북(흑), 남(적), 서(백)
+   ================================================ */
+:root {
+  --obang-center:  #F5C842; /* 중앙 - 황 (黃) */
+  --obang-east:    #2B6CB0; /* 동   - 청 (靑) */
+  --obang-north:   #1A202C; /* 북   - 흑 (黑) */
+  --obang-south:   #C53030; /* 남   - 적 (赤) */
+  --obang-west:    #F7FAFC; /* 서   - 백 (白) */
+
+  /* 기능별 alias */
+  --color-primary:  var(--obang-east);
+  --color-accent:   var(--obang-center);
+  --color-danger:   var(--obang-south);
+  --color-bg:       var(--obang-west);
+  --color-text:     var(--obang-north);
+  --color-border:   #CBD5E0;
+  --radius-card:    1rem;
+  --shadow-card:    0 4px 24px rgba(0,0,0,0.10);
+}
+
+/* ================================================
+   오방색 테두리 순환 애니메이션
+   .obang-border 클래스를 적용하면 활성화
+   ================================================ */
+@keyframes obang-rotate {
+  0%   { border-color: var(--obang-center); }
+  25%  { border-color: var(--obang-east);   }
+  50%  { border-color: var(--obang-north);  }
+  75%  { border-color: var(--obang-south);  }
+  100% { border-color: var(--obang-west);   }
+}
+
+.obang-border {
+  border: 3px solid var(--obang-center);
+  animation: obang-rotate 4s linear infinite;
+}
+
+/* 버튼 프라이머리 */
+.btn-primary {
+  background-color: var(--color-primary);
+  color: #fff;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  transition: opacity 0.2s;
+  cursor: pointer;
+  border: none;
+  display: inline-block;
+  text-align: center;
+  text-decoration: none;
+}
+.btn-primary:hover { opacity: 0.85; }
+
+/* 카테고리 뱃지 */
+.badge-attraction { background: var(--obang-east);   color: #fff; }
+.badge-restaurant { background: var(--obang-south);  color: #fff; }
+.badge-event      { background: var(--obang-center); color: var(--obang-north); }
