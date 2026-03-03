@@ -1,9 +1,9 @@
 import os
 import psycopg2
-from groq import Groq  
 from openai import AzureOpenAI
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
+import azure.cognitiveservices.speech as speechsdk
 from dotenv import load_dotenv
 
 # ==============================================================================
@@ -12,33 +12,30 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def get_db_and_llm_resources():
+    """Key Vault에서 정보를 로드하고 Azure OpenAI 클라이언트를 생성합니다."""
     vault_url = os.getenv("KEY_VAULT_URL")
     credential = DefaultAzureCredential()
     kv_client = SecretClient(vault_url=vault_url, credential=credential)
 
-    # Key Vault에서 DB 비밀번호 로드
+    # 1. Key Vault에서 비밀번호 및 API Key 로드
     db_password = kv_client.get_secret("db-password").value
+    azure_api_key = os.getenv("AZURE_OPENAI_KEY")
     
-    # --- [기존 Azure OpenAI 설정 (주석 보존)] ---
-    # api_key = kv_client.get_secret("azure-openai-key").value
-    # endpoint = kv_client.get_secret("azure-openai-endpoint").value
-    # azure_client = AzureOpenAI(
-    #     azure_endpoint=endpoint,
-    #     api_key=api_key,
-    #     api_version=os.getenv("AZURE_OPENAI_VERSION", "2024-02-15-preview")
-    # )
+    # 2. Azure OpenAI 설정 정보 (.env 기반)
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    api_version = os.getenv("AZURE_OPENAI_VERSION", "2024-02-15-preview")
     
-    # --- [현재 활성화: Groq 설정] ---
-    groq_api_key = os.getenv("GROQ_API_KEY")
-    if not groq_api_key:
-        raise ValueError("❌ .env 파일에 GROQ_API_KEY가 설정되지 않았습니다.")
-        
-    groq_client = Groq(api_key=groq_api_key)
+    # 3. Azure OpenAI 클라이언트 생성
+    azure_client = AzureOpenAI(
+        azure_endpoint=endpoint,
+        api_key=azure_api_key,
+        api_version=api_version
+    )
     
-    return groq_client, db_password
+    return azure_client, db_password
 
 # ==============================================================================
-# 1. RAG: DB에서 TOP 10 식당 데이터 일괄 추출
+# 1. RAG: DB에서 TOP 10 식당 데이터 일괄 추출 (기존 로직 유지)
 # ==============================================================================
 def fetch_top10_context(restaurant_list, db_password):
     """리스트에 담긴 10개 식당의 키워드와 리뷰를 DB에서 가져옵니다."""
@@ -54,7 +51,6 @@ def fetch_top10_context(restaurant_list, db_password):
     try:
         with conn.cursor() as cursor:
             for name in restaurant_list:
-                # 각 식당별 키워드와 대표 리뷰 2개 추출
                 query = """
                     SELECT extracted_keywords, clean_text 
                     FROM locallink.restaurant_reviews 
@@ -65,7 +61,7 @@ def fetch_top10_context(restaurant_list, db_password):
                 rows = cursor.fetchall()
                 if rows:
                     keywords = rows[0][0]
-                    reviews = " / ".join([row[1][:150] for row in rows]) # 요약본
+                    reviews = " / ".join([row[1][:150] for row in rows])
                     combined_data.append(f"[{name}]\n- Keywords: {keywords}\n- Insights: {reviews}")
         
         return "\n\n".join(combined_data)
@@ -73,11 +69,12 @@ def fetch_top10_context(restaurant_list, db_password):
         conn.close()
 
 # ==============================================================================
-# 2. 통합 도슨트 대본 생성 (Azure 주석 & Groq 활성화)
+# 2. 통합 도슨트 대본 생성 (Azure OpenAI gpt-4o-mini 활성화)
 # ==============================================================================
 def generate_integrated_docent_script(restaurant_list, language="English"):
-    """10개 식당 데이터를 분석하여 Groq으로 통합 오디오 가이드를 생성합니다."""
-    groq_client, db_password = get_db_and_llm_resources()
+    """Azure OpenAI를 사용하여 통합 오디오 가이드 대본을 생성합니다."""
+    # 리소스 로드
+    azure_client, db_password = get_db_and_llm_resources()
     
     # 1. DB 컨텍스트 확보
     full_context = fetch_top10_context(restaurant_list, db_password)
@@ -102,24 +99,12 @@ def generate_integrated_docent_script(restaurant_list, language="English"):
     위 10개 가게를 모두 포함하여 약 2분 분량의 통합 오디오 가이드 대본을 작성해줘.
     """
 
-    # --- [기존 Azure OpenAI 호출 로직 (주석 보존)] ---
-    """
     try:
-        deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT")
-        # get_db_and_llm_resources에서 azure_client를 반환하도록 수정 후 사용 가능
+        # 배포하신 이름: 'Restaurant-Docent-gpt-4o-mini'
+        deployment_name = os.getenv("AZURE_OPENAI_RESTAURANT_DEPLOYMENT")
+        
         response = azure_client.chat.completions.create(
             model=deployment_name,
-            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"❌ Azure 에러: {str(e)}"
-    """
-
-    # --- [현재 활성화: Groq 호출 로직] ---
-    try:
-        completion = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile", 
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -127,12 +112,46 @@ def generate_integrated_docent_script(restaurant_list, language="English"):
             temperature=0.7,
             max_tokens=2000
         )
-        return completion.choices[0].message.content
+        return response.choices[0].message.content
+        
     except Exception as e:
-        return f"❌ Groq 대본 생성 실패: {str(e)}"
+        return f"❌ Azure OpenAI 대본 생성 실패: {str(e)}"
+
+def text_to_speech_english(text, output_filename="eng_guide_voice.mp3"):
+    """생성된 영어 대본을 고퀄리티 미국식 영어 음성으로 변환합니다."""
+    
+    # 1. 설정 로드 (.env에 AZURE_SPEECH_KEY, AZURE_SPEECH_REGION 있어야 함)
+    speech_config = speechsdk.SpeechConfig(
+        subscription=os.getenv("AZURE_SPEECH_KEY"), 
+        region=os.getenv("AZURE_SPEECH_REGION")
+    )
+    
+    # 2. 영어 성우 설정 (Ava는 매우 자연스럽고 친절한 목소리입니다)
+    # 남성 목소리를 원하시면 "en-US-AndrewNeural"을 사용하세요.
+    speech_config.speech_synthesis_voice_name = "en-US-AvaNeural"
+    
+    # 3. 파일 저장 설정
+    audio_config = speechsdk.audio.AudioOutputConfig(filename=output_filename)
+    
+    # 4. 합성기 생성 및 실행
+    synthesizer = speechsdk.SpeechSynthesizer(
+        speech_config=speech_config, 
+        audio_config=audio_config
+    )
+    
+    print(f"🎙️ [TTS] 영어 음성 합성 시작...")
+    result = synthesizer.speak_text_async(text).get()
+    
+    if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+        print(f"✅ 영어 가이드 파일 생성 완료: {output_filename}")
+    else:
+        print(f"❌ TTS 에러: {result.reason}")
+        if result.reason == speechsdk.ResultReason.Canceled:
+            cancellation_details = result.cancellation_details
+            print(f"Error Details: {cancellation_details.error_details}")
 
 # ==============================================================================
-# 3. 메인 실행 루프
+# 3. 메인 실행 루프 (수정됨)
 # ==============================================================================
 if __name__ == "__main__":
     top10_list = [
@@ -141,12 +160,15 @@ if __name__ == "__main__":
         "누크녹카라멜하우스", "다담"
     ]
     
-    print(f"🎙️ [Batch Mode: Groq] {len(top10_list)}개 식당 통합 대본 생성 중...")
-    
+    # 1. 대본 생성 (반드시 English로 설정)
+    print(f"🎙️ [Batch Mode: Azure OpenAI] {len(top10_list)} Restaurants - Generating English Script...")
     final_script = generate_integrated_docent_script(top10_list, language="English")
     
-    print("\n" + "="*70)
-    print("🌟 [INTEGRATED TOP 10 FOOD GUIDE] 🌟")
-    print("="*70 + "\n")
-    print(final_script)
-    print("\n" + "="*70)
+    if "❌" not in final_script:
+        print("\n🌟 [ENGLISH DOCENT SCRIPT GENERATED] 🌟\n")
+        print(final_script) 
+        
+        # 2. 음성 파일 생성
+        text_to_speech_english(final_script, "haenggung_food_guide_en.mp3")
+    else:
+        print(final_script)

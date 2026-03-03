@@ -255,4 +255,4 @@ def run_review_pipeline(target_attraction):
 # ==============================================================================
 if __name__ == "__main__":
     # '경복궁' 명소를 대상으로 파이프라인 실행
-    run_review_pipeline("경복궁")
+    run_review_pipeline("수원화성")
