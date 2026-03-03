@@ -37,6 +37,14 @@ NOISE_EXACT_MATCHES = {
 }
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _elapsed_ms(started_at: datetime) -> int:
+    return int((_utc_now() - started_at).total_seconds() * 1000)
+
+
 @dataclass(frozen=True)
 class TargetDong:
     city_name: str
@@ -571,6 +579,7 @@ def _crawl_target_keyword(
     keyword: str,
     max_posts: int,
 ) -> tuple[int, int]:
+    stage_started_at = _utc_now()
     session = requests.Session()
     session.headers.update(
         {
@@ -592,23 +601,50 @@ def _crawl_target_keyword(
     try:
         search_html = _request_html(session, search_url)
     except Exception as exc:
-        LOGGER.warning("Search request failed for %s: %s", search_url, exc)
+        LOGGER.exception(
+            "crawl_stage=search_failed city=%s dong=%s keyword=%s url=%s elapsed_ms=%d",
+            target.city_name,
+            target.dong_name,
+            keyword,
+            search_url,
+            _elapsed_ms(stage_started_at),
+        )
         return 0, 0
 
     post_links = _extract_post_links(search_html)[:max_posts]
     LOGGER.info(
-        "Target %s/%s keyword=%s links=%d",
+        "crawl_stage=search_done city=%s dong=%s keyword=%s links=%d elapsed_ms=%d",
         target.city_name,
         target.dong_name,
         keyword,
         len(post_links),
+        _elapsed_ms(stage_started_at),
     )
 
-    for post_url in post_links:
+    for idx, post_url in enumerate(post_links, start=1):
+        post_started_at = _utc_now()
+        LOGGER.info(
+            "crawl_stage=post_start city=%s dong=%s keyword=%s index=%d total=%d url=%s",
+            target.city_name,
+            target.dong_name,
+            keyword,
+            idx,
+            len(post_links),
+            post_url,
+        )
         try:
             post_html = _request_html(session, post_url)
             title, body, post_created_at, comments = _extract_post_payload(post_html)
             if not title and not body:
+                LOGGER.info(
+                    "crawl_stage=post_skipped_empty city=%s dong=%s keyword=%s index=%d url=%s elapsed_ms=%d",
+                    target.city_name,
+                    target.dong_name,
+                    keyword,
+                    idx,
+                    post_url,
+                    _elapsed_ms(post_started_at),
+                )
                 continue
 
             post_key = _hash_key(
@@ -634,11 +670,39 @@ def _crawl_target_keyword(
                 dong_name=target.dong_name,
             )
             conn.commit()
+            LOGGER.info(
+                "crawl_stage=post_done city=%s dong=%s keyword=%s index=%d url=%s posts_total=%d comments_total=%d elapsed_ms=%d",
+                target.city_name,
+                target.dong_name,
+                keyword,
+                idx,
+                post_url,
+                total_posts,
+                total_comments,
+                _elapsed_ms(post_started_at),
+            )
         except Exception as exc:
             conn.rollback()
-            LOGGER.warning("Failed to process %s: %s", post_url, exc)
+            LOGGER.exception(
+                "crawl_stage=post_failed city=%s dong=%s keyword=%s index=%d url=%s elapsed_ms=%d",
+                target.city_name,
+                target.dong_name,
+                keyword,
+                idx,
+                post_url,
+                _elapsed_ms(post_started_at),
+            )
         time.sleep(REQUEST_SLEEP_SECONDS)
 
+    LOGGER.info(
+        "crawl_stage=target_keyword_done city=%s dong=%s keyword=%s posts=%d comments=%d elapsed_ms=%d",
+        target.city_name,
+        target.dong_name,
+        keyword,
+        total_posts,
+        total_comments,
+        _elapsed_ms(stage_started_at),
+    )
     return total_posts, total_comments
 
 
@@ -650,8 +714,8 @@ def _crawl_target_keyword(
 )
 def daangn_weekly_crawler(timer: func.TimerRequest) -> None:
     _ = timer
-    started_at = datetime.now(timezone.utc).isoformat()
-    LOGGER.info("Daangn weekly crawler started at %s", started_at)
+    started_at = _utc_now()
+    LOGGER.info("run_stage=scheduler_start started_at=%s", started_at.isoformat())
 
     db_dsn = os.getenv("DB_DSN")
     if not db_dsn:
@@ -666,11 +730,26 @@ def daangn_weekly_crawler(timer: func.TimerRequest) -> None:
         run_id = _insert_run_start(conn)
         task_count = 0
         targets = _load_target_dongs(conn)
+        LOGGER.info(
+            "run_stage=target_loaded run_id=%s targets=%d keywords=%d",
+            run_id,
+            len(targets),
+            len(keywords),
+        )
         for target in targets:
             for keyword in keywords:
                 task_id = _create_crawl_task(conn, run_id, target, keyword)
                 _enqueue_task_message(task_id=task_id, run_id=run_id)
                 task_count += 1
+                LOGGER.info(
+                    "run_stage=task_enqueued run_id=%s task_id=%s city=%s dong=%s keyword=%s count=%d",
+                    run_id,
+                    task_id,
+                    target.city_name,
+                    target.dong_name,
+                    keyword,
+                    task_count,
+                )
 
         if task_count == 0:
             _finish_run(
@@ -685,9 +764,10 @@ def daangn_weekly_crawler(timer: func.TimerRequest) -> None:
             return
 
     LOGGER.info(
-        "Daangn weekly crawler enqueued %d tasks. run_id=%s",
-        task_count,
+        "run_stage=scheduler_done run_id=%s task_count=%d elapsed_ms=%d",
         run_id,
+        task_count,
+        _elapsed_ms(started_at),
     )
 
 
@@ -697,6 +777,7 @@ def daangn_weekly_crawler(timer: func.TimerRequest) -> None:
     connection="AzureWebJobsStorage",
 )
 def daangn_crawl_worker(queue_message: func.QueueMessage) -> None:
+    worker_started_at = _utc_now()
     db_dsn = os.getenv("DB_DSN")
     if not db_dsn:
         raise RuntimeError("DB_DSN is required.")
@@ -705,6 +786,7 @@ def daangn_crawl_worker(queue_message: func.QueueMessage) -> None:
     task_id = str(payload.get("task_id") or "").strip()
     if not task_id:
         raise RuntimeError("queue payload must include task_id")
+    LOGGER.info("task_stage=worker_start task_id=%s", task_id)
 
     max_posts_per_dong = int(os.getenv("MAX_POSTS_PER_DONG", "5"))
 
@@ -721,6 +803,14 @@ def daangn_crawl_worker(queue_message: func.QueueMessage) -> None:
             return
 
         _mark_task_running(conn, task_id)
+        LOGGER.info(
+            "task_stage=running task_id=%s run_id=%s city=%s dong=%s keyword=%s",
+            task_id,
+            task.run_id,
+            task.city_name,
+            task.dong_name,
+            task.keyword,
+        )
         try:
             post_count, comment_count = _crawl_target_keyword(
                 conn=conn,
@@ -734,17 +824,30 @@ def daangn_crawl_worker(queue_message: func.QueueMessage) -> None:
             )
             _mark_task_success(conn, task_id, post_count, comment_count)
             LOGGER.info(
-                "Task completed. task_id=%s city=%s dong=%s keyword=%s posts=%d comments=%d",
+                "task_stage=success task_id=%s run_id=%s city=%s dong=%s keyword=%s posts=%d comments=%d elapsed_ms=%d",
                 task_id,
+                task.run_id,
                 task.city_name,
                 task.dong_name,
                 task.keyword,
                 post_count,
                 comment_count,
+                _elapsed_ms(worker_started_at),
             )
         except Exception as exc:
             conn.rollback()
             _mark_task_failed(conn, task_id, str(exc))
-            LOGGER.exception("Task failed. task_id=%s", task_id)
+            LOGGER.exception(
+                "task_stage=failed task_id=%s run_id=%s elapsed_ms=%d",
+                task_id,
+                task.run_id,
+                _elapsed_ms(worker_started_at),
+            )
         finally:
             _refresh_run_status(conn, task.run_id)
+            LOGGER.info(
+                "task_stage=worker_done task_id=%s run_id=%s elapsed_ms=%d",
+                task_id,
+                task.run_id,
+                _elapsed_ms(worker_started_at),
+            )
