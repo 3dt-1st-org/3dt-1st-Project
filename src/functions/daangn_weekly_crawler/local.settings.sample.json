@@ -5,9 +5,10 @@
     "FUNCTIONS_WORKER_RUNTIME": "python",
     "DB_DSN": "SET_IN_LOCAL_ENV_OR_KEY_VAULT",
     "TIMER_CRON": "0 0 3 * * 1",
-    "WEBSITE_TIME_ZONE": "Korea Standard Time",
+    "DAANGN_TASK_QUEUE": "daangn-crawl-tasks",
     "DAANGN_KEYWORDS": "맛집,명소,행사",
-    "MAX_POSTS_PER_DONG": "30",
+    "MAX_POSTS_PER_DONG": "5",
+    "MAX_TOTAL_POSTS_PER_RUN": "60",
     "REQUEST_TIMEOUT_SECONDS": "15",
     "REQUEST_SLEEP_SECONDS": "0.3"
   }

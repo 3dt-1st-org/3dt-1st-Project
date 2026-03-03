@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import logging
@@ -19,6 +20,7 @@ APP = func.FunctionApp()
 DEFAULT_SCHEDULE = os.getenv("TIMER_CRON", "0 0 3 * * 1")
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
 REQUEST_SLEEP_SECONDS = float(os.getenv("REQUEST_SLEEP_SECONDS", "0.3"))
+TASK_QUEUE_NAME = os.getenv("DAANGN_TASK_QUEUE", "daangn-crawl-tasks")
 NOISE_EXACT_MATCHES = {
     ",",
     ".",
@@ -36,11 +38,29 @@ NOISE_EXACT_MATCHES = {
 }
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _elapsed_ms(started_at: datetime) -> int:
+    return int((_utc_now() - started_at).total_seconds() * 1000)
+
+
 @dataclass(frozen=True)
 class TargetDong:
     city_name: str
     dong_name: str
     dong_slug: str
+
+
+@dataclass(frozen=True)
+class CrawlTask:
+    task_id: str
+    run_id: str
+    city_name: str
+    dong_name: str
+    dong_slug: str
+    keyword: str
 
 
 def _normalize_url(url: str) -> str:
@@ -259,6 +279,227 @@ def _finish_run(
     conn.commit()
 
 
+def _create_crawl_task(
+    conn: psycopg.Connection,
+    run_id: str,
+    target: TargetDong,
+    keyword: str,
+) -> str:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO daangn.crawl_tasks (
+                run_id,
+                city_name,
+                dong_name,
+                dong_slug,
+                keyword,
+                status
+            )
+            VALUES (%s::uuid, %s, %s, %s, %s, 'pending')
+            RETURNING task_id
+            """,
+            (run_id, target.city_name, target.dong_name, target.dong_slug, keyword),
+        )
+        task_id = cur.fetchone()[0]
+    conn.commit()
+    return str(task_id)
+
+
+def _load_task(conn: psycopg.Connection, task_id: str) -> Optional[CrawlTask]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                task_id::text,
+                run_id::text,
+                city_name,
+                dong_name,
+                dong_slug,
+                keyword
+            FROM daangn.crawl_tasks
+            WHERE task_id = %s::uuid
+            """,
+            (task_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    return CrawlTask(
+        task_id=row[0],
+        run_id=row[1],
+        city_name=row[2],
+        dong_name=row[3],
+        dong_slug=row[4],
+        keyword=row[5],
+    )
+
+
+def _load_task_status(conn: psycopg.Connection, task_id: str) -> Optional[str]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT status
+            FROM daangn.crawl_tasks
+            WHERE task_id = %s::uuid
+            """,
+            (task_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    return str(row[0])
+
+
+def _mark_task_running(conn: psycopg.Connection, task_id: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE daangn.crawl_tasks
+            SET status = 'running',
+                attempts = attempts + 1,
+                started_at = NOW(),
+                updated_at = NOW()
+            WHERE task_id = %s::uuid
+            """,
+            (task_id,),
+        )
+    conn.commit()
+
+
+def _mark_task_success(conn: psycopg.Connection, task_id: str, post_count: int, comment_count: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE daangn.crawl_tasks
+            SET status = 'success',
+                post_count = %s,
+                comment_count = %s,
+                finished_at = NOW(),
+                updated_at = NOW(),
+                error_message = NULL
+            WHERE task_id = %s::uuid
+            """,
+            (post_count, comment_count, task_id),
+        )
+    conn.commit()
+
+
+def _mark_task_failed(conn: psycopg.Connection, task_id: str, error_message: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE daangn.crawl_tasks
+            SET status = 'failed',
+                finished_at = NOW(),
+                updated_at = NOW(),
+                error_message = %s
+            WHERE task_id = %s::uuid
+            """,
+            (error_message[:1000], task_id),
+        )
+    conn.commit()
+
+
+def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                COUNT(*) AS total_tasks,
+                COUNT(*) FILTER (WHERE status IN ('success', 'failed')) AS finished_tasks,
+                COUNT(*) FILTER (WHERE status = 'failed') AS failed_tasks,
+                COALESCE(SUM(post_count) FILTER (WHERE status = 'success'), 0) AS post_count,
+                COALESCE(SUM(comment_count) FILTER (WHERE status = 'success'), 0) AS comment_count
+            FROM daangn.crawl_tasks
+            WHERE run_id = %s::uuid
+            """,
+            (run_id,),
+        )
+        row = cur.fetchone()
+
+        total_tasks = int(row[0] or 0)
+        finished_tasks = int(row[1] or 0)
+        failed_tasks = int(row[2] or 0)
+        post_count = int(row[3] or 0)
+        comment_count = int(row[4] or 0)
+
+        if total_tasks == 0:
+            cur.execute(
+                """
+                UPDATE daangn.crawl_runs
+                SET status = 'success',
+                    finished_at = NOW(),
+                    post_count = 0,
+                    comment_count = 0,
+                    error_message = NULL
+                WHERE run_id = %s::uuid
+                """,
+                (run_id,),
+            )
+        elif finished_tasks >= total_tasks:
+            status = "failed" if failed_tasks > 0 else "success"
+            error_message = f"{failed_tasks} task(s) failed" if failed_tasks > 0 else None
+            cur.execute(
+                """
+                UPDATE daangn.crawl_runs
+                SET status = %s,
+                    finished_at = NOW(),
+                    post_count = %s,
+                    comment_count = %s,
+                    error_message = %s
+                WHERE run_id = %s::uuid
+                """,
+                (status, post_count, comment_count, error_message, run_id),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE daangn.crawl_runs
+                SET status = 'running',
+                    post_count = %s,
+                    comment_count = %s
+                WHERE run_id = %s::uuid
+                """,
+                (post_count, comment_count, run_id),
+            )
+    conn.commit()
+
+
+def _enqueue_task_message(task_id: str, run_id: str) -> None:
+    connection_string = os.getenv("AzureWebJobsStorage")
+    if not connection_string:
+        raise RuntimeError("AzureWebJobsStorage is required to enqueue crawl tasks.")
+
+    # Imported lazily so local unit tests that mock azure.functions do not require queue SDK.
+    from azure.storage.queue import QueueClient  # type: ignore
+
+    queue_client = QueueClient.from_connection_string(connection_string, TASK_QUEUE_NAME)
+    try:
+        queue_client.create_queue()
+    except Exception:
+        pass
+
+    raw_payload = json.dumps({"task_id": task_id, "run_id": run_id})
+    encoded_payload = base64.b64encode(raw_payload.encode("utf-8")).decode("utf-8")
+    queue_client.send_message(encoded_payload)
+
+
+def _decode_queue_body(message: func.QueueMessage) -> dict[str, Any]:
+    payload = message.get_body()
+    if isinstance(payload, bytes):
+        raw = payload.decode("utf-8", errors="replace")
+    else:
+        raw = str(payload)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        decoded_raw = base64.b64decode(raw).decode("utf-8", errors="replace")
+        data = json.loads(decoded_raw)
+    if not isinstance(data, dict):
+        raise ValueError("Queue payload must be a JSON object.")
+    return data
+
 def _upsert_post(
     conn: psycopg.Connection,
     post_key: str,
@@ -339,7 +580,13 @@ def _insert_comments(
     return inserted
 
 
-def _crawl_once(conn: psycopg.Connection) -> tuple[int, int]:
+def _crawl_target_keyword(
+    conn: psycopg.Connection,
+    target: TargetDong,
+    keyword: str,
+    max_posts: int,
+) -> tuple[int, int]:
+    stage_started_at = _utc_now()
     session = requests.Session()
     session.headers.update(
         {
@@ -350,72 +597,119 @@ def _crawl_once(conn: psycopg.Connection) -> tuple[int, int]:
         }
     )
 
+    search_url = (
+        "https://www.daangn.com/kr/community/s/"
+        f"?in={target.dong_slug}&search={keyword}"
+    )
+
     total_posts = 0
     total_comments = 0
 
-    keywords = _get_keywords()
-    max_posts_per_dong = int(os.getenv("MAX_POSTS_PER_DONG", "30"))
+    try:
+        search_html = _request_html(session, search_url)
+    except Exception as exc:
+        LOGGER.exception(
+            "crawl_stage=search_failed city=%s dong=%s keyword=%s url=%s elapsed_ms=%d",
+            target.city_name,
+            target.dong_name,
+            keyword,
+            search_url,
+            _elapsed_ms(stage_started_at),
+        )
+        return 0, 0
 
-    target_dongs = _load_target_dongs(conn)
-    LOGGER.info("Loaded %d active target dongs.", len(target_dongs))
+    post_links = _extract_post_links(search_html)[:max_posts]
+    LOGGER.info(
+        "crawl_stage=search_done city=%s dong=%s keyword=%s links=%d elapsed_ms=%d",
+        target.city_name,
+        target.dong_name,
+        keyword,
+        len(post_links),
+        _elapsed_ms(stage_started_at),
+    )
 
-    for target in target_dongs:
-        for keyword in keywords:
-            search_url = (
-                "https://www.daangn.com/kr/community/s/"
-                f"?in={target.dong_slug}&search={keyword}"
-            )
-
-            try:
-                search_html = _request_html(session, search_url)
-            except Exception as exc:
-                LOGGER.warning("Search request failed for %s: %s", search_url, exc)
+    for idx, post_url in enumerate(post_links, start=1):
+        post_started_at = _utc_now()
+        LOGGER.info(
+            "crawl_stage=post_start city=%s dong=%s keyword=%s index=%d total=%d url=%s",
+            target.city_name,
+            target.dong_name,
+            keyword,
+            idx,
+            len(post_links),
+            post_url,
+        )
+        try:
+            post_html = _request_html(session, post_url)
+            title, body, post_created_at, comments = _extract_post_payload(post_html)
+            if not title and not body:
+                LOGGER.info(
+                    "crawl_stage=post_skipped_empty city=%s dong=%s keyword=%s index=%d url=%s elapsed_ms=%d",
+                    target.city_name,
+                    target.dong_name,
+                    keyword,
+                    idx,
+                    post_url,
+                    _elapsed_ms(post_started_at),
+                )
                 continue
 
-            post_links = _extract_post_links(search_html)[:max_posts_per_dong]
+            post_key = _hash_key(
+                f"{target.city_name}:{target.dong_name}:{_normalize_url(post_url)}"
+            )
+            _upsert_post(
+                conn=conn,
+                post_key=post_key,
+                source_url=post_url,
+                title=title or "(no-title)",
+                body=body,
+                post_created_at=post_created_at,
+                city_name=target.city_name,
+                dong_name=target.dong_name,
+                searched_keyword=keyword,
+            )
+            total_posts += 1
+            total_comments += _insert_comments(
+                conn=conn,
+                post_key=post_key,
+                comments=comments,
+                city_name=target.city_name,
+                dong_name=target.dong_name,
+            )
+            conn.commit()
             LOGGER.info(
-                "Target %s/%s keyword=%s links=%d",
+                "crawl_stage=post_done city=%s dong=%s keyword=%s index=%d url=%s posts_total=%d comments_total=%d elapsed_ms=%d",
                 target.city_name,
                 target.dong_name,
                 keyword,
-                len(post_links),
+                idx,
+                post_url,
+                total_posts,
+                total_comments,
+                _elapsed_ms(post_started_at),
             )
+        except Exception as exc:
+            conn.rollback()
+            LOGGER.exception(
+                "crawl_stage=post_failed city=%s dong=%s keyword=%s index=%d url=%s elapsed_ms=%d",
+                target.city_name,
+                target.dong_name,
+                keyword,
+                idx,
+                post_url,
+                _elapsed_ms(post_started_at),
+            )
+        time.sleep(REQUEST_SLEEP_SECONDS)
 
-            for post_url in post_links:
-                try:
-                    post_html = _request_html(session, post_url)
-                    title, body, post_created_at, comments = _extract_post_payload(post_html)
-                    if not title and not body:
-                        continue
-
-                    post_key = _hash_key(
-                        f"{target.city_name}:{target.dong_name}:{_normalize_url(post_url)}"
-                    )
-                    _upsert_post(
-                        conn=conn,
-                        post_key=post_key,
-                        source_url=post_url,
-                        title=title or "(no-title)",
-                        body=body,
-                        post_created_at=post_created_at,
-                        city_name=target.city_name,
-                        dong_name=target.dong_name,
-                        searched_keyword=keyword,
-                    )
-                    total_posts += 1
-                    total_comments += _insert_comments(
-                        conn=conn,
-                        post_key=post_key,
-                        comments=comments,
-                        city_name=target.city_name,
-                        dong_name=target.dong_name,
-                    )
-                    conn.commit()
-                except Exception as exc:
-                    conn.rollback()
-                    LOGGER.warning("Failed to process %s: %s", post_url, exc)
-                time.sleep(REQUEST_SLEEP_SECONDS)
-
+    LOGGER.info(
+        "crawl_stage=target_keyword_done city=%s dong=%s keyword=%s posts=%d comments=%d elapsed_ms=%d",
+        target.city_name,
+        target.dong_name,
+        keyword,
+        total_posts,
+        total_comments,
+        _elapsed_ms(stage_started_at),
+    )
     return total_posts, total_comments
 
 
@@ -427,42 +721,140 @@ def _crawl_once(conn: psycopg.Connection) -> tuple[int, int]:
 )
 def daangn_weekly_crawler(timer: func.TimerRequest) -> None:
     _ = timer
-    started_at = datetime.now(timezone.utc).isoformat()
-    LOGGER.info("Daangn weekly crawler started at %s", started_at)
+    started_at = _utc_now()
+    LOGGER.info("run_stage=scheduler_start started_at=%s", started_at.isoformat())
 
     db_dsn = os.getenv("DB_DSN")
     if not db_dsn:
         raise RuntimeError("DB_DSN is required.")
 
+    keywords = _get_keywords()
+    if not keywords:
+        LOGGER.warning("DAANGN_KEYWORDS is empty. Run skipped.")
+        return
+
     with psycopg.connect(db_dsn) as conn:
         run_id = _insert_run_start(conn)
-        post_count = 0
-        comment_count = 0
+        task_count = 0
+        targets = _load_target_dongs(conn)
+        LOGGER.info(
+            "run_stage=target_loaded run_id=%s targets=%d keywords=%d",
+            run_id,
+            len(targets),
+            len(keywords),
+        )
+        for target in targets:
+            for keyword in keywords:
+                task_id = _create_crawl_task(conn, run_id, target, keyword)
+                _enqueue_task_message(task_id=task_id, run_id=run_id)
+                task_count += 1
+                LOGGER.info(
+                    "run_stage=task_enqueued run_id=%s task_id=%s city=%s dong=%s keyword=%s count=%d",
+                    run_id,
+                    task_id,
+                    target.city_name,
+                    target.dong_name,
+                    keyword,
+                    task_count,
+                )
 
-        try:
-            post_count, comment_count = _crawl_once(conn)
+        if task_count == 0:
             _finish_run(
                 conn=conn,
                 run_id=run_id,
                 status="success",
-                post_count=post_count,
-                comment_count=comment_count,
+                post_count=0,
+                comment_count=0,
                 error_message=None,
+            )
+            LOGGER.info("No active targets. run_id=%s", run_id)
+            return
+
+    LOGGER.info(
+        "run_stage=scheduler_done run_id=%s task_count=%d elapsed_ms=%d",
+        run_id,
+        task_count,
+        _elapsed_ms(started_at),
+    )
+
+
+@APP.queue_trigger(
+    arg_name="queue_message",
+    queue_name=TASK_QUEUE_NAME,
+    connection="AzureWebJobsStorage",
+)
+def daangn_crawl_worker(queue_message: func.QueueMessage) -> None:
+    worker_started_at = _utc_now()
+    db_dsn = os.getenv("DB_DSN")
+    if not db_dsn:
+        raise RuntimeError("DB_DSN is required.")
+
+    payload = _decode_queue_body(queue_message)
+    task_id = str(payload.get("task_id") or "").strip()
+    if not task_id:
+        raise RuntimeError("queue payload must include task_id")
+    LOGGER.info("task_stage=worker_start task_id=%s", task_id)
+
+    max_posts_per_dong = int(os.getenv("MAX_POSTS_PER_DONG", "5"))
+
+    with psycopg.connect(db_dsn) as conn:
+        task = _load_task(conn, task_id)
+        if not task:
+            LOGGER.warning("Task not found. task_id=%s", task_id)
+            return
+
+        status = _load_task_status(conn, task_id)
+        if status in {"success", "failed"}:
+            LOGGER.info("Task already completed. task_id=%s status=%s", task_id, status)
+            _refresh_run_status(conn, task.run_id)
+            return
+
+        _mark_task_running(conn, task_id)
+        LOGGER.info(
+            "task_stage=running task_id=%s run_id=%s city=%s dong=%s keyword=%s",
+            task_id,
+            task.run_id,
+            task.city_name,
+            task.dong_name,
+            task.keyword,
+        )
+        try:
+            post_count, comment_count = _crawl_target_keyword(
+                conn=conn,
+                target=TargetDong(
+                    city_name=task.city_name,
+                    dong_name=task.dong_name,
+                    dong_slug=task.dong_slug,
+                ),
+                keyword=task.keyword,
+                max_posts=max_posts_per_dong,
+            )
+            _mark_task_success(conn, task_id, post_count, comment_count)
+            LOGGER.info(
+                "task_stage=success task_id=%s run_id=%s city=%s dong=%s keyword=%s posts=%d comments=%d elapsed_ms=%d",
+                task_id,
+                task.run_id,
+                task.city_name,
+                task.dong_name,
+                task.keyword,
+                post_count,
+                comment_count,
+                _elapsed_ms(worker_started_at),
             )
         except Exception as exc:
             conn.rollback()
-            _finish_run(
-                conn=conn,
-                run_id=run_id,
-                status="failed",
-                post_count=post_count,
-                comment_count=comment_count,
-                error_message=str(exc)[:1000],
+            _mark_task_failed(conn, task_id, str(exc))
+            LOGGER.exception(
+                "task_stage=failed task_id=%s run_id=%s elapsed_ms=%d",
+                task_id,
+                task.run_id,
+                _elapsed_ms(worker_started_at),
             )
-            raise
-
-    LOGGER.info(
-        "Daangn weekly crawler completed. posts=%d comments=%d",
-        post_count,
-        comment_count,
-    )
+        finally:
+            _refresh_run_status(conn, task.run_id)
+            LOGGER.info(
+                "task_stage=worker_done task_id=%s run_id=%s elapsed_ms=%d",
+                task_id,
+                task.run_id,
+                _elapsed_ms(worker_started_at),
+            )
