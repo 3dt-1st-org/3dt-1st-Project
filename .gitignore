@@ -214,3 +214,11 @@ data/**
 artifacts/**
 !data/.gitkeep
 !artifacts/.gitkeep
+
+# Xcode / iOS
+**/DerivedData/
+**/.build/
+**/xcuserdata/
+**/*.xcuserstate
+**/*.xccheckout
+**/*.xcscmblueprint
