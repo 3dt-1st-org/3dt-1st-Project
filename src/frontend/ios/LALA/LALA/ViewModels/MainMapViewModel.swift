@@ -26,6 +26,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     @Published var selectedFilter: MapPlaceFilter = .all
     @Published private(set) var isLoadingPlaces = false
     @Published private(set) var mapStatus: MapStatus = .none
+    @Published private(set) var moreInfoEligiblePlaceID: String?
 
     private let speechSynthesizer = AVSpeechSynthesizer()
     private let locationManager = CLLocationManager()
@@ -38,6 +39,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private var activeLanguage: AppLanguage = .korean
     private var reloadTask: Task<Void, Never>?
     private var lastAutoGuidedPlaceID: String?
+    private var hiddenMoreInfoPlaceID: String?
 
     private let initialRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 36.35, longitude: 127.9),
@@ -98,6 +100,25 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     func handleMapPinTap(_ place: PlaceRecommendation, language: AppLanguage) {
         applySelection(for: place, language: language)
+    }
+
+    func activatePlaceForDetail(_ place: PlaceRecommendation, language: AppLanguage) {
+        activeLanguage = language
+        selectedPlaceID = place.id
+        hiddenMoreInfoPlaceID = nil
+        subtitle = place.guide(in: language)
+        lastAutoGuidedPlaceID = place.id
+        centerOnPlace(place, animated: true)
+
+        if isVoiceGuidanceEnabled {
+            moreInfoEligiblePlaceID = place.id
+            speak(subtitle, language: language)
+        } else {
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.stopSpeaking(at: .immediate)
+            }
+            moreInfoEligiblePlaceID = nil
+        }
     }
 
     func weatherA11yText(for language: AppLanguage) -> String {
@@ -164,6 +185,31 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
+    func moreInfoButtonTitle(for language: AppLanguage) -> String {
+        switch language {
+        case .korean:
+            return "정보 더 듣기"
+        case .english:
+            return "Hear More Info"
+        }
+    }
+
+    func canPlayMoreInfo(for placeID: String) -> Bool {
+        isVoiceGuidanceEnabled &&
+            moreInfoEligiblePlaceID == placeID &&
+            hiddenMoreInfoPlaceID != placeID
+    }
+
+    func playMoreInfo(for place: PlaceRecommendation, language: AppLanguage) {
+        guard canPlayMoreInfo(for: place.id) else { return }
+        activeLanguage = language
+        let narration = buildMoreInfoNarration(for: place, language: language)
+        subtitle = narration
+        hiddenMoreInfoPlaceID = place.id
+        moreInfoEligiblePlaceID = nil
+        speak(narration, language: language)
+    }
+
     private func voiceOnSubtitle(for language: AppLanguage) -> String {
         switch language {
         case .korean:
@@ -212,6 +258,12 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         selectedPlaceID = result.selectedPlaceID
         subtitle = result.subtitle
 
+        if result.selectedPlaceID == nil {
+            moreInfoEligiblePlaceID = nil
+        } else if result.selectedPlaceID != hiddenMoreInfoPlaceID {
+            hiddenMoreInfoPlaceID = nil
+        }
+
         if result.shouldStopSpeaking, speechSynthesizer.isSpeaking {
             speechSynthesizer.stopSpeaking(at: .immediate)
         }
@@ -219,7 +271,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             centerOnPlace(place, animated: true)
         }
         if result.shouldSpeak {
+            moreInfoEligiblePlaceID = place.id
             speak(result.subtitle, language: language)
+        } else if result.selectedPlaceID != place.id {
+            moreInfoEligiblePlaceID = nil
         }
         if let selected = result.selectedPlaceID {
             lastAutoGuidedPlaceID = selected
@@ -295,6 +350,8 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         guard let selectedPlaceID else { return }
         if !loadedPlaces.contains(where: { $0.id == selectedPlaceID }) {
             self.selectedPlaceID = nil
+            hiddenMoreInfoPlaceID = nil
+            moreInfoEligiblePlaceID = nil
             subtitle = defaultSubtitle(for: activeLanguage)
             if speechSynthesizer.isSpeaking {
                 speechSynthesizer.stopSpeaking(at: .immediate)
@@ -406,11 +463,30 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         guard forceAnnounce || nearest.place.id != lastAutoGuidedPlaceID else { return }
 
         selectedPlaceID = nearest.place.id
+        hiddenMoreInfoPlaceID = nil
         subtitle = nearest.place.guide(in: language)
         lastAutoGuidedPlaceID = nearest.place.id
 
         if isVoiceGuidanceEnabled {
+            moreInfoEligiblePlaceID = nearest.place.id
             speak(subtitle, language: language)
+        } else {
+            moreInfoEligiblePlaceID = nil
+        }
+    }
+
+    private func buildMoreInfoNarration(for place: PlaceRecommendation, language: AppLanguage) -> String {
+        let name = place.name(in: language)
+        let category = place.category(in: language)
+        let district = place.district(in: language)
+        let address = place.address(in: language)
+        let reason = recommendationReason(for: place, language: language)
+
+        switch language {
+        case .korean:
+            return "\(name)은(는) \(district) 지역의 \(category) 추천 장소입니다. 주소는 \(address)입니다. \(reason) 방문 전 운영 시간과 현장 상황을 함께 확인해 주세요."
+        case .english:
+            return "\(name) is a recommended \(category.lowercased()) spot in \(district). The address is \(address). \(reason) Please also check opening hours and local conditions before you visit."
         }
     }
 
