@@ -49,7 +49,12 @@ func azure functionapp publish <YOUR_FUNCTION_APP_NAME> --python
 - `DAANGN_TASK_QUEUE`: 큐 이름(기본 `daangn-crawl-tasks`)
 - `MENTION_AGGREGATION_CRON`: 장소 언급 집계 실행 주기(기본 `0 30 3 * * 1`)
 - `MENTION_LOOKBACK_DAYS`: 장소 언급 집계 대상 기간(일, 기본 `7`)
+- `MENTION_USE_LLM`: 장소 추출에 LLM 사용 여부 (`1`/`0`)
+- `MENTION_LLM_MAX_ROWS`: LLM 입력 최대 행 수 (비용 제한)
+- `MENTION_LLM_BATCH_SIZE`: LLM 배치 크기
+- `MENTION_LLM_TEXT_LIMIT`: 텍스트 자르기 길이
 - `DB_DSN`: PostgreSQL 접속 문자열
+- `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT_NAME`, `AZURE_OPENAI_VERSION`
 - `MAX_POSTS_PER_DONG`: 동/키워드당 최대 게시글 수 (기본 5)
 - `MAX_TOTAL_POSTS_PER_RUN`: 1회 실행당 최대 게시글 수 (기본 60)
 
