@@ -150,6 +150,15 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
             ],
         )
 
+    def test_extract_post_links_from_inline_json_pattern(self):
+        html = """
+        <script>
+        {"items":[{"url":"\\/kr\\/community\\/articles\\/12345"},{"url":"\\/kr\\/community\\/s\\/?in=test&search=x"}]}
+        </script>
+        """
+        links = self.module._extract_post_links(html)
+        self.assertIn("https://www.daangn.com/kr/community/articles/12345", links)
+
     def test_extract_post_payload_returns_title_body(self):
         html = "<html><body><h1>맛집 추천</h1><div data-qa-id='article-content'>망포 먹자골목 어풍당당 추천</div></body></html>"
         title, body, post_created_at, comments = self.module._extract_post_payload(html)

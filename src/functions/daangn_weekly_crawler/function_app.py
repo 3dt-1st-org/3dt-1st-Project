@@ -356,7 +356,39 @@ def _extract_post_links(search_html: str) -> list[str]:
 
         links.add(_normalize_url(url))
 
+    # Fallback: some pages render links in inline JSON instead of anchor tags.
+    normalized_html = search_html.replace("\\/", "/")
+    for matched in re.finditer(r'(?:https?:)?/kr/community/[^"\'\s,]+', normalized_html):
+        raw = matched.group(0)
+        if raw.startswith("//"):
+            url = f"https:{raw}"
+        elif raw.startswith("http"):
+            url = raw
+        elif raw.startswith("/kr/community/"):
+            url = f"https://www.daangn.com{raw}"
+        else:
+            continue
+
+        if "/kr/community/s/" in url:
+            continue
+        if url.rstrip("/") == "https://www.daangn.com/kr/community":
+            continue
+        if not re.search(r"/kr/community/(articles|[A-Za-z0-9\-_%]+)", url):
+            continue
+        links.add(_normalize_url(url))
+
     return sorted(links)
+
+
+def _build_search_urls(target: TargetDong, keyword: str) -> list[str]:
+    return [
+        f"https://www.daangn.com/kr/community/s/?in={target.dong_slug}&search={keyword}",
+        f"https://www.daangn.com/kr/community/s/?in={target.dong_slug}&search={target.dong_name}%20{keyword}",
+        f"https://www.daangn.com/kr/community/s/?search={target.city_name}%20{target.dong_name}%20{keyword}",
+        f"https://www.daangn.com/kr/community/s/?search={target.city_name}%20{keyword}",
+        f"https://www.daangn.com/kr/community/s/?search={target.city_name}%20{target.dong_name}",
+        f"https://www.daangn.com/kr/community/s/?search={target.dong_name}",
+    ]
 
 
 def _extract_text_by_selectors(soup: BeautifulSoup, selectors: Iterable[str]) -> str:
@@ -849,10 +881,9 @@ def _upsert_post(
                 city_name,
                 dong_name,
                 searched_keyword,
-                post_created_at,
-                raw_payload
+                post_created_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (post_key)
             DO UPDATE SET
                 title = EXCLUDED.title,
@@ -894,10 +925,9 @@ def _insert_comments(
                     comment_body,
                     city_name,
                     dong_name,
-                    commented_at,
-                    raw_payload
+                    commented_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, NULL)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (comment_key) DO NOTHING
                 """,
                 (comment_key, post_key, comment_text, city_name, dong_name, commented_at),
@@ -924,28 +954,37 @@ def _crawl_target_keyword(
         }
     )
 
-    search_url = (
-        "https://www.daangn.com/kr/community/s/"
-        f"?in={target.dong_slug}&search={keyword}"
-    )
-
     total_posts = 0
     total_comments = 0
 
-    try:
-        search_html = _request_html(session, search_url)
-    except Exception as exc:
-        LOGGER.exception(
-            "crawl_stage=search_failed city=%s dong=%s keyword=%s url=%s elapsed_ms=%d",
-            target.city_name,
-            target.dong_name,
-            keyword,
-            search_url,
-            _elapsed_ms(stage_started_at),
-        )
-        return 0, 0
+    post_links: list[str] = []
+    for search_url in _build_search_urls(target, keyword):
+        try:
+            search_html = _request_html(session, search_url)
+        except Exception:
+            LOGGER.exception(
+                "crawl_stage=search_failed city=%s dong=%s keyword=%s url=%s elapsed_ms=%d",
+                target.city_name,
+                target.dong_name,
+                keyword,
+                search_url,
+                _elapsed_ms(stage_started_at),
+            )
+            continue
 
-    post_links = _extract_post_links(search_html)[:max_posts]
+        post_links = _extract_post_links(search_html)
+        if post_links:
+            LOGGER.info(
+                "crawl_stage=search_selected city=%s dong=%s keyword=%s url=%s links=%d",
+                target.city_name,
+                target.dong_name,
+                keyword,
+                search_url,
+                len(post_links),
+            )
+            break
+
+    post_links = post_links[:max_posts]
     LOGGER.info(
         "crawl_stage=search_done city=%s dong=%s keyword=%s links=%d elapsed_ms=%d",
         target.city_name,
@@ -982,7 +1021,7 @@ def _crawl_target_keyword(
                 continue
 
             post_key = _hash_key(
-                f"{target.city_name}:{target.dong_name}:{_normalize_url(post_url)}"
+                _normalize_url(post_url)
             )
             _upsert_post(
                 conn=conn,
