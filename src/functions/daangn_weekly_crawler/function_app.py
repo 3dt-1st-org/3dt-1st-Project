@@ -21,7 +21,9 @@ APP = func.FunctionApp()
 
 DEFAULT_SCHEDULE = os.getenv("TIMER_CRON", "0 0 3 * * 1")
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
-REQUEST_SLEEP_SECONDS = float(os.getenv("REQUEST_SLEEP_SECONDS", "0"))
+REQUEST_SLEEP_SECONDS = float(os.getenv("REQUEST_SLEEP_SECONDS", "0.2"))
+REQUEST_RETRY_COUNT = int(os.getenv("REQUEST_RETRY_COUNT", "3"))
+REQUEST_RETRY_BASE_SECONDS = float(os.getenv("REQUEST_RETRY_BASE_SECONDS", "0.6"))
 TASK_QUEUE_NAME = os.getenv("DAANGN_TASK_QUEUE", "daangn-crawl-tasks")
 MENTION_AGGREGATION_CRON = os.getenv("MENTION_AGGREGATION_CRON", "0 30 3 * * 1")
 MENTION_LOOKBACK_DAYS = int(os.getenv("MENTION_LOOKBACK_DAYS", "7"))
@@ -331,9 +333,42 @@ def _extract_mentions_with_llm(rows: list[CommunityText], config: dict[str, str]
     return mention_counter
 
 
+def _request_with_retry(session: requests.Session, url: str, context: str) -> Any:
+    retryable_statuses = {429, 500, 502, 503, 504}
+    max_attempts = max(1, REQUEST_RETRY_COUNT)
+
+    for attempt in range(1, max_attempts + 1):
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+        status = int(response.status_code)
+        if status < 400:
+            return response
+
+        retry_after = response.headers.get("Retry-After", "").strip()
+        wait_seconds = REQUEST_RETRY_BASE_SECONDS * attempt
+        if retry_after.isdigit():
+            wait_seconds = max(wait_seconds, float(retry_after))
+        wait_seconds = min(wait_seconds, 10.0)
+
+        if status in retryable_statuses and attempt < max_attempts:
+            LOGGER.warning(
+                "crawl_stage=http_retry context=%s status=%d attempt=%d/%d wait=%.2f url=%s",
+                context,
+                status,
+                attempt,
+                max_attempts,
+                wait_seconds,
+                url,
+            )
+            time.sleep(wait_seconds)
+            continue
+
+        response.raise_for_status()
+
+    raise RuntimeError(f"Failed to fetch url after retries. context={context} url={url}")
+
+
 def _request_html(session: requests.Session, url: str) -> str:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-    response.raise_for_status()
+    response = _request_with_retry(session, url, "post")
     return response.content.decode("utf-8", errors="replace")
 
 
@@ -1005,8 +1040,7 @@ def _crawl_target_keyword(
     post_links: list[str] = []
     for search_url in _build_search_urls(target, keyword):
         try:
-            response = session.get(search_url, timeout=REQUEST_TIMEOUT_SECONDS)
-            response.raise_for_status()
+            response = _request_with_retry(session, search_url, "search")
             search_html = response.content.decode("utf-8", errors="replace")
         except Exception:
             LOGGER.exception(
