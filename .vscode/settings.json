@@ -1,0 +1,13 @@
+{
+    "azureFunctions.deploySubpath": "src\\functions\\weather_air_func",
+    "azureFunctions.scmDoBuildDuringDeployment": true,
+    "azureFunctions.pythonVenv": ".venv",
+    "azureFunctions.projectLanguage": "Python",
+    "azureFunctions.projectRuntime": "~4",
+    "debug.internalConsoleOptions": "neverOpen",
+    "azureFunctions.projectLanguageModel": 2,
+    "azureFunctions.projectSubpaths": [
+        "src\\functions\\daangn_weekly_crawler",
+        "src\\functions\\weather_air_func"
+    ]
+}

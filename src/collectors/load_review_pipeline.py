@@ -18,13 +18,11 @@ from config.vault_manager import vault
 # 네이버 API 키
 NAVER_CLIENT_ID     = vault.get_secret("naver-client-id")
 NAVER_CLIENT_SECRET = vault.get_secret("naver-client-secret")
-
 # Azure OpenAI 키
 AZURE_OPENAI_ENDPOINT   = vault.get_secret("azure-openai-endpoint")
 AZURE_OPENAI_KEY        = vault.get_secret("azure-openai-key")
-AZURE_OPENAI_DEPLOYMENT = vault.get_secret("azure-openai-deployment-name")
+AZURE_OPENAI_DEPLOYMENT  = vault.get_secret("azure-openai-deployment-name")
 AZURE_OPENAI_VERSION    = vault.get_secret("azure-openai-version")
-
 # Azure OpenAI 임베딩 모델 설정
 EMBEDDING_DEPLOYMENT_NAME = vault.get_secret("azure-openai-embedding-deployment-name")
 EMBEDDING_API_VERSION     = vault.get_secret("azure-openai-embedding-api-version")
