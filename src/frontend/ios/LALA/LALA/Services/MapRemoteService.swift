@@ -12,6 +12,7 @@ enum MapPlaceFilter: String, CaseIterable, Identifiable {
     case all
     case attraction
     case restaurant
+    case event
 
     var id: String { rawValue }
 
@@ -25,6 +26,8 @@ enum MapPlaceFilter: String, CaseIterable, Identifiable {
         case (.attraction, .english): return "Attractions"
         case (.restaurant, .korean): return "맛집"
         case (.restaurant, .english): return "Restaurants"
+        case (.event, .korean): return "행사"
+        case (.event, .english): return "Events"
         }
     }
 }
@@ -146,8 +149,19 @@ final class MapRemoteService: MapDataProviding {
 
     private static func mapPlace(from item: RemotePlaceItem) -> PlaceRecommendation {
         let kind = PlaceCategoryKind.fromRemoteCategory(item.category)
-        let categoryKo = item.category == "restaurant" ? "로컬 맛집" : "로컬 명소"
-        let categoryEn = item.category == "restaurant" ? "Local Eats" : "Attraction"
+        let categoryKo: String
+        let categoryEn: String
+        switch kind {
+        case .attraction:
+            categoryKo = "로컬 명소"
+            categoryEn = "Attraction"
+        case .restaurant:
+            categoryKo = "로컬 맛집"
+            categoryEn = "Restaurant"
+        case .event:
+            categoryKo = "로컬 행사"
+            categoryEn = "Event"
+        }
         let region = item.region ?? ""
         let address = item.address ?? ""
 
@@ -178,7 +192,8 @@ final class MapRemoteService: MapDataProviding {
             coordinate: CLLocationCoordinate2D(latitude: item.lat, longitude: item.lng),
             distanceMeters: item.distanceM,
             addressKo: address,
-            addressEn: address
+            addressEn: address,
+            imageURL: item.imageURL.flatMap(URL.init(string:))
         )
     }
 
@@ -287,6 +302,7 @@ private struct RemotePlaceItem: Decodable {
     let address: String?
     let region: String?
     let distanceM: Int?
+    let imageURL: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -297,6 +313,7 @@ private struct RemotePlaceItem: Decodable {
         case address
         case region
         case distanceM = "distance_m"
+        case imageURL = "image_url"
     }
 }
 

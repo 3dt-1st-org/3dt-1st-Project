@@ -25,6 +25,7 @@ struct MainMapView: View {
                     PlacePinView(
                         title: place.name(in: appViewModel.selectedLanguage),
                         categorySymbol: place.categoryKind.symbolName,
+                        categoryKind: place.categoryKind,
                         isSelected: viewModel.selectedPlaceID == place.id
                     )
                     .onTapGesture {
@@ -145,11 +146,14 @@ struct MainMapView: View {
                         Button {
                             viewModel.handlePlaceTap(place, language: appViewModel.selectedLanguage)
                         } label: {
-                            VStack(alignment: .leading, spacing: 6) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                PlaceCardImageView(imageURL: place.imageURL)
+
                                 Text(place.name(in: appViewModel.selectedLanguage))
                                     .font(.system(size: 16 * appViewModel.fontScale, weight: .bold))
                                     .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                                    .lineLimit(1)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.85)
 
                                 Text(place.category(in: appViewModel.selectedLanguage))
                                     .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
@@ -172,11 +176,11 @@ struct MainMapView: View {
                                     Text(address)
                                         .font(.system(size: 11 * appViewModel.fontScale, weight: .regular))
                                         .foregroundStyle(.secondary)
-                                        .lineLimit(1)
+                                        .lineLimit(2)
                                 }
                             }
-                            .frame(width: 230, alignment: .leading)
-                            .padding(14)
+                            .frame(width: 240, alignment: .leading)
+                            .padding(12)
                             .background(
                                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                                     .fill(Color.white.opacity(0.92))
@@ -447,6 +451,7 @@ private struct AnimatedObangBorder: View {
 private struct PlacePinView: View {
     let title: String
     let categorySymbol: String
+    let categoryKind: PlaceCategoryKind
     let isSelected: Bool
 
     var body: some View {
@@ -474,8 +479,8 @@ private struct PlacePinView: View {
                 Circle()
                     .fill(
                         isSelected
-                            ? Color(AppThemeColor.south.rawValue)
-                            : Color(AppThemeColor.north.rawValue).opacity(0.88)
+                            ? pinColor
+                            : pinColor.opacity(0.9)
                     )
                     .frame(width: isSelected ? 22 : 18, height: isSelected ? 22 : 18)
 
@@ -485,5 +490,73 @@ private struct PlacePinView: View {
             }
         }
         .frame(maxWidth: 150)
+    }
+
+    private var pinColor: Color {
+        switch categoryKind {
+        case .attraction:
+            return Color(AppThemeColor.south.rawValue)
+        case .restaurant:
+            return Color(AppThemeColor.center.rawValue)
+        case .event:
+            return Color(AppThemeColor.east.rawValue)
+        }
+    }
+}
+
+private struct PlaceCardImageView: View {
+    let imageURL: URL?
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(AppThemeColor.center.rawValue).opacity(0.65),
+                            Color(AppThemeColor.east.rawValue).opacity(0.45)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            if let imageURL {
+                AsyncImage(url: imageURL) { phase in
+                    switch phase {
+                    case let .success(image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        placeholder
+                    }
+                }
+            } else {
+                placeholder
+            }
+        }
+        .frame(height: 108)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(AppThemeColor.west.rawValue).opacity(0.8),
+                    Color(AppThemeColor.center.rawValue).opacity(0.6)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image(systemName: "photo")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.6))
+        }
     }
 }

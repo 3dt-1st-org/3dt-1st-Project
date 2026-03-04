@@ -11,11 +11,13 @@ import CoreLocation
 enum PlaceCategoryKind: String {
     case attraction
     case restaurant
+    case event
 
     var symbolName: String {
         switch self {
         case .attraction: return "building.columns.fill"
         case .restaurant: return "fork.knife"
+        case .event: return "calendar"
         }
     }
 
@@ -23,6 +25,8 @@ enum PlaceCategoryKind: String {
         switch value.lowercased() {
         case "restaurant":
             return .restaurant
+        case "event":
+            return .event
         case "attraction":
             return .attraction
         default:
@@ -46,6 +50,7 @@ struct PlaceRecommendation: Identifiable {
     let distanceMeters: Int?
     let addressKo: String
     let addressEn: String
+    let imageURL: URL?
 
     init(
         id: String = UUID().uuidString,
@@ -61,7 +66,8 @@ struct PlaceRecommendation: Identifiable {
         coordinate: CLLocationCoordinate2D,
         distanceMeters: Int? = nil,
         addressKo: String = "",
-        addressEn: String = ""
+        addressEn: String = "",
+        imageURL: URL? = nil
     ) {
         self.id = id
         self.nameKo = nameKo
@@ -77,6 +83,7 @@ struct PlaceRecommendation: Identifiable {
         self.distanceMeters = distanceMeters
         self.addressKo = addressKo
         self.addressEn = addressEn
+        self.imageURL = imageURL
     }
 
     func name(in language: AppLanguage) -> String {
