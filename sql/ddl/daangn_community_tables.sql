@@ -28,8 +28,7 @@ CREATE TABLE IF NOT EXISTS daangn.community_posts (
     dong_name TEXT NOT NULL,
     searched_keyword TEXT NOT NULL,
     post_created_at TIMESTAMPTZ,
-    crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    raw_payload JSONB
+    crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_community_posts_city_dong
@@ -37,6 +36,9 @@ ON daangn.community_posts (city_name, dong_name);
 
 CREATE INDEX IF NOT EXISTS idx_community_posts_crawled_at
 ON daangn.community_posts (crawled_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_community_posts_source_url
+ON daangn.community_posts (source_url);
 
 CREATE TABLE IF NOT EXISTS daangn.community_comments (
     id BIGSERIAL PRIMARY KEY,
@@ -46,8 +48,7 @@ CREATE TABLE IF NOT EXISTS daangn.community_comments (
     city_name TEXT NOT NULL,
     dong_name TEXT NOT NULL,
     commented_at TIMESTAMPTZ,
-    crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    raw_payload JSONB
+    crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_community_comments_post_key
@@ -86,5 +87,20 @@ ON daangn.crawl_tasks (run_id);
 
 CREATE INDEX IF NOT EXISTS idx_crawl_tasks_status
 ON daangn.crawl_tasks (status);
+
+CREATE TABLE IF NOT EXISTS daangn.place_mentions_weekly (
+    id BIGSERIAL PRIMARY KEY,
+    place_name TEXT NOT NULL,
+    category TEXT NOT NULL CHECK (category IN ('맛집', '명소', '행사')),
+    city_name TEXT NOT NULL,
+    mention_count INTEGER NOT NULL DEFAULT 0,
+    week_start DATE NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (place_name, category, city_name, week_start)
+);
+
+CREATE INDEX IF NOT EXISTS idx_place_mentions_weekly_city_week
+ON daangn.place_mentions_weekly (city_name, week_start DESC);
 
 COMMIT;

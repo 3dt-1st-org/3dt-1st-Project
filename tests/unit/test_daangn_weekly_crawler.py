@@ -4,10 +4,13 @@ import sys
 import types
 import unittest
 import base64
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 def _load_module():
+    original_modules = {name: sys.modules.get(name) for name in ("azure", "azure.functions", "psycopg", "requests", "bs4")}
+
     azure_mod = types.ModuleType("azure")
     azure_functions_mod = types.ModuleType("azure.functions")
 
@@ -83,25 +86,32 @@ def _load_module():
 
     bs4_mod.BeautifulSoup = DummyBeautifulSoup
 
-    sys.modules["azure"] = azure_mod
-    sys.modules["azure.functions"] = azure_functions_mod
-    sys.modules["psycopg"] = psycopg_mod
-    sys.modules["requests"] = requests_mod
-    sys.modules["bs4"] = bs4_mod
+    try:
+        sys.modules["azure"] = azure_mod
+        sys.modules["azure.functions"] = azure_functions_mod
+        sys.modules["psycopg"] = psycopg_mod
+        sys.modules["requests"] = requests_mod
+        sys.modules["bs4"] = bs4_mod
 
-    module_path = (
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "functions"
-        / "daangn_weekly_crawler"
-        / "function_app.py"
-    )
-    spec = importlib.util.spec_from_file_location("daangn_function_app", module_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec is not None
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+        module_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "functions"
+            / "daangn_weekly_crawler"
+            / "function_app.py"
+        )
+        spec = importlib.util.spec_from_file_location("daangn_function_app", module_path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec is not None
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for name, original in original_modules.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
 
 
 class TestDaangnWeeklyCrawler(unittest.TestCase):
@@ -149,6 +159,24 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
             ],
         )
 
+    def test_extract_post_links_from_inline_json_pattern(self):
+        html = """
+        <script>
+        {"items":[{"url":"\\/kr\\/community\\/articles\\/12345"},{"url":"\\/kr\\/community\\/s\\/?in=test&search=x"}]}
+        </script>
+        """
+        links = self.module._extract_post_links(html)
+        self.assertIn("https://www.daangn.com/kr/community/articles/12345", links)
+
+    def test_extract_post_links_from_absolute_inline_url(self):
+        html = """
+        <script>
+        {"items":[{"url":"https:\\/\\/www.daangn.com\\/kr\\/community\\/abc-post-123"}]}
+        </script>
+        """
+        links = self.module._extract_post_links(html)
+        self.assertIn("https://www.daangn.com/kr/community/abc-post-123", links)
+
     def test_extract_post_payload_returns_title_body(self):
         html = "<html><body><h1>맛집 추천</h1><div data-qa-id='article-content'>망포 먹자골목 어풍당당 추천</div></body></html>"
         title, body, post_created_at, comments = self.module._extract_post_payload(html)
@@ -183,6 +211,66 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
         payload = self.module._decode_queue_body(msg)
         self.assertEqual(payload["task_id"], "abc")
         self.assertEqual(payload["run_id"], "def")
+
+    def test_extract_places_from_text(self):
+        text = "망포 먹자골목에 어풍당당 이라는 횟집있어요"
+        places = self.module._extract_places_from_text(text)
+        self.assertIn("어풍당당", places)
+
+    def test_categorize_text(self):
+        self.assertEqual(self.module._categorize_text("오늘 축제 다녀왔어요", ""), "행사")
+        self.assertEqual(self.module._categorize_text("망포 맛집 추천해요", ""), "맛집")
+        self.assertEqual(self.module._categorize_text("동네 산책 명소", ""), "명소")
+
+    def test_finalize_mention_category_overrides_general_place(self):
+        category = self.module._finalize_mention_category(
+            place_name="송탄역",
+            category="맛집",
+            source_text="송탄역 근처 괜찮아요",
+            category_hint="맛집",
+        )
+        self.assertEqual(category, "명소")
+
+    def test_finalize_mention_category_keeps_restaurant(self):
+        category = self.module._finalize_mention_category(
+            place_name="어풍당당",
+            category="맛집",
+            source_text="망포 맛집 추천",
+            category_hint="맛집",
+        )
+        self.assertEqual(category, "맛집")
+
+    def test_non_recommendable_entity_filter(self):
+        self.assertTrue(self.module._is_non_recommendable_entity("송탄역"))
+        self.assertTrue(self.module._is_non_recommendable_entity("경기 도청"))
+        self.assertTrue(self.module._is_non_recommendable_entity("광교1동"))
+        self.assertTrue(self.module._is_non_recommendable_entity("오뚜기 진짬뽕컵밥"))
+        self.assertFalse(self.module._is_non_recommendable_entity("어풍당당"))
+
+    def test_get_week_start_utc(self):
+        now = datetime(2026, 3, 4, 12, 0, 0, tzinfo=timezone.utc)
+        week_start = self.module._get_week_start_utc(now)
+        self.assertEqual(str(week_start), "2026-03-02")
+
+    def test_parse_post_created_at_iso(self):
+        parsed = self.module._parse_post_created_at("2025-01-01T00:00:00.000+09:00")
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.tzinfo, timezone.utc)
+        self.assertEqual(parsed.year, 2024)
+        self.assertEqual(parsed.month, 12)
+
+    def test_is_post_in_crawl_window(self):
+        self.assertTrue(self.module._is_post_in_crawl_window("2025-01-01T00:00:00+00:00"))
+        self.assertFalse(self.module._is_post_in_crawl_window("2024-12-31T23:59:59+00:00"))
+        self.assertFalse(self.module._is_post_in_crawl_window(None))
+
+    def test_aggregate_place_mentions(self):
+        rows = [
+            self.module.CommunityText(city_name="수원시", text="어풍당당 맛집 추천", category_hint="맛집"),
+            self.module.CommunityText(city_name="수원시", text="어풍당당 맛집", category_hint=""),
+        ]
+        counter = self.module._aggregate_place_mentions_rule_based(rows)
+        self.assertEqual(counter[("어풍당당", "맛집", "수원시")], 2)
 
 
 if __name__ == "__main__":

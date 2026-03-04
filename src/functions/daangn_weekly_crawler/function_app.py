@@ -5,9 +5,11 @@ import logging
 import os
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
+from urllib.parse import quote_plus, urlparse
 
 import azure.functions as func
 import psycopg
@@ -19,8 +21,20 @@ APP = func.FunctionApp()
 
 DEFAULT_SCHEDULE = os.getenv("TIMER_CRON", "0 0 3 * * 1")
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
-REQUEST_SLEEP_SECONDS = float(os.getenv("REQUEST_SLEEP_SECONDS", "0.3"))
+REQUEST_SLEEP_SECONDS = float(os.getenv("REQUEST_SLEEP_SECONDS", "0.2"))
+REQUEST_RETRY_COUNT = int(os.getenv("REQUEST_RETRY_COUNT", "3"))
+REQUEST_RETRY_BASE_SECONDS = float(os.getenv("REQUEST_RETRY_BASE_SECONDS", "0.6"))
+SEARCH_URL_LIMIT = int(os.getenv("SEARCH_URL_LIMIT", "4"))
+MAX_DONGS_PER_CITY = int(os.getenv("MAX_DONGS_PER_CITY", "5"))
+CRAWL_MIN_DATE_RAW = os.getenv("DAANGN_CRAWL_MIN_DATE", "2025-01-01").strip()
+RUN_STALE_MINUTES = int(os.getenv("RUN_STALE_MINUTES", "90"))
 TASK_QUEUE_NAME = os.getenv("DAANGN_TASK_QUEUE", "daangn-crawl-tasks")
+MENTION_QUEUE_NAME = os.getenv("DAANGN_MENTION_QUEUE", "daangn-mention-tasks")
+MENTION_AGGREGATION_CRON = os.getenv("MENTION_AGGREGATION_CRON", "0 30 3 * * 1")
+MENTION_LOOKBACK_DAYS = int(os.getenv("MENTION_LOOKBACK_DAYS", "0"))
+MENTION_LLM_BATCH_SIZE = int(os.getenv("MENTION_LLM_BATCH_SIZE", "20"))
+MENTION_LLM_MAX_ROWS = int(os.getenv("MENTION_LLM_MAX_ROWS", "0"))
+MENTION_LLM_TEXT_LIMIT = int(os.getenv("MENTION_LLM_TEXT_LIMIT", "280"))
 NOISE_EXACT_MATCHES = {
     ",",
     ".",
@@ -36,6 +50,47 @@ NOISE_EXACT_MATCHES = {
     "ㅜ",
     "ㅜㅜ",
 }
+PLACE_SUFFIX_PATTERN = re.compile(
+    r"([가-힣A-Za-z0-9][가-힣A-Za-z0-9\s]{1,28})\s*(?:이라는|라는|인)?\s*(맛집|식당|카페|횟집|명소|축제|행사)"
+)
+PLACE_NAME_PATTERN = re.compile(
+    r"(?:추천|가볼만|방문|다녀옴|다녀왔어요|좋아요)\s*(?:장소|곳)?\s*[:\-]?\s*([가-힣A-Za-z0-9][가-힣A-Za-z0-9\s]{1,28})"
+)
+CATEGORY_RESTAURANT_HINTS = ("맛집", "식당", "카페", "횟집", "음식점", "먹자", "점심", "저녁")
+CATEGORY_EVENT_HINTS = ("행사", "축제", "박람회", "공연", "페스티벌", "플리마켓", "전시")
+PLACE_NOISE_TOKENS = {
+    "맛집",
+    "명소",
+    "행사",
+    "추천",
+    "동네생활",
+    "게시글",
+    "질문",
+    "댓글",
+    "갱쥐",
+    "강아지",
+    "공원",
+    "헌옷 수거",
+}
+GENERAL_PLACE_EXACTS = {"송탄역", "복창육교", "북창육교"}
+GENERAL_PLACE_SUFFIXES = ("역", "육교", "정류장", "터미널", "교차로", "사거리", "나들목")
+NON_RECOMMENDABLE_EXACTS = {
+    "경기 도청",
+    "광교1동",
+    "수지구청역",
+    "성대역",
+    "송탄역",
+    "용인 둔전",
+    "오뚜기 진짬뽕컵밥",
+}
+NON_RECOMMENDABLE_SUFFIXES = (
+    "역",
+    "육교",
+    "구청",
+    "도청",
+    "시청",
+)
+PRODUCT_HINT_TOKENS = ("컵밥", "라면", "과자", "음료", "식품", "제품")
 
 
 def _utc_now() -> datetime:
@@ -44,6 +99,15 @@ def _utc_now() -> datetime:
 
 def _elapsed_ms(started_at: datetime) -> int:
     return int((_utc_now() - started_at).total_seconds() * 1000)
+
+
+def _crawl_min_datetime_utc() -> datetime:
+    raw = CRAWL_MIN_DATE_RAW
+    try:
+        parsed_date = date.fromisoformat(raw)
+    except ValueError as exc:
+        raise RuntimeError("DAANGN_CRAWL_MIN_DATE must be YYYY-MM-DD format.") from exc
+    return datetime(parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -61,6 +125,13 @@ class CrawlTask:
     dong_name: str
     dong_slug: str
     keyword: str
+
+
+@dataclass(frozen=True)
+class CommunityText:
+    city_name: str
+    text: str
+    category_hint: str
 
 
 def _normalize_url(url: str) -> str:
@@ -87,15 +158,323 @@ def _get_keywords() -> list[str]:
     return [token.strip() for token in raw.split(",") if token.strip()]
 
 
+def _is_truthy(raw: Optional[str]) -> bool:
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _is_llm_enabled() -> bool:
+    return _is_truthy(os.getenv("MENTION_USE_LLM", "1"))
+
+
+def _azure_openai_config() -> Optional[dict[str, str]]:
+    endpoint = (os.getenv("AZURE_OPENAI_ENDPOINT") or "").strip()
+    api_key = (os.getenv("AZURE_OPENAI_KEY") or "").strip()
+    deployment = (
+        os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+        or os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        or ""
+    ).strip()
+    api_version = (os.getenv("AZURE_OPENAI_VERSION") or "2024-02-15-preview").strip()
+    if not endpoint or not api_key or not deployment:
+        return None
+    return {
+        "endpoint": endpoint.rstrip("/"),
+        "api_key": api_key,
+        "deployment": deployment,
+        "api_version": api_version,
+    }
+
+
+def _normalize_place_name(raw: str) -> str:
+    text = re.sub(r"\s+", " ", raw).strip()
+    text = re.sub(r"[\"'`<>\\[\\](){}]", "", text)
+    text = re.sub(r"^.*(?:에|에서|근처|부근|쪽)\s+", "", text)
+    text = re.sub(r"\s*(이라는|라는|인)$", "", text).strip()
+    text = re.sub(r"(입니다|이에요|네요|요)$", "", text).strip()
+    return text
+
+
+def _is_valid_place_name(name: str) -> bool:
+    if len(name) < 2 or len(name) > 30:
+        return False
+    if name in PLACE_NOISE_TOKENS:
+        return False
+    if re.fullmatch(r"[0-9]+", name):
+        return False
+    if re.search(r"(구합니다|문의|초대|모임|좋아요 수|댓글 수)", name):
+        return False
+    if len(name) <= 3 and re.search(r"[시군구동읍면리]$", name):
+        return False
+    return True
+
+
+def _categorize_text(text: str, category_hint: str) -> str:
+    merged = f"{category_hint} {text}"
+    if any(keyword in merged for keyword in CATEGORY_EVENT_HINTS):
+        return "행사"
+    if any(keyword in merged for keyword in CATEGORY_RESTAURANT_HINTS):
+        return "맛집"
+    return "명소"
+
+
+def _is_general_place(name: str) -> bool:
+    if name in GENERAL_PLACE_EXACTS:
+        return True
+    return any(name.endswith(suffix) for suffix in GENERAL_PLACE_SUFFIXES)
+
+
+def _is_non_recommendable_entity(name: str) -> bool:
+    if name in NON_RECOMMENDABLE_EXACTS:
+        return True
+    if any(token in name for token in PRODUCT_HINT_TOKENS):
+        return True
+    # Keep this strict to avoid dropping valid venue names.
+    if len(name) >= 2 and any(name.endswith(suffix) for suffix in NON_RECOMMENDABLE_SUFFIXES):
+        return True
+    # Exclude only when it looks like a standalone administrative area token.
+    # e.g., 광교1동, 서현동, 둔전읍
+    if re.fullmatch(r"[가-힣0-9]{2,8}(동|읍|면|리)", name):
+        return True
+    return False
+
+
+def _finalize_mention_category(
+    place_name: str,
+    category: str,
+    source_text: str,
+    category_hint: str,
+) -> str:
+    normalized = category if category in {"맛집", "명소", "행사"} else _categorize_text(source_text, category_hint)
+    merged = f"{category_hint} {source_text}"
+    if any(keyword in merged for keyword in CATEGORY_EVENT_HINTS):
+        return "행사"
+    if _is_general_place(place_name) and normalized == "맛집":
+        return "명소"
+    return normalized
+
+
+def _extract_places_from_text(text: str) -> list[str]:
+    candidates: list[str] = []
+    for match in PLACE_SUFFIX_PATTERN.finditer(text):
+        candidates.append(match.group(1))
+    for match in PLACE_NAME_PATTERN.finditer(text):
+        candidates.append(match.group(1))
+    for match in re.finditer(r"[가-힣A-Za-z0-9]{2,20}\s*에\s*있는\s*([가-힣A-Za-z0-9]{2,20})", text):
+        candidates.append(match.group(1))
+
+    if any(token in text for token in ("맛있", "추천")):
+        for part in re.split(r"[,!/·\n]+", text):
+            token = _normalize_place_name(part)
+            if 2 <= len(token) <= 20 and " " not in token:
+                candidates.append(token)
+
+    stripped = _normalize_place_name(text)
+    if 2 <= len(stripped) <= 20 and " " not in stripped and "http" not in stripped.lower():
+        candidates.append(stripped)
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        name = _normalize_place_name(candidate)
+        if name.lower() in {"저기", "여기", "거기", "이곳", "그곳"}:
+            continue
+        if any(token in name for token in ("초대", "모임", "구합니다", "문의", "동네생활", "게시글")):
+            continue
+        if not _is_valid_place_name(name):
+            continue
+        if name in seen:
+            continue
+        seen.add(name)
+        normalized.append(name)
+    return normalized
+
+
+def _contains_entity_hint(text: str, category_hint: str) -> bool:
+    merged = f"{category_hint} {text}"
+    if any(keyword in merged for keyword in CATEGORY_RESTAURANT_HINTS + CATEGORY_EVENT_HINTS):
+        return True
+    return PLACE_SUFFIX_PATTERN.search(text) is not None or PLACE_NAME_PATTERN.search(text) is not None
+
+
+def _truncate_text(raw: str, limit: int) -> str:
+    text = re.sub(r"\s+", " ", raw).strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit]
+
+
+def _parse_llm_json(raw: str) -> dict[str, Any]:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text.replace("json\n", "", 1).strip()
+    return json.loads(text)
+
+
+def _build_llm_payload(rows: list[CommunityText]) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for idx, row in enumerate(rows, start=1):
+        payload.append(
+            {
+                "id": str(idx),
+                "city_name": row.city_name,
+                "category_hint": row.category_hint,
+                "text": _truncate_text(row.text, MENTION_LLM_TEXT_LIMIT),
+            }
+        )
+    return payload
+
+
+def _extract_mentions_with_llm(rows: list[CommunityText], config: dict[str, str]) -> Counter[tuple[str, str, str]]:
+    mention_counter: Counter[tuple[str, str, str]] = Counter()
+    batch_size = max(MENTION_LLM_BATCH_SIZE, 1)
+
+    for start_idx in range(0, len(rows), batch_size):
+        batch_rows = rows[start_idx : start_idx + batch_size]
+        payload_rows = _build_llm_payload(batch_rows)
+        prompt = {
+            "instruction": "각 text에서 실제로 언급된 추천 가능한 장소/행사명만 추출하세요. 추측 금지.",
+            "category_rule": "카테고리는 반드시 맛집, 명소, 행사 중 하나. 역/육교/행정기관/행정동/식품명은 제외",
+            "output_schema": {
+                "results": [
+                    {
+                        "id": "string",
+                        "mentions": [
+                            {"place_name": "string", "category": "맛집|명소|행사"}
+                        ],
+                    }
+                ]
+            },
+            "rows": payload_rows,
+        }
+
+        url = (
+            f"{config['endpoint']}/openai/deployments/{config['deployment']}/chat/completions"
+            f"?api-version={config['api_version']}"
+        )
+        try:
+            response = requests.post(
+                url,
+                headers={"api-key": config["api_key"], "Content-Type": "application/json"},
+                json={
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "너는 한국어 지역 커뮤니티 데이터에서 장소명을 구조화 추출하는 도우미다.",
+                        },
+                        {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                    ],
+                    "temperature": 0,
+                    "max_tokens": 1400,
+                },
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            body = response.json()
+            content = body["choices"][0]["message"]["content"]
+            parsed = _parse_llm_json(content)
+        except Exception:
+            LOGGER.exception("mention_stage=llm_batch_failed start=%d size=%d", start_idx, len(batch_rows))
+            parsed = {"results": []}
+
+        id_to_city = {str(i + 1): row.city_name for i, row in enumerate(batch_rows)}
+        id_to_row = {str(i + 1): row for i, row in enumerate(batch_rows)}
+        for item in parsed.get("results", []):
+            row_id = str(item.get("id") or "")
+            city_name = id_to_city.get(row_id)
+            source_row = id_to_row.get(row_id)
+            if not city_name or source_row is None:
+                continue
+            mentions = item.get("mentions") or []
+            if not isinstance(mentions, list):
+                continue
+            for mention in mentions:
+                place_name = _normalize_place_name(str(mention.get("place_name") or ""))
+                if not _is_valid_place_name(place_name):
+                    continue
+                if _is_non_recommendable_entity(place_name):
+                    continue
+                category = _finalize_mention_category(
+                    place_name=place_name,
+                    category=str(mention.get("category") or "").strip(),
+                    source_text=source_row.text,
+                    category_hint=source_row.category_hint,
+                )
+                mention_counter[(place_name, category, city_name)] += 1
+
+    return mention_counter
+
+
+def _request_with_retry(session: requests.Session, url: str, context: str) -> Any:
+    retryable_statuses = {429, 500, 502, 503, 504}
+    max_attempts = max(1, REQUEST_RETRY_COUNT)
+
+    for attempt in range(1, max_attempts + 1):
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+        status = int(response.status_code)
+        if status < 400:
+            return response
+
+        retry_after = response.headers.get("Retry-After", "").strip()
+        wait_seconds = REQUEST_RETRY_BASE_SECONDS * attempt
+        if retry_after.isdigit():
+            wait_seconds = max(wait_seconds, float(retry_after))
+        wait_seconds = min(wait_seconds, 10.0)
+
+        if status in retryable_statuses and attempt < max_attempts:
+            LOGGER.warning(
+                "crawl_stage=http_retry context=%s status=%d attempt=%d/%d wait=%.2f url=%s",
+                context,
+                status,
+                attempt,
+                max_attempts,
+                wait_seconds,
+                url,
+            )
+            time.sleep(wait_seconds)
+            continue
+
+        response.raise_for_status()
+
+    raise RuntimeError(f"Failed to fetch url after retries. context={context} url={url}")
+
+
 def _request_html(session: requests.Session, url: str) -> str:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-    response.raise_for_status()
+    response = _request_with_retry(session, url, "post")
     return response.content.decode("utf-8", errors="replace")
+
+
+def _search_page_diagnostics(html: str) -> dict[str, Any]:
+    lowered = html.lower()
+    return {
+        "html_len": len(html),
+        "community_count": html.count("/kr/community/"),
+        "escaped_community_count": html.count("\\/kr\\/community\\/"),
+        "is_bot_challenge": int(
+            any(
+                marker in lowered
+                for marker in ("captcha", "cf-challenge", "robot", "access denied", "verify you are human")
+            )
+        ),
+    }
 
 
 def _extract_post_links(search_html: str) -> list[str]:
     soup = BeautifulSoup(search_html, "html.parser")
     links: set[str] = set()
+
+    def is_valid_post_url(url: str) -> bool:
+        parsed = urlparse(url)
+        path = parsed.path.rstrip("/")
+        if path == "/kr/community":
+            return False
+        if not path.startswith("/kr/community/"):
+            return False
+        if path == "/kr/community/s" or path.startswith("/kr/community/s/"):
+            return False
+        return True
 
     for anchor in soup.select("a[href]"):
         href = anchor.get("href", "")
@@ -111,9 +490,66 @@ def _extract_post_links(search_html: str) -> list[str]:
         else:
             url = f"https://www.daangn.com{href}"
 
-        links.add(_normalize_url(url))
+        normalized = _normalize_url(url)
+        if is_valid_post_url(normalized):
+            links.add(normalized)
+
+    # Fallback: some pages render links in inline JSON instead of anchor tags.
+    normalized_html = search_html.replace("\\/", "/")
+    inline_patterns = [
+        r"https?://www\.daangn\.com/kr/community/[^\"'\s,]+",
+        r'(?:https?:)?/kr/community/[^"\'\s,]+',
+    ]
+    for pattern in inline_patterns:
+        for matched in re.finditer(pattern, normalized_html):
+            raw = matched.group(0)
+            if raw.startswith("//"):
+                url = f"https:{raw}"
+            elif raw.startswith("http"):
+                url = raw
+            elif raw.startswith("/kr/community/"):
+                url = f"https://www.daangn.com{raw}"
+            else:
+                continue
+
+            normalized = _normalize_url(url)
+            if is_valid_post_url(normalized):
+                links.add(normalized)
 
     return sorted(links)
+
+
+def _build_search_urls(target: TargetDong, keyword: str) -> list[str]:
+    city = quote_plus(target.city_name)
+    city_short = quote_plus(target.city_name[:-1] if target.city_name.endswith("시") else target.city_name)
+    dong = quote_plus(target.dong_name)
+    kw = quote_plus(keyword)
+    candidates = [
+        f"https://www.daangn.com/kr/community/s/?in={target.dong_slug}&search={kw}",
+        f"https://www.daangn.com/kr/community/s/?in={target.dong_slug}&search={dong}+{kw}",
+        f"https://www.daangn.com/kr/community/s/?search={city}+{dong}+{kw}",
+        f"https://www.daangn.com/kr/community/s/?search={city}+{kw}",
+        f"https://www.daangn.com/kr/community/s/?search={city}+{dong}",
+        f"https://www.daangn.com/kr/community/s/?search={dong}+{kw}",
+        f"https://www.daangn.com/kr/community/s/?search={city}+{kw}+추천",
+        f"https://www.daangn.com/kr/community/s/?search={city}+맛집+추천",
+        f"https://www.daangn.com/kr/community/s/?search={city}+명소+추천",
+        f"https://www.daangn.com/kr/community/s/?search={city}+행사",
+        f"https://www.daangn.com/kr/community/s/?search={city_short}+{kw}",
+        f"https://www.daangn.com/kr/community/s/?search={city_short}+맛집",
+        f"https://www.daangn.com/kr/community/s/?search={city_short}+명소",
+        f"https://www.daangn.com/kr/community/s/?search={city_short}+행사",
+    ]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for url in candidates:
+        if url in seen:
+            continue
+        seen.add(url)
+        deduped.append(url)
+
+    limit = max(1, SEARCH_URL_LIMIT)
+    return deduped[:limit]
 
 
 def _extract_text_by_selectors(soup: BeautifulSoup, selectors: Iterable[str]) -> str:
@@ -186,6 +622,35 @@ def _extract_comments_from_inline_json(post_html: str) -> list[dict[str, Any]]:
     return flatten(comments_data)
 
 
+def _parse_post_created_at(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        match = re.search(r"(\d{4})-(\d{2})-(\d{2})", raw)
+        if not match:
+            return None
+        year, month, day = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        parsed = datetime(year, month, day, tzinfo=timezone.utc)
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _is_post_in_crawl_window(post_created_at: Optional[str]) -> bool:
+    parsed = _parse_post_created_at(post_created_at)
+    if parsed is None:
+        return False
+    return parsed >= _crawl_min_datetime_utc()
+
+
 def _extract_post_payload(post_html: str) -> tuple[str, str, Optional[str], list[dict[str, Any]]]:
     pattern = re.compile(
         r'"title":"((?:\\.|[^"\\])*)","content":"((?:\\.|[^"\\])*)","status":"NORMAL","createdAt":"([^"]+)"',
@@ -238,7 +703,19 @@ def _load_target_dongs(conn: psycopg.Connection) -> list[TargetDong]:
         )
         rows = cur.fetchall()
 
-    return [TargetDong(city_name=row[0], dong_name=row[1], dong_slug=row[2]) for row in rows]
+    targets = [TargetDong(city_name=row[0], dong_name=row[1], dong_slug=row[2]) for row in rows]
+    limit = MAX_DONGS_PER_CITY
+    if limit <= 0:
+        return targets
+
+    by_city: dict[str, list[TargetDong]] = {}
+    for target in targets:
+        by_city.setdefault(target.city_name, []).append(target)
+
+    trimmed: list[TargetDong] = []
+    for city in sorted(by_city):
+        trimmed.extend(by_city[city][:limit])
+    return trimmed
 
 
 def _insert_run_start(conn: psycopg.Connection) -> str:
@@ -253,6 +730,78 @@ def _insert_run_start(conn: psycopg.Connection) -> str:
         run_id = cur.fetchone()[0]
     conn.commit()
     return str(run_id)
+
+
+def _mark_stale_running_runs(conn: psycopg.Connection, stale_minutes: int) -> tuple[int, int]:
+    stale_minutes = max(stale_minutes, 10)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE daangn.crawl_tasks
+            SET status = 'failed',
+                finished_at = NOW(),
+                updated_at = NOW(),
+                error_message = 'reset by stale run guard'
+            WHERE run_id IN (
+                SELECT run_id
+                FROM daangn.crawl_runs
+                WHERE status = 'running'
+                  AND started_at < NOW() - (%s::int * INTERVAL '1 minute')
+            )
+              AND status IN ('pending', 'running')
+            """,
+            (stale_minutes,),
+        )
+        updated_tasks = int(cur.rowcount or 0)
+
+        cur.execute(
+            """
+            UPDATE daangn.crawl_runs
+            SET status = 'failed',
+                finished_at = NOW(),
+                error_message = COALESCE(error_message, 'reset by stale run guard')
+            WHERE status = 'running'
+              AND started_at < NOW() - (%s::int * INTERVAL '1 minute')
+            """,
+            (stale_minutes,),
+        )
+        updated_runs = int(cur.rowcount or 0)
+
+    conn.commit()
+    return updated_tasks, updated_runs
+
+
+def _find_running_run_id(conn: psycopg.Connection) -> Optional[str]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT run_id::text
+            FROM daangn.crawl_runs
+            WHERE status = 'running'
+            ORDER BY started_at DESC
+            LIMIT 1
+            """
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    return str(row[0])
+
+
+def _load_run_status(conn: psycopg.Connection, run_id: str) -> Optional[str]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT status
+            FROM daangn.crawl_runs
+            WHERE run_id = %s::uuid
+            """,
+            (run_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    return str(row[0])
 
 
 def _finish_run(
@@ -351,7 +900,7 @@ def _load_task_status(conn: psycopg.Connection, task_id: str) -> Optional[str]:
     return str(row[0])
 
 
-def _mark_task_running(conn: psycopg.Connection, task_id: str) -> None:
+def _mark_task_running(conn: psycopg.Connection, task_id: str) -> bool:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -361,10 +910,14 @@ def _mark_task_running(conn: psycopg.Connection, task_id: str) -> None:
                 started_at = NOW(),
                 updated_at = NOW()
             WHERE task_id = %s::uuid
+              AND status = 'pending'
+            RETURNING task_id
             """,
             (task_id,),
         )
+        updated_row = cur.fetchone()
     conn.commit()
+    return updated_row is not None
 
 
 def _mark_task_success(conn: psycopg.Connection, task_id: str, post_count: int, comment_count: int) -> None:
@@ -401,8 +954,27 @@ def _mark_task_failed(conn: psycopg.Connection, task_id: str, error_message: str
     conn.commit()
 
 
-def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> None:
+def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> tuple[bool, Optional[str]]:
+    finalized = False
+    finalized_status: Optional[str] = None
     with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT status
+            FROM daangn.crawl_runs
+            WHERE run_id = %s::uuid
+            """,
+            (run_id,),
+        )
+        current = cur.fetchone()
+        if not current:
+            conn.commit()
+            return finalized, finalized_status
+        current_status = str(current[0] or "")
+        if current_status in {"success", "failed"}:
+            conn.commit()
+            return finalized, current_status
+
         cur.execute(
             """
             SELECT
@@ -434,9 +1006,13 @@ def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> None:
                     comment_count = 0,
                     error_message = NULL
                 WHERE run_id = %s::uuid
+                  AND finished_at IS NULL
                 """,
                 (run_id,),
             )
+            finalized = cur.rowcount == 1
+            if finalized:
+                finalized_status = "success"
         elif finished_tasks >= total_tasks:
             status = "failed" if failed_tasks > 0 else "success"
             error_message = f"{failed_tasks} task(s) failed" if failed_tasks > 0 else None
@@ -449,9 +1025,13 @@ def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> None:
                     comment_count = %s,
                     error_message = %s
                 WHERE run_id = %s::uuid
+                  AND finished_at IS NULL
                 """,
                 (status, post_count, comment_count, error_message, run_id),
             )
+            finalized = cur.rowcount == 1
+            if finalized:
+                finalized_status = status
         else:
             cur.execute(
                 """
@@ -464,6 +1044,7 @@ def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> None:
                 (post_count, comment_count, run_id),
             )
     conn.commit()
+    return finalized, finalized_status
 
 
 def _enqueue_task_message(task_id: str, run_id: str) -> None:
@@ -485,6 +1066,24 @@ def _enqueue_task_message(task_id: str, run_id: str) -> None:
     queue_client.send_message(encoded_payload)
 
 
+def _enqueue_mention_message(run_id: str) -> None:
+    connection_string = os.getenv("AzureWebJobsStorage")
+    if not connection_string:
+        raise RuntimeError("AzureWebJobsStorage is required to enqueue mention tasks.")
+
+    from azure.storage.queue import QueueClient  # type: ignore
+
+    queue_client = QueueClient.from_connection_string(connection_string, MENTION_QUEUE_NAME)
+    try:
+        queue_client.create_queue()
+    except Exception:
+        pass
+
+    raw_payload = json.dumps({"run_id": run_id})
+    encoded_payload = base64.b64encode(raw_payload.encode("utf-8")).decode("utf-8")
+    queue_client.send_message(encoded_payload)
+
+
 def _decode_queue_body(message: func.QueueMessage) -> dict[str, Any]:
     payload = message.get_body()
     if isinstance(payload, bytes):
@@ -499,6 +1098,162 @@ def _decode_queue_body(message: func.QueueMessage) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("Queue payload must be a JSON object.")
     return data
+
+
+def _get_week_start_utc(now: datetime) -> date:
+    current = now.date()
+    return current - timedelta(days=current.weekday())
+
+
+def _load_recent_community_texts(conn: psycopg.Connection, lookback_days: int) -> list[CommunityText]:
+    with conn.cursor() as cur:
+        if lookback_days <= 0:
+            cutoff_at = _crawl_min_datetime_utc()
+            cur.execute(
+                """
+                SELECT city_name, title || ' ' || COALESCE(body, ''), searched_keyword
+                FROM daangn.community_posts
+                WHERE COALESCE(post_created_at, crawled_at) >= %s
+
+                UNION ALL
+
+                SELECT city_name, comment_body, ''
+                FROM daangn.community_comments
+                WHERE COALESCE(commented_at, crawled_at) >= %s
+                """,
+                (cutoff_at, cutoff_at),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT city_name, title || ' ' || COALESCE(body, ''), searched_keyword
+                FROM daangn.community_posts
+                WHERE COALESCE(post_created_at, crawled_at) >= NOW() - (%s::int * INTERVAL '1 day')
+
+                UNION ALL
+
+                SELECT city_name, comment_body, ''
+                FROM daangn.community_comments
+                WHERE COALESCE(commented_at, crawled_at) >= NOW() - (%s::int * INTERVAL '1 day')
+                """,
+                (lookback_days, lookback_days),
+            )
+        rows = cur.fetchall()
+
+    return [
+        CommunityText(
+            city_name=str(row[0]),
+            text=str(row[1] or "").strip(),
+            category_hint=str(row[2] or "").strip(),
+        )
+        for row in rows
+        if str(row[1] or "").strip()
+    ]
+
+
+def _aggregate_place_mentions_rule_based(
+    rows: list[CommunityText],
+) -> Counter[tuple[str, str, str]]:
+    counter: Counter[tuple[str, str, str]] = Counter()
+    for row in rows:
+        places = _extract_places_from_text(row.text)
+        for place_name in places:
+            if _is_non_recommendable_entity(place_name):
+                continue
+            category = _finalize_mention_category(
+                place_name=place_name,
+                category=_categorize_text(row.text, row.category_hint),
+                source_text=row.text,
+                category_hint=row.category_hint,
+            )
+            counter[(place_name, category, row.city_name)] += 1
+    return counter
+
+
+def _upsert_place_mentions_weekly(
+    conn: psycopg.Connection,
+    week_start: date,
+    mention_counter: Counter[tuple[str, str, str]],
+) -> int:
+    affected = 0
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM daangn.place_mentions_weekly
+            WHERE week_start = %s
+            """,
+            (week_start,),
+        )
+        for (place_name, category, city_name), mention_count in mention_counter.items():
+            cur.execute(
+                """
+                INSERT INTO daangn.place_mentions_weekly (
+                    place_name,
+                    category,
+                    city_name,
+                    mention_count,
+                    week_start
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (place_name, category, city_name, week_start)
+                DO UPDATE SET
+                    mention_count = EXCLUDED.mention_count,
+                    updated_at = NOW()
+                """,
+                (place_name, category, city_name, int(mention_count), week_start),
+            )
+            affected += cur.rowcount
+    conn.commit()
+    return affected
+
+
+def _run_place_mentions_aggregation(trigger_label: str) -> None:
+    started_at = _utc_now()
+    db_dsn = os.getenv("DB_DSN")
+    if not db_dsn:
+        raise RuntimeError("DB_DSN is required.")
+
+    lookback_days = MENTION_LOOKBACK_DAYS
+    week_start = _get_week_start_utc(started_at)
+    LOGGER.info(
+        "mention_stage=start trigger=%s week_start=%s lookback_days=%d",
+        trigger_label,
+        week_start.isoformat(),
+        lookback_days,
+    )
+
+    with psycopg.connect(db_dsn) as conn:
+        rows = _load_recent_community_texts(conn, lookback_days)
+        candidate_rows = rows
+        if MENTION_LLM_MAX_ROWS > 0:
+            candidate_rows = candidate_rows[:MENTION_LLM_MAX_ROWS]
+
+        mention_counter: Counter[tuple[str, str, str]]
+        llm_used = False
+        llm_config = _azure_openai_config() if _is_llm_enabled() else None
+        if llm_config and candidate_rows:
+            mention_counter = _extract_mentions_with_llm(candidate_rows, llm_config)
+            llm_used = True
+        else:
+            mention_counter = Counter()
+
+        if not mention_counter:
+            mention_counter = _aggregate_place_mentions_rule_based(candidate_rows)
+
+        affected = _upsert_place_mentions_weekly(conn, week_start, mention_counter)
+
+    LOGGER.info(
+        "mention_stage=done trigger=%s week_start=%s source_rows=%d candidate_rows=%d entities=%d affected_rows=%d llm_used=%s elapsed_ms=%d",
+        trigger_label,
+        week_start.isoformat(),
+        len(rows),
+        len(candidate_rows),
+        len(mention_counter),
+        affected,
+        llm_used,
+        _elapsed_ms(started_at),
+    )
+
 
 def _upsert_post(
     conn: psycopg.Connection,
@@ -522,10 +1277,9 @@ def _upsert_post(
                 city_name,
                 dong_name,
                 searched_keyword,
-                post_created_at,
-                raw_payload
+                post_created_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (post_key)
             DO UPDATE SET
                 title = EXCLUDED.title,
@@ -567,10 +1321,9 @@ def _insert_comments(
                     comment_body,
                     city_name,
                     dong_name,
-                    commented_at,
-                    raw_payload
+                    commented_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, NULL)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (comment_key) DO NOTHING
                 """,
                 (comment_key, post_key, comment_text, city_name, dong_name, commented_at),
@@ -593,32 +1346,61 @@ def _crawl_target_keyword(
             "User-Agent": os.getenv(
                 "DAANGN_USER_AGENT",
                 "Mozilla/5.0 (compatible; LocalLinkBot/1.0; +https://example.com)",
-            )
+            ),
+            "Accept-Language": os.getenv("DAANGN_ACCEPT_LANGUAGE", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer": "https://www.daangn.com/kr/community/",
         }
-    )
-
-    search_url = (
-        "https://www.daangn.com/kr/community/s/"
-        f"?in={target.dong_slug}&search={keyword}"
     )
 
     total_posts = 0
     total_comments = 0
 
-    try:
-        search_html = _request_html(session, search_url)
-    except Exception as exc:
-        LOGGER.exception(
-            "crawl_stage=search_failed city=%s dong=%s keyword=%s url=%s elapsed_ms=%d",
+    post_links: list[str] = []
+    for search_url in _build_search_urls(target, keyword):
+        try:
+            response = _request_with_retry(session, search_url, "search")
+            search_html = response.content.decode("utf-8", errors="replace")
+        except Exception:
+            LOGGER.exception(
+                "crawl_stage=search_failed city=%s dong=%s keyword=%s url=%s elapsed_ms=%d",
+                target.city_name,
+                target.dong_name,
+                keyword,
+                search_url,
+                _elapsed_ms(stage_started_at),
+            )
+            continue
+
+        post_links = _extract_post_links(search_html)
+        if post_links:
+            LOGGER.info(
+                "crawl_stage=search_selected city=%s dong=%s keyword=%s url=%s final_url=%s links=%d html_len=%d community_count=%d",
+                target.city_name,
+                target.dong_name,
+                keyword,
+                search_url,
+                response.url,
+                len(post_links),
+                len(search_html),
+                search_html.count("/kr/community/"),
+            )
+            break
+        diag = _search_page_diagnostics(search_html)
+        LOGGER.info(
+            "crawl_stage=search_empty city=%s dong=%s keyword=%s url=%s final_url=%s html_len=%d community_count=%d escaped_community_count=%d bot_challenge=%d",
             target.city_name,
             target.dong_name,
             keyword,
             search_url,
-            _elapsed_ms(stage_started_at),
+            response.url,
+            int(diag["html_len"]),
+            int(diag["community_count"]),
+            int(diag["escaped_community_count"]),
+            int(diag["is_bot_challenge"]),
         )
-        return 0, 0
 
-    post_links = _extract_post_links(search_html)[:max_posts]
+    post_links = post_links[:max_posts]
     LOGGER.info(
         "crawl_stage=search_done city=%s dong=%s keyword=%s links=%d elapsed_ms=%d",
         target.city_name,
@@ -654,16 +1436,29 @@ def _crawl_target_keyword(
                 )
                 continue
 
-            post_key = _hash_key(
-                f"{target.city_name}:{target.dong_name}:{_normalize_url(post_url)}"
-            )
+            parsed_created_at = _parse_post_created_at(post_created_at)
+            if not _is_post_in_crawl_window(post_created_at):
+                LOGGER.info(
+                    "crawl_stage=post_skipped_before_cutoff city=%s dong=%s keyword=%s index=%d url=%s created_at=%s cutoff=%s elapsed_ms=%d",
+                    target.city_name,
+                    target.dong_name,
+                    keyword,
+                    idx,
+                    post_url,
+                    post_created_at,
+                    CRAWL_MIN_DATE_RAW,
+                    _elapsed_ms(post_started_at),
+                )
+                continue
+
+            post_key = _hash_key(_normalize_url(post_url))
             _upsert_post(
                 conn=conn,
                 post_key=post_key,
                 source_url=post_url,
                 title=title or "(no-title)",
                 body=body,
-                post_created_at=post_created_at,
+                post_created_at=parsed_created_at.isoformat() if parsed_created_at else None,
                 city_name=target.city_name,
                 dong_name=target.dong_name,
                 searched_keyword=keyword,
@@ -699,7 +1494,8 @@ def _crawl_target_keyword(
                 post_url,
                 _elapsed_ms(post_started_at),
             )
-        time.sleep(REQUEST_SLEEP_SECONDS)
+        if REQUEST_SLEEP_SECONDS > 0:
+            time.sleep(REQUEST_SLEEP_SECONDS)
 
     LOGGER.info(
         "crawl_stage=target_keyword_done city=%s dong=%s keyword=%s posts=%d comments=%d elapsed_ms=%d",
@@ -734,6 +1530,23 @@ def daangn_weekly_crawler(timer: func.TimerRequest) -> None:
         return
 
     with psycopg.connect(db_dsn) as conn:
+        stale_tasks, stale_runs = _mark_stale_running_runs(conn, RUN_STALE_MINUTES)
+        if stale_runs or stale_tasks:
+            LOGGER.warning(
+                "run_stage=stale_guard_reset stale_runs=%d stale_tasks=%d stale_minutes=%d",
+                stale_runs,
+                stale_tasks,
+                RUN_STALE_MINUTES,
+            )
+
+        active_run_id = _find_running_run_id(conn)
+        if active_run_id:
+            LOGGER.warning(
+                "run_stage=scheduler_skipped reason=active_run_exists run_id=%s",
+                active_run_id,
+            )
+            return
+
         run_id = _insert_run_start(conn)
         task_count = 0
         targets = _load_target_dongs(conn)
@@ -803,13 +1616,26 @@ def daangn_crawl_worker(queue_message: func.QueueMessage) -> None:
             LOGGER.warning("Task not found. task_id=%s", task_id)
             return
 
+        run_status = _load_run_status(conn, task.run_id)
+        if run_status != "running":
+            LOGGER.warning(
+                "task_stage=skipped run_not_running task_id=%s run_id=%s run_status=%s",
+                task_id,
+                task.run_id,
+                run_status,
+            )
+            return
+
         status = _load_task_status(conn, task_id)
         if status in {"success", "failed"}:
             LOGGER.info("Task already completed. task_id=%s status=%s", task_id, status)
             _refresh_run_status(conn, task.run_id)
             return
 
-        _mark_task_running(conn, task_id)
+        if not _mark_task_running(conn, task_id):
+            LOGGER.info("task_stage=skip_non_pending task_id=%s status=%s", task_id, status)
+            _refresh_run_status(conn, task.run_id)
+            return
         LOGGER.info(
             "task_stage=running task_id=%s run_id=%s city=%s dong=%s keyword=%s",
             task_id,
@@ -851,10 +1677,43 @@ def daangn_crawl_worker(queue_message: func.QueueMessage) -> None:
                 _elapsed_ms(worker_started_at),
             )
         finally:
-            _refresh_run_status(conn, task.run_id)
+            finalized, run_status = _refresh_run_status(conn, task.run_id)
+            if finalized and run_status == "success":
+                try:
+                    _enqueue_mention_message(task.run_id)
+                    LOGGER.info(
+                        "task_stage=mention_enqueued run_id=%s queue=%s",
+                        task.run_id,
+                        MENTION_QUEUE_NAME,
+                    )
+                except Exception:
+                    LOGGER.exception("task_stage=mention_enqueue_failed run_id=%s", task.run_id)
             LOGGER.info(
                 "task_stage=worker_done task_id=%s run_id=%s elapsed_ms=%d",
                 task_id,
                 task.run_id,
                 _elapsed_ms(worker_started_at),
             )
+
+
+@APP.schedule(
+    schedule=MENTION_AGGREGATION_CRON,
+    arg_name="timer",
+    run_on_startup=False,
+    use_monitor=True,
+)
+def daangn_place_mentions_aggregator(timer: func.TimerRequest) -> None:
+    _ = timer
+    _run_place_mentions_aggregation("timer")
+
+
+@APP.queue_trigger(
+    arg_name="queue_message",
+    queue_name=MENTION_QUEUE_NAME,
+    connection="AzureWebJobsStorage",
+)
+def daangn_place_mentions_worker(queue_message: func.QueueMessage) -> None:
+    payload = _decode_queue_body(queue_message)
+    run_id = str(payload.get("run_id") or "").strip()
+    trigger_label = f"queue:{run_id}" if run_id else "queue"
+    _run_place_mentions_aggregation(trigger_label)
