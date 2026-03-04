@@ -1,0 +1,331 @@
+{% extends "base.html" %}
+{% block title %}LALA — {{ t('settings_title') }}{% endblock %}
+
+{% block content %}
+<!-- 설정 페이지 전체 배경색: --obang-west -->
+<div style="min-height:100vh;background:var(--color-bg);">
+<div class="settings-page">
+
+  <!-- ── 프라이버시 정도 카드 (iOS privacyCard) ───────────── -->
+  <section class="settings-section">
+    <h2 class="settings-section__title">{{ t('settings_privacy') }}</h2>
+    <p class="settings-section__desc" style="line-height:1.75;">{{ t('settings_privacy_body') }}</p>
+    <button onclick="document.getElementById('privacy-sheet').showModal()"
+            style="font-size:0.82rem;font-weight:600;color:var(--color-primary);
+                   background:none;border:none;cursor:pointer;padding:2px 0;
+                   text-align:left;touch-action:manipulation;">
+      {{ t('settings_privacy_detail') }} &rsaquo;
+    </button>
+  </section>
+
+  <!-- ── 프라이버시 욕선 시트 (dialog) ── -->
+  <dialog id="privacy-sheet"
+          style="border:none;border-radius:20px 20px 0 0;padding:0;
+                 position:fixed;bottom:0;left:0;right:0;top:auto;
+                 width:100%;max-width:100%;margin:0;
+                 box-shadow:0 -8px 40px rgba(0,0,0,0.15);">
+    <div style="padding:16px 20px;">
+      <div style="width:36px;height:4px;background:#CBD5E0;border-radius:2px;margin:0 auto 16px;"></div>
+      <h3 style="font-size:1rem;font-weight:700;margin-bottom:12px;">{{ t('settings_privacy') }}</h3>
+      <p style="font-size:0.84rem;line-height:1.8;color:#4A5568;max-height:50vh;overflow-y:auto;">
+        {{ t('settings_privacy_full') }}
+      </p>
+      <button onclick="document.getElementById('privacy-sheet').close()"
+              class="btn-primary" style="width:100%;margin-top:16px;">{{ t('settings_close') }}</button>
+    </div>
+  </dialog>
+
+  <!-- ── 폰트 크기 슬라이더 ────────────────────────────── -->
+  <section class="settings-section">
+    <h2 class="settings-section__title">{{ t('settings_fontsize') }}</h2>
+    <input type="range" id="font-slider"
+           min="0.85" max="1.4" step="0.05" value="1"
+           oninput="_applyFont(this.value)"
+           style="width:100%;accent-color:var(--color-primary);margin:4px 0;">
+    <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:#A0AEC0;">
+      <span style="font-size:0.8rem;">A</span>
+      <span id="font-scale-label">x1.00</span>
+      <span style="font-size:1.1rem;">A</span>
+    </div>
+  </section>
+
+  <!-- ── 위치 기반 데이터 동의 ────────────────────────── -->
+  <section class="settings-section">
+    <h2 class="settings-section__title">{{ t('settings_loc_consent') }}</h2>
+    <p class="settings-section__desc">{{ t('settings_loc_consent_desc') }}</p>
+    <label class="toggle-row">
+      <span style="font-size:0.88rem;color:var(--color-text);">ON / OFF</span>
+      <div class="toggle-switch">
+        <input type="checkbox" id="loc-consent-toggle"
+               onchange="_saveConsent(this.checked)">
+        <span class="toggle-slider"></span>
+      </div>
+    </label>
+  </section>
+
+  <!-- ── 언어 설정 섹션 ────────────────────────────────── -->
+  <section class="settings-section">
+    <h2 class="settings-section__title">{{ t('settings_lang') }}</h2>
+    <p class="settings-section__desc">{{ t('settings_lang_desc') }}</p>
+
+    <div class="lang-selector">
+      {% for code, label, emoji in [('ko', '한국어', '🇰🇷'), ('en', 'English', '🇺🇸'), ('ja', '日本語', '🇯🇵')] %}
+      <form method="POST" action="/settings/lang/{{ code }}" style="flex:1;">
+        <button type="submit"
+                class="lang-btn {% if current_lang() == code %}lang-btn--active{% endif %}">
+          <span class="lang-btn__emoji">{{ emoji }}</span>
+          <span class="lang-btn__label">{{ label }}</span>
+          {% if current_lang() == code %}
+          <span class="lang-btn__check">✓</span>
+          {% endif %}
+        </button>
+      </form>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- ── 위치 권한 재설정 섹션 ────────────────────────── -->
+  <section class="settings-section">
+    <h2 class="settings-section__title">{{ t('settings_location') }}</h2>
+    <p class="settings-section__desc">{{ t('settings_loc_desc') }}</p>
+
+    <div class="location-guide">
+      <div class="location-guide__item">
+        <img src="https://www.google.com/chrome/static/images/chrome-logo.svg"
+             alt="Chrome" class="location-guide__icon" onerror="this.style.display='none'">
+        <div>
+          <div class="location-guide__browser">Chrome</div>
+          <div class="location-guide__step">{{ t('settings_loc_chrome') }}</div>
+        </div>
+      </div>
+      <div class="location-guide__item">
+        <span class="location-guide__icon" style="font-size:1.8rem;">🦊</span>
+        <div>
+          <div class="location-guide__browser">Firefox</div>
+          <div class="location-guide__step">{{ t('settings_loc_firefox') }}</div>
+        </div>
+      </div>
+      <div class="location-guide__item">
+        <span class="location-guide__icon" style="font-size:1.8rem;">🧭</span>
+        <div>
+          <div class="location-guide__browser">Safari</div>
+          <div class="location-guide__step">{{ t('settings_loc_safari') }}</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="settings-section__hint">💡 {{ t('settings_loc_reset') }}</p>
+
+    <button onclick="window.location.reload()"
+            class="btn-primary" style="width:100%;margin-top:0.75rem;">
+      🔄 {{ t('settings_loc_reset') }}
+    </button>
+  </section>
+
+  <!-- ── 앱 정보 섹션 ─────────────────────────────────── -->
+  <section class="settings-section">
+    <h2 class="settings-section__title">{{ t('settings_about') }}</h2>
+    <div class="settings-meta">
+      <span>{{ t('settings_version') }}</span>
+      <span class="settings-meta__value">{{ app_version }}</span>
+    </div>
+    <div class="settings-meta">
+      <span>Kakao Maps API</span>
+      <span class="settings-meta__value" style="font-size:0.75rem;color:#A0AEC0;">
+        b95e9836…566bc
+      </span>
+    </div>
+  </section>
+
+</div>
+</div>
+
+<!-- ── 인라인 스타일 ───────────────────────────────── -->
+<style>
+.settings-page {
+  padding: 1.5rem 1rem;
+  max-width: 540px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.settings-section {
+  background: #fff;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 1.25rem 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.settings-section__title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-primary);
+}
+
+.settings-section__desc {
+  font-size: 0.85rem;
+  color: #718096;
+}
+
+.settings-section__hint {
+  font-size: 0.8rem;
+  color: #A0AEC0;
+}
+
+/* 언어 선택 버튼 그룹 */
+.lang-selector {
+  display: flex;
+  gap: 8px;
+  margin-top: 0.25rem;
+}
+
+.lang-btn {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 6px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.lang-btn--active {
+  border-color: var(--color-primary);
+  background: #EBF8FF;
+}
+
+.lang-btn__emoji { font-size: 1.5rem; }
+.lang-btn__label { font-size: 0.78rem; font-weight: 600; color: var(--color-text); }
+.lang-btn__check {
+  position: absolute;
+  top: 6px; right: 8px;
+  font-size: 0.72rem;
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+/* 위치 가이드 */
+.location-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 0.25rem;
+}
+
+.location-guide__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #F7FAFC;
+  border-radius: 10px;
+}
+
+.location-guide__icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.location-guide__browser {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.location-guide__step {
+  font-size: 0.78rem;
+  color: #718096;
+  margin-top: 2px;
+  line-height: 1.5;
+}
+
+/* 앱 정보 행 */
+.settings-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: #4A5568;
+  padding: 4px 0;
+  border-bottom: 1px solid #EDF2F7;
+}
+.settings-meta:last-child { border-bottom: none; }
+.settings-meta__value { font-weight: 600; }
+
+/* ── iOS 스타일 토글 스위치 ── */
+.toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.toggle-switch {
+  position: relative;
+  width: 48px;
+  height: 26px;
+  flex-shrink: 0;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: #CBD5E0;
+  border-radius: 999px;
+  transition: background 0.2s;
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 20px; height: 20px;
+  left: 3px; top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--color-primary); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(22px); }
+</style>
+
+<script>
+// ── 폰트 크기 슬라이더 ────────────────────────────────────
+function _applyFont(val) {
+  const scale = parseFloat(val);
+  document.documentElement.style.fontSize = (scale * 16) + 'px';
+  localStorage.setItem('lala_font_scale', scale);
+  document.getElementById('font-scale-label').textContent = 'x' + scale.toFixed(2);
+}
+(function () {
+  const saved = parseFloat(localStorage.getItem('lala_font_scale') || '1');
+  const slider = document.getElementById('font-slider');
+  if (slider) { slider.value = saved; }
+  document.getElementById('font-scale-label').textContent = 'x' + saved.toFixed(2);
+  document.documentElement.style.fontSize = (saved * 16) + 'px';
+})();
+
+// ── 위치 동의 토글 ────────────────────────────────────────
+function _saveConsent(checked) {
+  localStorage.setItem('lala_loc_consent', checked ? '1' : '0');
+}
+(function () {
+  const v = localStorage.getItem('lala_loc_consent');
+  const toggle = document.getElementById('loc-consent-toggle');
+  if (toggle) toggle.checked = (v === null || v === '1'); // 미설정이면 기본 ON
+})();
+</script>
+{% endblock %}

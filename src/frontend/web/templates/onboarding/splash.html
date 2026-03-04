@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>LALA</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: var(--obang-east); }
+    .splash {
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      /* 깜빡임 방지: 모든 CSS 로드 후 표시 */
+      opacity: 0;
+      animation: fadeIn 0.5s ease 0.1s forwards;
+    }
+    @keyframes fadeIn { to { opacity: 1; } }
+    .splash__logo {
+      font-size: 4rem;
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: -2px;
+      padding: 0.4rem 1.4rem;
+      border-radius: 1rem;
+    }
+    .splash__sub {
+      font-size: 1rem;
+      color: rgba(255,255,255,0.75);
+    }
+    .splash__dots { display: flex; gap: 6px; margin-top: 2.5rem; }
+    .splash__dots span {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.4);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    .splash__dots span:nth-child(2) { animation-delay: 0.2s; }
+    .splash__dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes pulse {
+      0%, 100% { background: rgba(255,255,255,0.4); transform: scale(1); }
+      50%       { background: rgba(255,255,255,0.9); transform: scale(1.3); }
+    }
+  </style>
+</head>
+<body>
+  <div class="splash">
+    <div class="splash__logo obang-border">LALA</div>
+    <p class="splash__sub">경기도 여행의 새로운 시작</p>
+    <div class="splash__dots">
+      <span></span><span></span><span></span>
+    </div>
+  </div>
+  <script>
+    // 이전에 이미 동의한 경우 스플래시 없이 바로 지도로
+    if (sessionStorage.getItem('lala_agreed') === 'true') {
+      setTimeout(() => { window.location.replace('/map'); }, 800);
+    } else {
+      setTimeout(() => { window.location.replace('/privacy'); }, 2200);
+    }
+  </script>
+</body>
+</html>

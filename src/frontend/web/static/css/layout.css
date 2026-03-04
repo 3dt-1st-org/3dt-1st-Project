@@ -1,0 +1,257 @@
+/* ================================================
+   Mobile-first 반응형 기본 레이아웃
+   ================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  height: 100%;
+  /* iOS Safari 자동 폰트 크기 조정 방지 */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  height: 100%;
+  font-family: 'Pretendard', 'Noto Sans KR', -apple-system, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  overflow-x: hidden;
+  /* 터치 시 하이라이트 제거 */
+  -webkit-tap-highlight-color: transparent;
+  /* 버듰 클릭 효과 제거 */
+  -webkit-touch-callout: none;
+}
+
+/* ---- GNB ---- */
+.gnb {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  /* Safe area 대응 (notch/Dynamic Island) */
+  height: calc(var(--gnb-height) + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+  background: rgba(255,255,255,0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  padding-left: 1rem;
+  padding-right: 0.75rem;
+  z-index: 100;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.gnb__logo {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--color-primary);
+  letter-spacing: -0.5px;
+  border-radius: 8px;
+  padding: 2px 10px;
+  /* 터치 타겟 충분히 */
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.gnb__actions { margin-left: auto; display: flex; gap: 0.25rem; align-items: center; }
+
+/* GNB 네비게이션 버튼 — 터치 타겟 44×44px 보장 */
+.gnb__nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #4A5568;
+  border-radius: 10px;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.gnb__nav-btn:hover, .gnb__nav-btn:active { background: #EBF4FF; color: var(--color-primary); }
+
+/* ---- 페이지 컨텐츠 여백 (GNB 높이 보정 + Safe area) ---- */
+.page-content { padding-top: calc(var(--gnb-height) + env(safe-area-inset-top)); }
+
+/* ---- 전체화면 지도 컨테이너 ---- */
+#map-container {
+  position: fixed;
+  top: calc(var(--gnb-height) + env(safe-area-inset-top)); left: 0; right: 0; bottom: 0;
+  z-index: 0;
+}
+
+/* ---- 하단 카드 슬라이드 패널 ---- */
+.bottom-card-panel {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 220px;
+  z-index: 50;
+  /* iOS 스타일: 위쪽 둥근 모서리 + 핸들 바 */
+  border-radius: 20px 20px 0 0;
+  background: #fff;
+  box-shadow: 0 -4px 32px rgba(0,0,0,0.12);
+  overflow: hidden;
+  /* Safe area (iOS 홈 인디케이터) */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* 핸들 바 (드래그 힌트) */
+.bottom-card-panel::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 4px;
+  background: #CBD5E0;
+  border-radius: 2px;
+  margin: 10px auto 0;
+  flex-shrink: 0;
+}
+
+/* ---- 장소 카드 ---- */
+.place-card {
+  background: #fff;
+  /* 패널이 rounded top 이지뭐 알아서 카드는 border-radius 제거 */
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0.85rem 1.25rem 1rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.2s;
+}
+.place-card__name  { font-size: 1.05rem; font-weight: 700; }
+.place-card__meta  { font-size: 0.82rem; color: #718096; display: flex; gap: 0.5rem; align-items: center; }
+.place-card__badge { font-size: 0.73rem; border-radius: 999px; padding: 2px 10px; }
+.place-card__addr  { font-size: 0.78rem; color: #A0AEC0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.place-card__ai    { font-size: 0.78rem; color: #A0AEC0; font-style: italic; margin-top: auto; padding-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- 스플래시 ---- */
+.splash-screen {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+}
+.splash-screen__logo {
+  font-size: 3.5rem;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: -1px;
+}
+.splash-screen__sub {
+  margin-top: 0.75rem;
+  font-size: 1rem;
+  color: rgba(255,255,255,0.8);
+}
+
+/* ---- 온보딩 화면 ---- */
+.onboarding-screen {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 2rem 1.5rem;
+  padding-top: calc(var(--gnb-height) + 2rem);
+}
+.onboarding-screen__title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+.onboarding-screen__body {
+  flex: 1;
+  overflow-y: auto;
+  font-size: 0.9rem;
+  line-height: 1.8;
+  color: #4A5568;
+  margin-bottom: 1.5rem;
+}
+.onboarding-screen__footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--color-bg);
+  padding: 1rem 0;
+}
+
+/* ---- 활성 카드 하이라이트 + 오방색 테두리 애니메이션 (iOS AnimatedObangBorder) ---- */
+@keyframes obang-card-border {
+  0%   { border-color: var(--obang-center);  box-shadow: 0 0 0 3px rgba(245,200,66,0.18), var(--shadow-card); }
+  20%  { border-color: var(--obang-east);    box-shadow: 0 0 0 3px rgba(43,108,176,0.18), var(--shadow-card); }
+  40%  { border-color: var(--obang-north);   box-shadow: 0 0 0 3px rgba(26,32,44,0.14),  var(--shadow-card); }
+  60%  { border-color: var(--obang-south);   box-shadow: 0 0 0 3px rgba(197,48,48,0.18), var(--shadow-card); }
+  80%  { border-color: var(--obang-west);    box-shadow: 0 0 0 3px rgba(180,180,180,0.2),var(--shadow-card); }
+  100% { border-color: var(--obang-center);  box-shadow: 0 0 0 3px rgba(245,200,66,0.18), var(--shadow-card); }
+}
+.place-card--active {
+  border: 2.5px solid var(--obang-east);
+  animation: obang-card-border 2.5s linear infinite;
+}
+.place-card__dist   { font-size: 0.8rem; color: #718096; }
+.place-card__region { font-size: 0.78rem; color: #A0AEC0; margin-left: auto; }
+
+/* ---- AI 추천 박스 — 카드패널 위에 융쪽는 주석바 동물 ---- */
+#ai-recommendation {
+  position: fixed !important;
+  bottom: 0;
+  left: 0; right: 0;
+  z-index: 52;
+  padding: 0 10px calc(10px + env(safe-area-inset-bottom));
+  /* 진입 애니메이션 */
+  transition: bottom 0.3s ease;
+}
+.has-card-panel #ai-recommendation {
+  bottom: calc(220px + env(safe-area-inset-bottom));
+}
+
+/* ---- 현재 위치 FAB ---- */
+.fab-locate {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fff;
+  border: none;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 45;
+  color: var(--color-primary);
+  transition: background 0.2s, bottom 0.3s;
+}
+.fab-locate:hover { background: #EBF4FF; }
+.fab-locate.loading { animation: spin 1s linear infinite; pointer-events: none; }
+
+/* 카드 패널이 열리면 FAB를 패널 위로 올림 */
+.has-card-panel .fab-locate { bottom: calc(220px + 12px); }
+
+/* ---- 마커 이름 툴팁 오버레이 ---- */
+.marker-tooltip {
+  background: #fff;
+  border: 1.5px solid;   /* border-color는 JS에서 인라인으로 지정 */
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1A202C;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  white-space: nowrap;
+  transform: translateY(-52px);
+  pointer-events: none;
+}
+
+/* ---- 공통 스피너 키프레임 ---- */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- 반응형: 태블릿 이상 ---- */
+@media (min-width: 768px) {
+  .bottom-card-panel { max-width: 480px; left: 50%; transform: translateX(-50%); }
+  .onboarding-screen { max-width: 600px; margin: 0 auto; }
+}
