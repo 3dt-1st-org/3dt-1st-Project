@@ -2,7 +2,6 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta
-
 import azure.functions as func
 import requests
 from azure.eventhub import EventData, EventHubProducerClient
@@ -10,7 +9,7 @@ from azure.eventhub import EventData, EventHubProducerClient
 # ==============================================================================
 # 상수
 # ==============================================================================
-KMA_API_URL  = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst"
+WEATHER_API_URL  = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst"
 MISE_API_URL = "https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty"
 EVENTHUB_NAME = "weather-air-stream"
 
@@ -20,17 +19,15 @@ _STATIONS = {
     "yongin": {"nx": 62, "ny": 120, "air_station": "수지"},
 }
 
-# ==============================================================================
-# 시크릿 (App Settings → Key Vault References)
-# ==============================================================================
-WEATHER_API_KEY   = os.getenv("WEATHER_API_KEY", "")      # KV: weather-api-key
-MISE_API_KEY      = os.getenv("MISE_API_KEY", "")          # KV: mise-api-key
-EVENT_HUB_CONN_STR = os.getenv("EVENT_HUB_CONN_STR", "")  # KV: eventhub-conn-str
+# 로컬: local.settings.json / Azure: App Settings (KV Reference)
+WEATHER_API_KEY    = os.getenv("WEATHER_API_KEY", "")
+MISE_API_KEY       = os.getenv("MISE_API_KEY", "")
+EVENT_HUB_CONN_STR = os.getenv("EVENT_HUB_CONN_STR", "")
 
 # ==============================================================================
 # 기상청 초단기실황 조회
 # ==============================================================================
-def _fetch_kma(nx: int, ny: int) -> dict | None:
+def _fetch_WEATHER(nx: int, ny: int) -> dict | None:
     """기상청 초단기실황 API 호출 → T1H·RN1·PTY·WSD 추출"""
     # 기상청 API는 ~10분 지연 → 1시간 전 기준시 사용
     now = datetime.now() - timedelta(hours=1)
@@ -45,11 +42,11 @@ def _fetch_kma(nx: int, ny: int) -> dict | None:
         "serviceKey": WEATHER_API_KEY,
     }
     try:
-        resp = requests.get(KMA_API_URL, params=params, timeout=5)
+        resp = requests.get(WEATHER_API_URL, params=params, timeout=5)
         resp.raise_for_status()
         header = resp.json()["response"]["header"]
         if header["resultCode"] != "00":
-            logging.warning(f"[KMA] API 오류: {header['resultCode']} - {header['resultMsg']}")
+            logging.warning(f"[WEATHER] API 오류: {header['resultCode']} - {header['resultMsg']}")
             return None
 
         items = {i["category"]: i["obsrValue"]
@@ -61,7 +58,7 @@ def _fetch_kma(nx: int, ny: int) -> dict | None:
             "wsd": items.get("WSD"),   # 풍속(m/s)
         }
     except Exception as e:
-        logging.warning(f"[KMA] 호출 실패 nx={nx} ny={ny}: {e}")
+        logging.warning(f"[WEATHER] 호출 실패 nx={nx} ny={ny}: {e}")
         return None
 
 
@@ -102,16 +99,18 @@ def _fetch_air(station_name: str) -> dict | None:
 # ==============================================================================
 # Event Hubs 전송
 # ==============================================================================
-def _send_to_eventhub(payload: dict) -> None:
-    """payload dict를 JSON으로 직렬화하여 weather-air-stream으로 전송"""
-    with EventHubProducerClient.from_connection_string(
-        conn_str=EVENT_HUB_CONN_STR,
-        eventhub_name=EVENTHUB_NAME,
-    ) as producer:
-        batch = producer.create_batch()
-        batch.add(EventData(json.dumps(payload, ensure_ascii=False)))
-        producer.send_batch(batch)
-    logging.info(f"[EventHub] 전송 완료: {EVENTHUB_NAME}")
+def _send_event(producer: EventHubProducerClient, payload: dict, partition_key: str) -> None:
+    """열려 있는 producer로 단일 이벤트를 전송.
+
+    Args:
+        producer: 외부에서 생성된 EventHubProducerClient (연결 재사용)
+        payload: 전송할 데이터 딕셔너리
+        partition_key: Event Hub 파티션 키 (도시명). 같은 키는 같은 파티션으로 라우팅됨.
+    """
+    batch = producer.create_batch(partition_key=partition_key)
+    batch.add(EventData(json.dumps(payload, ensure_ascii=False)))
+    producer.send_batch(batch)
+    logging.info(f"[EventHub] 전송 완료: {EVENTHUB_NAME} (partition_key={partition_key})")
 
 
 # ==============================================================================
@@ -131,13 +130,33 @@ def WeatherAirDataCollector(myTimer: func.TimerRequest) -> None:
 
     logging.info("WeatherAirDataCollector 시작")
 
-    result = {"collected_at": datetime.utcnow().isoformat() + "Z"}
+    collected_at = datetime.utcnow().isoformat() + "Z"
+    failed_cities = []
 
-    for city, cfg in _STATIONS.items():
-        weather = _fetch_kma(cfg["nx"], cfg["ny"])
-        air     = _fetch_air(cfg["air_station"])
-        result[city] = {"weather": weather, "air": air}
-        logging.info(f"[{city}] weather={weather} | air={air}")
+    # Producer 연결은 루프 전체에서 한 번만 열어 재사용
+    with EventHubProducerClient.from_connection_string(
+        conn_str=EVENT_HUB_CONN_STR,
+        eventhub_name=EVENTHUB_NAME,
+    ) as producer:
+        for city, cfg in _STATIONS.items():
+            try:
+                weather = _fetch_WEATHER(cfg["nx"], cfg["ny"])
+                air     = _fetch_air(cfg["air_station"])
+                logging.info(f"[{city}] weather={weather} | air={air}")
 
-    _send_to_eventhub(result)
-    logging.info("WeatherAirDataCollector 완료")
+                payload = {
+                    "city":         city,
+                    "collected_at": collected_at,
+                    "weather":      weather,
+                    "air":          air,
+                }
+                _send_event(producer, payload, partition_key=city)
+            except Exception as e:
+                # 한 도시 실패가 다른 도시 수집을 막지 않도록 예외를 격리
+                logging.error(f"[{city}] 처리 실패 (스킵): {e}")
+                failed_cities.append(city)
+
+    if failed_cities:
+        logging.warning(f"WeatherAirDataCollector 완료 — 실패 도시: {failed_cities}")
+    else:
+        logging.info("WeatherAirDataCollector 완료")
