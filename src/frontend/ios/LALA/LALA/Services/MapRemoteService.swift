@@ -237,62 +237,88 @@ final class MapRemoteService: MapDataProviding {
         around center: CLLocationCoordinate2D,
         category: MapPlaceFilter
     ) -> [PlaceRecommendation] {
-        let baseLat = center.latitude
-        let baseLng = center.longitude
-
-        let sample: [PlaceRecommendation] = [
-            PlaceRecommendation(
+        let current = CLLocation(latitude: center.latitude, longitude: center.longitude)
+        let fixedSeeds: [(id: String, nameKo: String, nameEn: String, kind: PlaceCategoryKind, guideKo: String, guideEn: String, lat: Double, lng: Double, addressKo: String, addressEn: String, image: String)] = [
+            (
                 id: "sample-attraction-1",
                 nameKo: "명소 샘플: 행궁동 성곽길",
                 nameEn: "Attraction Sample: Haenggung Fortress Trail",
-                categoryKind: .attraction,
-                categoryKo: "로컬 명소",
-                categoryEn: "Attraction",
-                districtKo: "수원시 팔달구",
-                districtEn: "Paldal-gu, Suwon",
+                kind: .attraction,
                 guideKo: "명소 샘플입니다. 행궁동 성곽길 주변 풍경을 즐겨보세요.",
                 guideEn: "Attraction sample. Enjoy the views around Haenggung trail.",
-                coordinate: CLLocationCoordinate2D(latitude: baseLat + 0.0012, longitude: baseLng - 0.0011),
-                distanceMeters: 180,
+                lat: 37.2817,
+                lng: 127.0150,
                 addressKo: "경기도 수원시 팔달구 행궁로 인근",
                 addressEn: "Near Haenggung-ro, Paldal-gu, Suwon",
-                imageURL: URL(string: "https://picsum.photos/seed/lala-attraction/640/360")
+                image: "https://picsum.photos/seed/lala-attraction/640/360"
             ),
-            PlaceRecommendation(
+            (
                 id: "sample-restaurant-1",
                 nameKo: "맛집 샘플: 팔달 로컬 식당",
                 nameEn: "Restaurant Sample: Paldal Local Diner",
-                categoryKind: .restaurant,
-                categoryKo: "로컬 맛집",
-                categoryEn: "Restaurant",
-                districtKo: "수원시 팔달구",
-                districtEn: "Paldal-gu, Suwon",
+                kind: .restaurant,
                 guideKo: "맛집 샘플입니다. 지역 주민이 자주 찾는 식당이에요.",
                 guideEn: "Restaurant sample. A diner loved by local residents.",
-                coordinate: CLLocationCoordinate2D(latitude: baseLat - 0.0010, longitude: baseLng + 0.0010),
-                distanceMeters: 220,
+                lat: 37.2794,
+                lng: 127.0186,
                 addressKo: "경기도 수원시 팔달구 정조로 인근",
                 addressEn: "Near Jeongjo-ro, Paldal-gu, Suwon",
-                imageURL: URL(string: "https://picsum.photos/seed/lala-restaurant/640/360")
+                image: "https://picsum.photos/seed/lala-restaurant/640/360"
             ),
-            PlaceRecommendation(
+            (
                 id: "sample-event-1",
                 nameKo: "행사 샘플: 화성 야간 프로그램",
                 nameEn: "Event Sample: Hwaseong Night Program",
-                categoryKind: .event,
-                categoryKo: "로컬 행사",
-                categoryEn: "Event",
-                districtKo: "수원시 팔달구",
-                districtEn: "Paldal-gu, Suwon",
+                kind: .event,
                 guideKo: "행사 샘플입니다. 야간 조명과 공연 정보를 확인해보세요.",
                 guideEn: "Event sample. Check out the night lights and performances.",
-                coordinate: CLLocationCoordinate2D(latitude: baseLat + 0.0004, longitude: baseLng + 0.0016),
-                distanceMeters: 260,
+                lat: 37.2829,
+                lng: 127.0174,
                 addressKo: "경기도 수원시 팔달구 신풍로 인근",
                 addressEn: "Near Sinpung-ro, Paldal-gu, Suwon",
-                imageURL: URL(string: "https://picsum.photos/seed/lala-event/640/360")
+                image: "https://picsum.photos/seed/lala-event/640/360"
             )
         ]
+
+        let sample: [PlaceRecommendation] = fixedSeeds.map { seed in
+            let coord = CLLocationCoordinate2D(latitude: seed.lat, longitude: seed.lng)
+            let distance = Int(
+                current.distance(from: CLLocation(latitude: seed.lat, longitude: seed.lng))
+                    .rounded()
+            )
+            let categoryKo: String
+            let categoryEn: String
+            switch seed.kind {
+            case .attraction:
+                categoryKo = "로컬 명소"
+                categoryEn = "Attraction"
+            case .restaurant:
+                categoryKo = "로컬 맛집"
+                categoryEn = "Restaurant"
+            case .event:
+                categoryKo = "로컬 행사"
+                categoryEn = "Event"
+            }
+
+            return PlaceRecommendation(
+                id: seed.id,
+                nameKo: seed.nameKo,
+                nameEn: seed.nameEn,
+                categoryKind: seed.kind,
+                categoryKo: categoryKo,
+                categoryEn: categoryEn,
+                districtKo: "수원시 팔달구",
+                districtEn: "Paldal-gu, Suwon",
+                guideKo: seed.guideKo,
+                guideEn: seed.guideEn,
+                coordinate: coord,
+                distanceMeters: distance,
+                addressKo: seed.addressKo,
+                addressEn: seed.addressEn,
+                imageURL: URL(string: seed.image)
+            )
+        }
+        .sorted { ($0.distanceMeters ?? Int.max) < ($1.distanceMeters ?? Int.max) }
 
         switch category {
         case .all:

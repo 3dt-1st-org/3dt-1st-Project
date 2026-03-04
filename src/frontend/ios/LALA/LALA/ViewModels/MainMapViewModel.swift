@@ -30,6 +30,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private let locationManager = CLLocationManager()
     private let mapDataProvider: MapDataProviding
     private let searchRadiusMeters = 3_000
+    private let defaultMapSpan = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
     private var hasAppliedInitialUserFocus = false
     private var isAppLocationConsentEnabled = false
     private var activeLanguage: AppLanguage = .korean
@@ -325,7 +326,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
         let focused = MKCoordinateRegion(
             center: coordinate,
-            span: MKCoordinateSpan(latitudeDelta: 0.002, longitudeDelta: 0.002)
+            span: defaultMapSpan
         )
         let clamped = clampRegion(focused)
         if animated {
@@ -341,7 +342,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     func centerOnPlace(_ place: PlaceRecommendation, animated: Bool) {
         let focused = MKCoordinateRegion(
             center: place.coordinate,
-            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            span: defaultMapSpan
         )
         let clamped = clampRegion(focused)
         if animated {

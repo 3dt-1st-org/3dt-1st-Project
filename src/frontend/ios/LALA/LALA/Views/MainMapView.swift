@@ -85,10 +85,6 @@ struct MainMapView: View {
                 statusBanner(status)
             }
 
-            if let selectedPlace = viewModel.selectedPlace {
-                recommendationPanel(for: selectedPlace)
-            }
-
             Spacer()
 
             subtitleView
@@ -146,41 +142,43 @@ struct MainMapView: View {
                         Button {
                             viewModel.handlePlaceTap(place, language: appViewModel.selectedLanguage)
                         } label: {
-                            VStack(alignment: .leading, spacing: 10) {
-                                PlaceCardImageView(imageURL: place.imageURL)
+                            HStack(alignment: .center, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(place.name(in: appViewModel.selectedLanguage))
+                                        .font(.system(size: 15 * appViewModel.fontScale, weight: .bold))
+                                        .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                                        .lineLimit(2)
+                                        .minimumScaleFactor(0.85)
 
-                                Text(place.name(in: appViewModel.selectedLanguage))
-                                    .font(.system(size: 16 * appViewModel.fontScale, weight: .bold))
-                                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                                    .lineLimit(2)
-                                    .minimumScaleFactor(0.85)
+                                    Text(place.category(in: appViewModel.selectedLanguage))
+                                        .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
+                                        .foregroundStyle(Color(AppThemeColor.east.rawValue))
+                                        .lineLimit(1)
 
-                                Text(place.category(in: appViewModel.selectedLanguage))
-                                    .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
-                                    .foregroundStyle(Color(AppThemeColor.east.rawValue))
+                                    HStack(spacing: 6) {
+                                        Text(place.district(in: appViewModel.selectedLanguage))
+                                            .font(.system(size: 11 * appViewModel.fontScale, weight: .medium))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
 
-                                HStack(spacing: 8) {
-                                    Text(place.district(in: appViewModel.selectedLanguage))
-                                        .font(.system(size: 12 * appViewModel.fontScale, weight: .medium))
-                                        .foregroundStyle(.secondary)
-
-                                    if let distance = place.distanceLabel(in: appViewModel.selectedLanguage) {
-                                        Text(distance)
-                                            .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
-                                            .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.75))
+                                        if let distance = place.distanceLabel(in: appViewModel.selectedLanguage) {
+                                            Text(distance)
+                                                .font(.system(size: 11 * appViewModel.fontScale, weight: .semibold))
+                                                .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.7))
+                                                .lineLimit(1)
+                                        }
                                     }
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
 
-                                let address = place.address(in: appViewModel.selectedLanguage)
-                                if !address.isEmpty {
-                                    Text(address)
-                                        .font(.system(size: 11 * appViewModel.fontScale, weight: .regular))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
+                                PlaceCardImageView(
+                                    imageURL: place.imageURL,
+                                    sideLength: 86
+                                )
                             }
-                            .frame(width: 240, alignment: .leading)
-                            .padding(12)
+                            .frame(width: 252, alignment: .leading)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
                             .background(
                                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                                     .fill(Color.white.opacity(0.92))
@@ -236,28 +234,6 @@ struct MainMapView: View {
             Capsule(style: .continuous)
                 .fill(Color.white.opacity(0.94))
         )
-    }
-
-    private func recommendationPanel(for place: PlaceRecommendation) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(viewModel.recommendationTitle(for: appViewModel.selectedLanguage))
-                .font(.system(size: 12 * appViewModel.fontScale, weight: .bold))
-                .foregroundStyle(Color(AppThemeColor.east.rawValue))
-
-            Text(viewModel.recommendationReason(for: place, language: appViewModel.selectedLanguage))
-                .font(.system(size: 13 * appViewModel.fontScale, weight: .medium))
-                .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                .lineLimit(3)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.94))
-        )
-        .padding(.horizontal, 16)
-        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     private func statusBanner(_ text: String) -> some View {
@@ -528,6 +504,7 @@ private struct PlacePinView: View {
 
 private struct PlaceCardImageView: View {
     let imageURL: URL?
+    var sideLength: CGFloat = 108
 
     var body: some View {
         ZStack {
@@ -558,7 +535,7 @@ private struct PlaceCardImageView: View {
                 placeholder
             }
         }
-        .frame(height: 108)
+        .frame(width: sideLength, height: sideLength)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
