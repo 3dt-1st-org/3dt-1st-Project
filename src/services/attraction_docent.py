@@ -11,19 +11,69 @@ from dotenv import load_dotenv
 # ==============================================================================
 load_dotenv()
 
+_vault_url = os.getenv("KEY_VAULT_URL")
+if not _vault_url:
+    raise ValueError("❌ .env에 KEY_VAULT_URL이 설정되지 않았습니다.")
+
+_credential = DefaultAzureCredential()
+_kv_client = SecretClient(vault_url=_vault_url, credential=_credential)
+
+def _get_secret(name: str) -> str:
+    return _kv_client.get_secret(name).value
+
+# 모든 시크릿 로드
+AZURE_OPENAI_KEY = _get_secret("azure-openai-key")
+AZURE_OPENAI_ENDPOINT = _get_secret("azure-openai-endpoint")
+AZURE_OPENAI_VERSION = _get_secret("azure-openai-version")
+AZURE_SPEECH_KEY = _get_secret("azure-speech-key")
+AZURE_SPEECH_REGION = _get_secret("azure-speech-region")
+AZURE_OPENAI_ATTRACTION_DEPLOYMENT = _get_secret("azure-openai-deployment-name")
+
+BASIC_REVIEW_COUNT = 5
+DOCENT_OUTPUT_DIR_MP3 = r"C:\Users\EL030\Desktop\dataschool\3dt-1st-Project\3dt-1st-Project\data\docent\mp3"
+DOCENT_OUTPUT_DIR_SCRIPTS = r"C:\Users\EL030\Desktop\dataschool\3dt-1st-Project\3dt-1st-Project\data\docent\scripts"
+
+# 출력 디렉토리 없으면 생성
+if not os.path.exists(DOCENT_OUTPUT_DIR_MP3):
+    os.makedirs(DOCENT_OUTPUT_DIR_MP3, exist_ok=True)
+if not os.path.exists(DOCENT_OUTPUT_DIR_SCRIPTS):
+    os.makedirs(DOCENT_OUTPUT_DIR_SCRIPTS, exist_ok=True)
+
+
+def pick_story_reviews(reviews, max_items=5):
+    """비하인드/역사성 힌트가 있는 리뷰를 우선 선택합니다."""
+    if not reviews:
+        return []
+
+    story_keywords = [
+        "역사", "유래", "전설", "설화", "옛날", "과거", "조선", "고려", "왕", "비화",
+        "숨", "알려지지", "비밀", "소문", "후기", "사연", "전해", "전해진", "스토리"
+    ]
+
+    prioritized = [
+        review for review in reviews
+        if any(keyword in review for keyword in story_keywords)
+    ]
+
+    if len(prioritized) >= max_items:
+        return prioritized[:max_items]
+
+    used = set(prioritized)
+    remaining = [review for review in reviews if review not in used]
+    return (prioritized + remaining)[:max_items]
+
 def get_db_and_llm_resources():
     """Key Vault 및 .env에서 리소스를 로드하고 Azure 클라이언트를 생성합니다."""
-    vault_url = os.getenv("KEY_VAULT_URL")
     credential = DefaultAzureCredential()
-    kv_client = SecretClient(vault_url=vault_url, credential=credential)
+    kv_client = SecretClient(vault_url=_vault_url, credential=credential)
 
     # 1. Key Vault에서 비밀 정보 로드
     db_password = kv_client.get_secret("db-password").value
-    azure_api_key = os.getenv("AZURE_OPENAI_KEY")
+    azure_api_key = AZURE_OPENAI_KEY
     
     # 2. Azure OpenAI 설정
-    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    api_version = os.getenv("AZURE_OPENAI_VERSION", "2024-02-15-preview")
+    endpoint = AZURE_OPENAI_ENDPOINT
+    api_version = AZURE_OPENAI_VERSION
     
     azure_client = AzureOpenAI(
         azure_endpoint=endpoint,
@@ -55,7 +105,7 @@ def fetch_attraction_data(attraction_name, db_password, table="reviews"):
                 return (rows[0][0], [row[1] for row in rows]) if rows else (None, [])
             else:
                 # 나무위키 상세 정보 조회
-                query = "SELECT history, overview FROM locallink.attraction_details WHERE attraction_name = %s;"
+                query = "SELECT history, overview FROM locallink.attraction_descriptions WHERE attraction_name = %s;"
                 cursor.execute(query, (attraction_name,))
                 row = cursor.fetchone()
                 return row if row else (None, None)
@@ -68,13 +118,14 @@ def fetch_attraction_data(attraction_name, db_password, table="reviews"):
 def text_to_speech_english(text, output_filename):
     """음성 파일을 생성함과 동시에 스피커로 실시간 재생합니다."""
     speech_config = speechsdk.SpeechConfig(
-        subscription=os.getenv("AZURE_SPEECH_KEY"), 
-        region=os.getenv("AZURE_SPEECH_REGION")
+        subscription=AZURE_SPEECH_KEY, 
+        region=AZURE_SPEECH_REGION
     )
     speech_config.speech_synthesis_voice_name = "en-US-AvaNeural"
     
     # 1. 파일 저장 설정
-    file_config = speechsdk.audio.AudioOutputConfig(filename=output_filename)
+    full_path = os.path.join(DOCENT_OUTPUT_DIR_MP3, output_filename)
+    file_config = speechsdk.audio.AudioOutputConfig(filename=full_path)
     # 2. 실시간 스피커 출력 설정 (추가)
     speaker_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=True)
     
@@ -86,11 +137,11 @@ def text_to_speech_english(text, output_filename):
     # 재생이 끝나면 파일로도 저장 (기록용)
     file_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=file_config)
     file_synthesizer.speak_text_async(text).get()
-    print(f"✅ Saved to: {output_filename}")
+    print(f"✅ Saved to: {full_path}")
 
 def listen_for_confirmation():
     """사용자의 Yes/No 대답을 인식합니다."""
-    speech_config = speechsdk.SpeechConfig(subscription=os.getenv("AZURE_SPEECH_KEY"), region=os.getenv("AZURE_SPEECH_REGION"))
+    speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
     speech_config.speech_recognition_language = "en-US"
     recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config)
     
@@ -107,33 +158,82 @@ def listen_for_confirmation():
 # ==============================================================================
 def generate_docent_script(attraction_name, mode="basic", language="English"):
     azure_client, db_password = get_db_and_llm_resources()
-    deployment_name = os.getenv("AZURE_OPENAI_ATTRACTION_DEPLOYMENT")
+    deployment_name = AZURE_OPENAI_ATTRACTION_DEPLOYMENT
     
+    # 데이터 먼저 로드
+    keywords, reviews = fetch_attraction_data(attraction_name, db_password, "reviews")
+    history, overview = fetch_attraction_data(attraction_name, db_password, "history")
+
     if mode == "basic":
-        keywords, reviews = fetch_attraction_data(attraction_name, db_password, "reviews")
-        if not keywords: return "No data found."
-        context = f"Keywords: {keywords}\nReviews: {' '.join(reviews[:5])}"
-        sys_msg = '''
-            당신은 'LALA Global Guide'의 활기차고 친절한 AI 도슨트입니다.
-            [작성 원칙]
-            1. 분위기 위주: 명소의 분위기, 방문객들이 느낀 감성(Keywords)을 중심으로 짧고 강렬하게 설명하세요.
-            2. 현장감 유지: "Take a moment to look around," 또는 "Can you feel the breeze?" 같은 표현으로 사용자와 상호작용하세요.
-            3. 분량: 1분 이내(약 4~5문장)로 핵심만 전달하세요.
-            4. 유도 질문: 반드시 마지막에 "Do you want to hear more about the history?"라고 구체적으로 흥미를 끌며 물어보세요.
-        '''
-    else:
-        history, overview = fetch_attraction_data(attraction_name, db_password, "history")
-        if not history: return "I don't have historical details yet."
-        context = f"History: {history}\nOverview: {overview}"
-        sys_msg = '''
-            당신은 베스트셀러 작가이자 역사 스토리텔러입니다.
-            데이터를 바탕으로 깊고 흥미로운 비하인드 스토리를 들려주세요.
-            [작성 원칙]
-            1. 'Why'에 집중: 단순한 연도나 이름 나열 대신, "왜 이 장소가 만들어졌는지", "여기엔 어떤 인간적인 드라마가 있는지"에 집중하세요.
-            2. 반전과 비유: "Believe it or not" 또는 "It's like the 18th-century version of..." 같은 표현을 사용하여 현대적인 감각으로 비유하세요.
-            3. 6문장 법칙: 가장 흥미로운 1~2가지 포인트만 골라 최대 6문장 이내로 작성하세요. 정보가 너무 많으면 관광객은 지루해합니다.
-            4. 쉬운 설명: 전문 용어는 초등학생도 이해할 수 있을 만큼 쉽게 풀어서 설명하세요.
-        '''
+        # 1. 리뷰 데이터가 있는 경우 (가장 이상적인 상황)
+        if keywords and reviews:
+            context = f"Keywords: {keywords}\nReviews: {' '.join(reviews[:BASIC_REVIEW_COUNT])}"
+            sys_msg = f"""
+            당신은 'LALA'의 활기차고 센스 있는 수석 도슨트입니다.
+            [미션] 방문객의 실제 리뷰를 바탕으로 이 장소의 '살아있는 매력'을 짧고 강렬하게 소개하세요.
+            [가이드라인]
+            1. 첫인상: "{attraction_name}에 오신 것을 환영합니다!"로 시작해 키워드({keywords})를 활용해 분위기를 정의하세요.
+            2. 공감대: "많은 분들이 이곳의 ~한 점을 좋아하시더라고요"라며 실제 방문객의 목소리를 인용하세요.
+            3. 현장감: "Take a moment to look around," 등 사용자와 상호작용하는 구어체를 사용하세요.
+            4. 분량: 1분 이내(4~5문장). 마지막엔 반드시 "Would you like to hear more interesting stories?"라고 질문하세요.
+            """
+        # 2. 리뷰는 없지만 상세 정보(Overview)는 있는 경우
+        elif overview:
+            context = f"Overview: {overview}"
+            sys_msg = f"""
+            당신은 장소의 가치를 전달하는 '공간 큐레이터'입니다.
+            [미션] 리뷰는 부족하지만, 공식 설명 데이터를 바탕으로 장소의 특징을 품격 있게 소개하세요.
+            [가이드라인]
+            1. 첫인상: "{attraction_name}에 오신 것을 환영합니다!"로 시작하세요.
+            2. 설명: 이 장소의 용도나 건축적 특징 등 Overview 데이터의 핵심을 4문장 내외로 쉽게 풀어주세요.
+            3. 유도: 마지막엔 반드시 "Would you like to hear a more interesting story about this place?"라고 질문하세요.
+            """
+        # 3. 정말 아무것도 없는 경우
+        else:
+            return "I'm sorry, I couldn't find any information about this place."
+
+    else: # mode == "history"
+        # Case A: 역사 정보(history)가 있는 경우 - [스토리텔러]
+        if history:
+            context = f"History: {history}\nOverview: {overview}"
+            sys_msg = """
+            당신은 역사 속 숨겨진 드라마를 발굴하는 '비하인드 스토리 작가'입니다.
+            [가이드라인]
+            1. 훅킹: "사실 이곳엔 여러분이 몰랐던 놀라운 이야기가 숨겨져 있습니다."로 시작하세요.
+            2. 드라마 구현: 단순 연도 나열 대신, 당시 인물들의 감정이나 결정적 사건을 '인간적인 드라마'로 풀어서 설명하세요.
+            3. 비유: "이건 마치 현대의 ~와 비슷하죠" 같은 비유를 한 번 사용하세요.
+            4. 분량: 6문장 이내. 여운을 남기며 마무리하세요.
+            """
+
+        # Case B: 역사는 없지만 상세 정보(overview)가 있는 경우
+        # (단, 앞에서 리뷰를 썼을 때만 overview를 제공하여 중복 방지)
+        elif overview and (keywords and reviews):
+            context = f"Overview: {overview}"
+            sys_msg = """
+            당신은 장소의 구조와 용도를 친절히 설명하는 '인포메이션 가이드'입니다.
+            [가이드라인]
+            1. 상황 안내: "공식적인 역사 기록은 적지만, 대신 이 장소가 가진 특별한 구조와 즐길 거리를 알려드릴게요."라고 시작하세요.
+            2. 관전 포인트: Overview 데이터를 바탕으로 꼭 봐야 할 건축적 특징이나 시설의 의미를 짚어주세요.
+            3. 분량: 5문장 내외의 다정한 구어체로 작성하세요.
+            """
+
+        # Case C: 위 정보는 없거나 이미 소진되었을 때, 추가 리뷰라도 있는 경우
+        elif reviews:
+            fallback_reviews = pick_story_reviews(reviews[BASIC_REVIEW_COUNT:], max_items=5)
+            if fallback_reviews:
+                context = f"Additional Insights: {' '.join(fallback_reviews)}"
+                sys_msg = """
+                당신은 동네 어르신들만 아는 비화를 들려주는 '로컬 가이드'입니다.
+                [가이드라인]
+                1. 솔직한 고백: "기록된 역사는 없지만, 방문객들 사이에서 입소문 난 이곳만의 특징을 들려드릴게요."라고 시작하세요.
+                2. 리뷰 활용: 추가 리뷰 데이터 중 '사람들이 소름 돋았거나 감동한 지점'을 4~6문장으로 설명하세요.
+                """
+            else:
+                return "I've shared all the interesting insights I have for now. Enjoy your stay!"
+        
+        # Case D: 진짜 아무것도 없는 경우
+        else:
+            return "I'm sorry, I couldn't find any historical or detailed stories about this place yet."
 
     response = azure_client.chat.completions.create(
         model=deployment_name,
@@ -148,21 +248,42 @@ def generate_docent_script(attraction_name, mode="basic", language="English"):
 # ==============================================================================
 # 4. 메인 실행
 # ==============================================================================
+def process_attractions(attraction_list, language="English"):
+    """여러 명소에 대해 기본/역사 도슨트를 순차 생성합니다."""
+    for target in attraction_list:
+        print(f"\n{'='*60}")
+        print(f"🎯 Processing: {target}")
+        print(f"{'='*60}")
+        
+        # 기본 가이드 생성
+        script = generate_docent_script(target, mode="basic", language=language)
+        print(f"📖 Basic Guide: {script[:50]}...")
+        
+        # 기본 가이드 대본 저장
+        basic_script_path = os.path.join(DOCENT_OUTPUT_DIR_SCRIPTS, f"{target}_basic_guide_script.txt")
+        with open(basic_script_path, 'w', encoding='utf-8') as f:
+            f.write(script)
+        
+        text_to_speech_english(script, f"{target}_basic_guide.mp3")
+        print(script)
+        
+        # 사용자 대답 듣기
+        if listen_for_confirmation():
+            print("✅ User said YES. Generating history guide...")
+            h_script = generate_docent_script(target, mode="history", language=language)
+            
+            # 역사 가이드 대본 저장
+            history_script_path = os.path.join(DOCENT_OUTPUT_DIR_SCRIPTS, f"{target}_history_guide_script.txt")
+            with open(history_script_path, 'w', encoding='utf-8') as f:
+                f.write(h_script)
+            
+            text_to_speech_english(h_script, f"{target}_history_guide.mp3")
+            print("🎉 History guide generated")
+            print(h_script)
+        else:
+            print("⏩ User declined.")
+
 if __name__ == "__main__":
+    # 테스트용: 한 개 명소만 처리
     target = "수원화성"
-    
-    # 기본 가이드 생성
-    script = generate_docent_script(target, mode="basic")
-    print(f"📖 Basic Guide: {script[:50]}...")
-    text_to_speech_english(script, "basic_guide.mp3")
-    print(script)
-    
-    # 사용자 대답 듣기
-    if listen_for_confirmation():
-        print("✅ User said YES. Generating history guide...")
-        h_script = generate_docent_script(target, mode="history")
-        text_to_speech_english(h_script, "history_guide.mp3")
-        print("🎉 History guide generated: history_guide.mp3")
-        print(h_script)
-    else:
-        print("⏩ User declined.")
+    process_attractions([target])
