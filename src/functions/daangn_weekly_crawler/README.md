@@ -5,6 +5,7 @@
 구조:
 - `daangn_weekly_crawler`(Timer): 대상 동/키워드별 작업을 큐에 등록
 - `daangn_crawl_worker`(Queue): 작업 1건(동+키워드) 단위로 실제 크롤링/적재
+- `daangn_place_mentions_aggregator`(Timer): 최근 데이터에서 장소명/카테고리/시별 언급 수 주간 집계
 
 ## 저장 대상
 - 게시글: 제목, 본문, 시, 동, 원본 URL
@@ -21,6 +22,7 @@ psql "$DB_DSN" -f sql/dml/daangn_target_dongs_seed.sql
 ```bash
 psql "$DB_DSN" -f sql/migration/Script-daangn-community-260226.sql
 psql "$DB_DSN" -f sql/migration/Script-daangn-crawl-tasks-260303.sql
+psql "$DB_DSN" -f sql/migration/Script-daangn-place-mentions-weekly-260304.sql
 ```
 
 ## 로컬 실행
@@ -45,6 +47,8 @@ func azure functionapp publish <YOUR_FUNCTION_APP_NAME> --python
 ## 운영 설정
 - `TIMER_CRON`: 기본값 `0 0 3 * * 1` (매주 월요일 03:00)
 - `DAANGN_TASK_QUEUE`: 큐 이름(기본 `daangn-crawl-tasks`)
+- `MENTION_AGGREGATION_CRON`: 장소 언급 집계 실행 주기(기본 `0 30 3 * * 1`)
+- `MENTION_LOOKBACK_DAYS`: 장소 언급 집계 대상 기간(일, 기본 `7`)
 - `DB_DSN`: PostgreSQL 접속 문자열
 - `MAX_POSTS_PER_DONG`: 동/키워드당 최대 게시글 수 (기본 5)
 - `MAX_TOTAL_POSTS_PER_RUN`: 1회 실행당 최대 게시글 수 (기본 60)

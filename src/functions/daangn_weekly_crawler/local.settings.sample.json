@@ -7,6 +7,8 @@
     "TIMER_CRON": "0 0 3 * * 1",
     "DAANGN_TASK_QUEUE": "daangn-crawl-tasks",
     "DAANGN_KEYWORDS": "맛집,명소,행사",
+    "MENTION_AGGREGATION_CRON": "0 30 3 * * 1",
+    "MENTION_LOOKBACK_DAYS": "7",
     "MAX_POSTS_PER_DONG": "5",
     "MAX_TOTAL_POSTS_PER_RUN": "60",
     "REQUEST_TIMEOUT_SECONDS": "15",
