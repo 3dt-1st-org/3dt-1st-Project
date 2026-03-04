@@ -67,6 +67,10 @@ final class MapRemoteService: MapDataProviding {
         radiusMeters: Int,
         category: MapPlaceFilter
     ) async throws -> [PlaceRecommendation] {
+        guard baseURL != nil else {
+            return Self.fallbackPlaces(around: center, category: category)
+        }
+
         let requestURL = try makeURL(
             path: "/api/places",
             queryItems: [
@@ -77,14 +81,23 @@ final class MapRemoteService: MapDataProviding {
             ]
         )
 
-        let (data, response) = try await session.data(from: requestURL)
-        try validate(response: response)
+        do {
+            let (data, response) = try await session.data(from: requestURL)
+            try validate(response: response)
 
-        let decoded = try decoder.decode(RemotePlacesResponse.self, from: data)
-        return decoded.places.map(Self.mapPlace(from:))
+            let decoded = try decoder.decode(RemotePlacesResponse.self, from: data)
+            let mapped = decoded.places.map(Self.mapPlace(from:))
+            return mapped.isEmpty ? Self.fallbackPlaces(around: center, category: category) : mapped
+        } catch {
+            return Self.fallbackPlaces(around: center, category: category)
+        }
     }
 
     func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot {
+        guard baseURL != nil else {
+            return WeatherSnapshot(symbolName: "cloud.sun.fill", temperatureText: "13°C")
+        }
+
         let requestURL = try makeURL(
             path: "/api/weather",
             queryItems: [
@@ -93,14 +106,18 @@ final class MapRemoteService: MapDataProviding {
             ]
         )
 
-        let (data, response) = try await session.data(from: requestURL)
-        try validate(response: response)
+        do {
+            let (data, response) = try await session.data(from: requestURL)
+            try validate(response: response)
 
-        let decoded = try decoder.decode(RemoteWeatherResponse.self, from: data)
-        return WeatherSnapshot(
-            symbolName: Self.weatherSymbolName(from: decoded.icon),
-            temperatureText: Self.temperatureText(from: decoded.temp)
-        )
+            let decoded = try decoder.decode(RemoteWeatherResponse.self, from: data)
+            return WeatherSnapshot(
+                symbolName: Self.weatherSymbolName(from: decoded.icon),
+                temperatureText: Self.temperatureText(from: decoded.temp)
+            )
+        } catch {
+            return WeatherSnapshot(symbolName: "cloud.sun.fill", temperatureText: "13°C")
+        }
     }
 
     private func makeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
@@ -214,6 +231,79 @@ final class MapRemoteService: MapDataProviding {
             return trimmed
         }
         return "\(trimmed)°C"
+    }
+
+    private static func fallbackPlaces(
+        around center: CLLocationCoordinate2D,
+        category: MapPlaceFilter
+    ) -> [PlaceRecommendation] {
+        let baseLat = center.latitude
+        let baseLng = center.longitude
+
+        let sample: [PlaceRecommendation] = [
+            PlaceRecommendation(
+                id: "sample-attraction-1",
+                nameKo: "명소 샘플: 행궁동 성곽길",
+                nameEn: "Attraction Sample: Haenggung Fortress Trail",
+                categoryKind: .attraction,
+                categoryKo: "로컬 명소",
+                categoryEn: "Attraction",
+                districtKo: "수원시 팔달구",
+                districtEn: "Paldal-gu, Suwon",
+                guideKo: "명소 샘플입니다. 행궁동 성곽길 주변 풍경을 즐겨보세요.",
+                guideEn: "Attraction sample. Enjoy the views around Haenggung trail.",
+                coordinate: CLLocationCoordinate2D(latitude: baseLat + 0.0012, longitude: baseLng - 0.0011),
+                distanceMeters: 180,
+                addressKo: "경기도 수원시 팔달구 행궁로 인근",
+                addressEn: "Near Haenggung-ro, Paldal-gu, Suwon",
+                imageURL: URL(string: "https://picsum.photos/seed/lala-attraction/640/360")
+            ),
+            PlaceRecommendation(
+                id: "sample-restaurant-1",
+                nameKo: "맛집 샘플: 팔달 로컬 식당",
+                nameEn: "Restaurant Sample: Paldal Local Diner",
+                categoryKind: .restaurant,
+                categoryKo: "로컬 맛집",
+                categoryEn: "Restaurant",
+                districtKo: "수원시 팔달구",
+                districtEn: "Paldal-gu, Suwon",
+                guideKo: "맛집 샘플입니다. 지역 주민이 자주 찾는 식당이에요.",
+                guideEn: "Restaurant sample. A diner loved by local residents.",
+                coordinate: CLLocationCoordinate2D(latitude: baseLat - 0.0010, longitude: baseLng + 0.0010),
+                distanceMeters: 220,
+                addressKo: "경기도 수원시 팔달구 정조로 인근",
+                addressEn: "Near Jeongjo-ro, Paldal-gu, Suwon",
+                imageURL: URL(string: "https://picsum.photos/seed/lala-restaurant/640/360")
+            ),
+            PlaceRecommendation(
+                id: "sample-event-1",
+                nameKo: "행사 샘플: 화성 야간 프로그램",
+                nameEn: "Event Sample: Hwaseong Night Program",
+                categoryKind: .event,
+                categoryKo: "로컬 행사",
+                categoryEn: "Event",
+                districtKo: "수원시 팔달구",
+                districtEn: "Paldal-gu, Suwon",
+                guideKo: "행사 샘플입니다. 야간 조명과 공연 정보를 확인해보세요.",
+                guideEn: "Event sample. Check out the night lights and performances.",
+                coordinate: CLLocationCoordinate2D(latitude: baseLat + 0.0004, longitude: baseLng + 0.0016),
+                distanceMeters: 260,
+                addressKo: "경기도 수원시 팔달구 신풍로 인근",
+                addressEn: "Near Sinpung-ro, Paldal-gu, Suwon",
+                imageURL: URL(string: "https://picsum.photos/seed/lala-event/640/360")
+            )
+        ]
+
+        switch category {
+        case .all:
+            return sample
+        case .attraction:
+            return sample.filter { $0.categoryKind == .attraction }
+        case .restaurant:
+            return sample.filter { $0.categoryKind == .restaurant }
+        case .event:
+            return sample.filter { $0.categoryKind == .event }
+        }
     }
 }
 

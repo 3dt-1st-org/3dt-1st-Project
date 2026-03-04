@@ -117,7 +117,7 @@ struct MainMapView: View {
                             .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
                             .foregroundStyle(
                                 viewModel.selectedFilter == filter
-                                    ? Color.white
+                                    ? chipSelectedTextColor(for: filter)
                                     : Color(AppThemeColor.north.rawValue)
                             )
                             .padding(.horizontal, 14)
@@ -126,7 +126,7 @@ struct MainMapView: View {
                                 Capsule(style: .continuous)
                                     .fill(
                                         viewModel.selectedFilter == filter
-                                            ? Color(AppThemeColor.east.rawValue)
+                                            ? chipSelectedBackgroundColor(for: filter)
                                             : Color.white.opacity(0.93)
                                     )
                             )
@@ -401,6 +401,28 @@ struct MainMapView: View {
             return "현재 위치로 이동"
         case .english:
             return "Go to current location"
+        }
+    }
+
+    private func chipSelectedBackgroundColor(for filter: MapPlaceFilter) -> Color {
+        switch filter {
+        case .all:
+            return Color(AppThemeColor.north.rawValue)
+        case .attraction:
+            return Color(AppThemeColor.south.rawValue)
+        case .restaurant:
+            return Color(AppThemeColor.center.rawValue)
+        case .event:
+            return Color(AppThemeColor.east.rawValue)
+        }
+    }
+
+    private func chipSelectedTextColor(for filter: MapPlaceFilter) -> Color {
+        switch filter {
+        case .restaurant:
+            return Color(AppThemeColor.north.rawValue)
+        default:
+            return .white
         }
     }
 }
