@@ -7,8 +7,8 @@
 
 import Foundation
 
-struct MapSelectionResult {
-    let selectedPlaceID: UUID?
+struct MapSelectionResult<ID: Equatable> {
+    let selectedPlaceID: ID?
     let subtitle: String
     let shouldSpeak: Bool
     let shouldStopSpeaking: Bool
@@ -16,13 +16,13 @@ struct MapSelectionResult {
 }
 
 enum MapGuidanceLogic {
-    static func reduceSelection(
-        currentSelectedPlaceID: UUID?,
-        tappedPlaceID: UUID,
+    static func reduceSelection<ID: Equatable>(
+        currentSelectedPlaceID: ID?,
+        tappedPlaceID: ID,
         tappedSubtitle: String,
         defaultSubtitle: String,
         isVoiceGuidanceEnabled: Bool
-    ) -> MapSelectionResult {
+    ) -> MapSelectionResult<ID> {
         if currentSelectedPlaceID == tappedPlaceID {
             return MapSelectionResult(
                 selectedPlaceID: nil,

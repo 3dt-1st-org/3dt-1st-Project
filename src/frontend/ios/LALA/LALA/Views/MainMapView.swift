@@ -12,7 +12,6 @@ struct MainMapView: View {
     @ObservedObject var appViewModel: AppViewModel
     @StateObject private var viewModel = MainMapViewModel()
     @State private var showSettings = false
-    @State private var userTrackingMode: MapUserTrackingMode = .none
 
     var body: some View {
         ZStack {
@@ -20,7 +19,6 @@ struct MainMapView: View {
                 coordinateRegion: boundedRegionBinding,
                 interactionModes: [.pan, .zoom],
                 showsUserLocation: true,
-                userTrackingMode: $userTrackingMode,
                 annotationItems: viewModel.places
             ) { place in
                 MapAnnotation(coordinate: place.coordinate) {
@@ -40,11 +38,11 @@ struct MainMapView: View {
             overlayContent
         }
         .onAppear {
-            viewModel.refreshSubtitle(for: appViewModel.selectedLanguage)
+            viewModel.updateLanguage(appViewModel.selectedLanguage)
             viewModel.configureLocationUpdates(consentEnabled: appViewModel.isLocationConsentEnabled)
         }
         .onChange(of: appViewModel.selectedLanguage) { _, newValue in
-            viewModel.refreshSubtitle(for: newValue)
+            viewModel.updateLanguage(newValue)
         }
         .onChange(of: appViewModel.isLocationConsentEnabled) { _, consent in
             viewModel.configureLocationUpdates(consentEnabled: consent)
@@ -65,9 +63,11 @@ struct MainMapView: View {
     }
 
     private var overlayContent: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
+            placeFilterChips
+
             placeCarousel
-                .padding(.top, 4)
+                .padding(.top, 2)
 
             HStack {
                 settingsButton
@@ -75,6 +75,14 @@ struct MainMapView: View {
                 weatherView
             }
             .padding(.horizontal, 16)
+
+            if viewModel.isLoadingPlaces {
+                loadingBadge
+            }
+
+            if let status = viewModel.statusMessage(for: appViewModel.selectedLanguage) {
+                statusBanner(status)
+            }
 
             Spacer()
 
@@ -91,6 +99,38 @@ struct MainMapView: View {
         }
         .safeAreaPadding(.top, 10)
         .safeAreaPadding(.bottom, 8)
+    }
+
+    private var placeFilterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(MapPlaceFilter.allCases) { filter in
+                    Button {
+                        viewModel.selectFilter(filter)
+                    } label: {
+                        Text(filter.title(in: appViewModel.selectedLanguage))
+                            .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
+                            .foregroundStyle(
+                                viewModel.selectedFilter == filter
+                                    ? Color.white
+                                    : Color(AppThemeColor.north.rawValue)
+                            )
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(
+                                        viewModel.selectedFilter == filter
+                                            ? Color(AppThemeColor.east.rawValue)
+                                            : Color.white.opacity(0.93)
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+        }
     }
 
     private var placeCarousel: some View {
@@ -111,11 +151,27 @@ struct MainMapView: View {
                                     .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
                                     .foregroundStyle(Color(AppThemeColor.east.rawValue))
 
-                                Text(place.district(in: appViewModel.selectedLanguage))
-                                    .font(.system(size: 12 * appViewModel.fontScale, weight: .medium))
-                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 8) {
+                                    Text(place.district(in: appViewModel.selectedLanguage))
+                                        .font(.system(size: 12 * appViewModel.fontScale, weight: .medium))
+                                        .foregroundStyle(.secondary)
+
+                                    if let distance = place.distanceLabel(in: appViewModel.selectedLanguage) {
+                                        Text(distance)
+                                            .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
+                                            .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.75))
+                                    }
+                                }
+
+                                let address = place.address(in: appViewModel.selectedLanguage)
+                                if !address.isEmpty {
+                                    Text(address)
+                                        .font(.system(size: 11 * appViewModel.fontScale, weight: .regular))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
                             }
-                            .frame(width: 210, alignment: .leading)
+                            .frame(width: 230, alignment: .leading)
                             .padding(14)
                             .background(
                                 RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -156,6 +212,49 @@ struct MainMapView: View {
                 .fill(Color.white.opacity(0.92))
         )
         .accessibilityLabel(viewModel.weatherA11yText(for: appViewModel.selectedLanguage))
+    }
+
+    private var loadingBadge: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .tint(Color(AppThemeColor.east.rawValue))
+            Text(appViewModel.selectedLanguage == .korean ? "주변 장소 로딩 중..." : "Loading nearby places...")
+                .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
+                .foregroundStyle(Color(AppThemeColor.north.rawValue))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.94))
+        )
+    }
+
+    private func statusBanner(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Color.orange)
+
+            Text(text)
+                .font(.system(size: 12 * appViewModel.fontScale, weight: .medium))
+                .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 6)
+
+            Button(appViewModel.selectedLanguage == .korean ? "다시시도" : "Retry") {
+                viewModel.retryLoadingPlaces()
+            }
+            .font(.system(size: 12 * appViewModel.fontScale, weight: .bold))
+            .foregroundStyle(Color(AppThemeColor.east.rawValue))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.95))
+        )
+        .padding(.horizontal, 16)
     }
 
     private var settingsButton: some View {
@@ -218,7 +317,6 @@ struct MainMapView: View {
 
     private var currentLocationButton: some View {
         Button {
-            userTrackingMode = .none
             viewModel.centerOnUserLocation(animated: true)
         } label: {
             Image(systemName: "location.fill")

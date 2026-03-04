@@ -17,85 +17,49 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     @Published var region: MKCoordinateRegion
     @Published var isVoiceGuidanceEnabled = true
     @Published var subtitle = ""
-    @Published var weatherSymbol = "cloud.sun.fill"
-    @Published var weatherValue = "13°C"
-    @Published var selectedPlaceID: UUID?
+    @Published var weatherSymbol = WeatherSnapshot.placeholder.symbolName
+    @Published var weatherValue = WeatherSnapshot.placeholder.temperatureText
+    @Published var selectedPlaceID: String?
     @Published private(set) var userCoordinate: CLLocationCoordinate2D?
+    @Published private(set) var places: [PlaceRecommendation]
+    @Published var selectedFilter: MapPlaceFilter = .all
+    @Published private(set) var isLoadingPlaces = false
+    @Published private(set) var mapStatusMessage: String?
 
-    let places: [PlaceRecommendation]
     private let speechSynthesizer = AVSpeechSynthesizer()
     private let locationManager = CLLocationManager()
+    private let mapDataProvider: MapDataProviding
+    private let searchRadiusMeters = 3_000
     private var hasAppliedInitialUserFocus = false
     private var isAppLocationConsentEnabled = false
+    private var activeLanguage: AppLanguage = .korean
+    private var reloadTask: Task<Void, Never>?
+    private var debounceTask: Task<Void, Never>?
 
     private let initialRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 36.35, longitude: 127.9),
         span: MKCoordinateSpan(latitudeDelta: 7.0, longitudeDelta: 8.0)
     )
 
-    override init() {
+    init(mapDataProvider: MapDataProviding = MapRemoteService()) {
+        self.mapDataProvider = mapDataProvider
         region = initialRegion
-
-        places = [
-            PlaceRecommendation(
-                nameKo: "행주산성",
-                nameEn: "Haengjusanseong Fortress",
-                categoryKind: .history,
-                categoryKo: "역사 명소",
-                categoryEn: "Historic Site",
-                districtKo: "고양시",
-                districtEn: "Goyang",
-                guideKo: "행주산성은 한강 전망과 성곽 산책이 좋은 역사 명소예요. 근처 로컬 식당도 함께 추천해드릴게요.",
-                guideEn: "Haengjusanseong offers scenic fortress walks and river views. I can also recommend nearby local restaurants.",
-                coordinate: CLLocationCoordinate2D(latitude: 37.6001, longitude: 126.8171)
-            ),
-            PlaceRecommendation(
-                nameKo: "남한산성 전통길",
-                nameEn: "Namhansanseong Trail",
-                categoryKind: .trekking,
-                categoryKo: "로컬 트레킹",
-                categoryEn: "Local Trekking",
-                districtKo: "광주시",
-                districtEn: "Gwangju",
-                guideKo: "남한산성 전통길은 숲길과 성곽 풍경을 함께 즐기기 좋은 코스입니다. 초행자에게도 부담이 적어요.",
-                guideEn: "Namhansanseong Trail is a great local course with forest paths and fortress scenery, suitable even for first-time visitors.",
-                coordinate: CLLocationCoordinate2D(latitude: 37.4767, longitude: 127.1830)
-            ),
-            PlaceRecommendation(
-                nameKo: "화성행궁 야간거리",
-                nameEn: "Hwaseong Haenggung Night Street",
-                categoryKind: .nightWalk,
-                categoryKo: "야간 산책",
-                categoryEn: "Night Walk",
-                districtKo: "수원시",
-                districtEn: "Suwon",
-                guideKo: "화성행궁 주변은 밤에 조명이 아름다워 산책하기 좋아요. 전통 간식과 골목 맛집도 가까이에 있습니다.",
-                guideEn: "The Hwaseong Haenggung area is ideal for night walks with beautiful lighting, plus local snack spots nearby.",
-                coordinate: CLLocationCoordinate2D(latitude: 37.2810, longitude: 127.0143)
-            ),
-            PlaceRecommendation(
-                nameKo: "포천 이동갈비 골목",
-                nameEn: "Pocheon Galbi Alley",
-                categoryKind: .localEats,
-                categoryKo: "로컬 맛집",
-                categoryEn: "Local Eats",
-                districtKo: "포천시",
-                districtEn: "Pocheon",
-                guideKo: "포천 이동갈비 골목은 현지인도 자주 찾는 대표 맛집 거리예요. 대기 시간을 줄일 수 있는 매장도 안내해드릴게요.",
-                guideEn: "Pocheon Galbi Alley is a well-known local food street. I can guide you to places with shorter wait times.",
-                coordinate: CLLocationCoordinate2D(latitude: 37.8939, longitude: 127.2006)
-            )
-        ]
-
+        places = PlaceRecommendation.fallbackData
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
     func refreshSubtitle(for language: AppLanguage) {
+        activeLanguage = language
         subtitle = isVoiceGuidanceEnabled
             ? voiceOnSubtitle(for: language)
             : voiceOffSubtitle(for: language)
+    }
+
+    func updateLanguage(_ language: AppLanguage) {
+        refreshSubtitle(for: language)
+        reloadMapData(around: region.center)
     }
 
     func toggleVoiceGuidance(for language: AppLanguage) {
@@ -104,6 +68,12 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             speechSynthesizer.stopSpeaking(at: .immediate)
         }
         refreshSubtitle(for: language)
+    }
+
+    func selectFilter(_ filter: MapPlaceFilter) {
+        guard selectedFilter != filter else { return }
+        selectedFilter = filter
+        reloadMapData(around: region.center)
     }
 
     func handlePlaceTap(_ place: PlaceRecommendation, language: AppLanguage) {
@@ -118,6 +88,20 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         language == .korean
             ? "현재 날씨 \(weatherValue)"
             : "Current weather \(weatherValue)"
+    }
+
+    func statusMessage(for language: AppLanguage) -> String? {
+        mapStatusMessage.flatMap { _ in
+            if places.isEmpty {
+                return language == .korean
+                    ? "주변 추천 장소가 없습니다."
+                    : "No recommended places found nearby."
+            }
+
+            return language == .korean
+                ? "네트워크 문제로 임시 추천 목록을 표시 중입니다."
+                : "Showing fallback recommendations due to a network issue."
+        }
     }
 
     private func voiceOnSubtitle(for language: AppLanguage) -> String {
@@ -193,7 +177,75 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         guard !isNearlyEqual(region, clamped) else { return }
         Task { @MainActor [clamped] in
             self.region = clamped
+            self.scheduleDebouncedReload(center: clamped.center)
         }
+    }
+
+    private func scheduleDebouncedReload(center: CLLocationCoordinate2D) {
+        guard isAppLocationConsentEnabled else { return }
+
+        debounceTask?.cancel()
+        debounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 550_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.reloadMapData(around: center)
+        }
+    }
+
+    private func reloadMapData(around center: CLLocationCoordinate2D) {
+        guard isAppLocationConsentEnabled else { return }
+
+        reloadTask?.cancel()
+        reloadTask = Task { [weak self] in
+            guard let self else { return }
+            isLoadingPlaces = true
+            mapStatusMessage = nil
+
+            do {
+                async let loadedPlaces = mapDataProvider.fetchPlaces(
+                    center: center,
+                    radiusMeters: searchRadiusMeters,
+                    category: selectedFilter,
+                    language: activeLanguage
+                )
+                async let weather = mapDataProvider.fetchWeather(at: center)
+
+                let (placesResult, weatherResult) = try await (loadedPlaces, weather)
+                guard !Task.isCancelled else { return }
+
+                applyPlaces(placesResult)
+                weatherSymbol = weatherResult.symbolName
+                weatherValue = weatherResult.temperatureText
+                isLoadingPlaces = false
+            } catch {
+                guard !Task.isCancelled else { return }
+                isLoadingPlaces = false
+                mapStatusMessage = error.localizedDescription
+
+                // Keep existing places when available. If empty, show static fallback.
+                if places.isEmpty {
+                    places = PlaceRecommendation.fallbackData
+                }
+            }
+        }
+    }
+
+    private func applyPlaces(_ loadedPlaces: [PlaceRecommendation]) {
+        places = loadedPlaces
+        mapStatusMessage = loadedPlaces.isEmpty ? "NO_RESULTS" : nil
+
+        guard let selectedPlaceID else { return }
+        if !loadedPlaces.contains(where: { $0.id == selectedPlaceID }) {
+            self.selectedPlaceID = nil
+            subtitle = defaultSubtitle(for: activeLanguage)
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.stopSpeaking(at: .immediate)
+            }
+        }
+    }
+
+    func retryLoadingPlaces() {
+        reloadMapData(around: region.center)
     }
 
     func configureLocationUpdates(consentEnabled: Bool) {
@@ -210,6 +262,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         case .authorizedWhenInUse, .authorizedAlways:
             locationManager.startUpdatingLocation()
             locationManager.requestLocation()
+            reloadMapData(around: userCoordinate ?? region.center)
         case .denied, .restricted:
             locationManager.stopUpdatingLocation()
         @unknown default:
@@ -235,6 +288,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         } else {
             region = clamped
         }
+        reloadMapData(around: clamped.center)
     }
 
     func centerOnPlace(_ place: PlaceRecommendation, animated: Bool) {
@@ -270,6 +324,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         if !hasAppliedInitialUserFocus {
             hasAppliedInitialUserFocus = true
             centerOnUserLocation(animated: false)
+            return
+        }
+
+        if places.isEmpty {
+            reloadMapData(around: latest.coordinate)
         }
     }
 
