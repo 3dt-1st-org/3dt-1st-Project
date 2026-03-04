@@ -24,6 +24,7 @@ REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
 REQUEST_SLEEP_SECONDS = float(os.getenv("REQUEST_SLEEP_SECONDS", "0.2"))
 REQUEST_RETRY_COUNT = int(os.getenv("REQUEST_RETRY_COUNT", "3"))
 REQUEST_RETRY_BASE_SECONDS = float(os.getenv("REQUEST_RETRY_BASE_SECONDS", "0.6"))
+SEARCH_URL_LIMIT = int(os.getenv("SEARCH_URL_LIMIT", "4"))
 TASK_QUEUE_NAME = os.getenv("DAANGN_TASK_QUEUE", "daangn-crawl-tasks")
 MENTION_AGGREGATION_CRON = os.getenv("MENTION_AGGREGATION_CRON", "0 30 3 * * 1")
 MENTION_LOOKBACK_DAYS = int(os.getenv("MENTION_LOOKBACK_DAYS", "7"))
@@ -450,7 +451,7 @@ def _build_search_urls(target: TargetDong, keyword: str) -> list[str]:
     city_short = quote_plus(target.city_name[:-1] if target.city_name.endswith("시") else target.city_name)
     dong = quote_plus(target.dong_name)
     kw = quote_plus(keyword)
-    return [
+    candidates = [
         f"https://www.daangn.com/kr/community/s/?in={target.dong_slug}&search={kw}",
         f"https://www.daangn.com/kr/community/s/?in={target.dong_slug}&search={dong}+{kw}",
         f"https://www.daangn.com/kr/community/s/?search={city}+{dong}+{kw}",
@@ -466,6 +467,16 @@ def _build_search_urls(target: TargetDong, keyword: str) -> list[str]:
         f"https://www.daangn.com/kr/community/s/?search={city_short}+명소",
         f"https://www.daangn.com/kr/community/s/?search={city_short}+행사",
     ]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for url in candidates:
+        if url in seen:
+            continue
+        seen.add(url)
+        deduped.append(url)
+
+    limit = max(1, SEARCH_URL_LIMIT)
+    return deduped[:limit]
 
 
 def _extract_text_by_selectors(soup: BeautifulSoup, selectors: Iterable[str]) -> str:
