@@ -205,7 +205,7 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
             self.module.CommunityText(city_name="수원시", text="어풍당당 맛집 추천", category_hint="맛집"),
             self.module.CommunityText(city_name="수원시", text="어풍당당 맛집", category_hint=""),
         ]
-        counter = self.module._aggregate_place_mentions(rows)
+        counter = self.module._aggregate_place_mentions_rule_based(rows)
         self.assertEqual(counter[("어풍당당", "맛집", "수원시")], 2)
 
 

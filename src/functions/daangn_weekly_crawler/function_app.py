@@ -24,6 +24,9 @@ REQUEST_SLEEP_SECONDS = float(os.getenv("REQUEST_SLEEP_SECONDS", "0.3"))
 TASK_QUEUE_NAME = os.getenv("DAANGN_TASK_QUEUE", "daangn-crawl-tasks")
 MENTION_AGGREGATION_CRON = os.getenv("MENTION_AGGREGATION_CRON", "0 30 3 * * 1")
 MENTION_LOOKBACK_DAYS = int(os.getenv("MENTION_LOOKBACK_DAYS", "7"))
+MENTION_LLM_BATCH_SIZE = int(os.getenv("MENTION_LLM_BATCH_SIZE", "20"))
+MENTION_LLM_MAX_ROWS = int(os.getenv("MENTION_LLM_MAX_ROWS", "400"))
+MENTION_LLM_TEXT_LIMIT = int(os.getenv("MENTION_LLM_TEXT_LIMIT", "280"))
 NOISE_EXACT_MATCHES = {
     ",",
     ".",
@@ -47,6 +50,20 @@ PLACE_NAME_PATTERN = re.compile(
 )
 CATEGORY_RESTAURANT_HINTS = ("맛집", "식당", "카페", "횟집", "음식점", "먹자", "점심", "저녁")
 CATEGORY_EVENT_HINTS = ("행사", "축제", "박람회", "공연", "페스티벌", "플리마켓", "전시")
+PLACE_NOISE_TOKENS = {
+    "맛집",
+    "명소",
+    "행사",
+    "추천",
+    "동네생활",
+    "게시글",
+    "질문",
+    "댓글",
+    "갱쥐",
+    "강아지",
+    "공원",
+    "헌옷 수거",
+}
 
 
 def _utc_now() -> datetime:
@@ -105,6 +122,35 @@ def _get_keywords() -> list[str]:
     return [token.strip() for token in raw.split(",") if token.strip()]
 
 
+def _is_truthy(raw: Optional[str]) -> bool:
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _is_llm_enabled() -> bool:
+    return _is_truthy(os.getenv("MENTION_USE_LLM", "1"))
+
+
+def _azure_openai_config() -> Optional[dict[str, str]]:
+    endpoint = (os.getenv("AZURE_OPENAI_ENDPOINT") or "").strip()
+    api_key = (os.getenv("AZURE_OPENAI_KEY") or "").strip()
+    deployment = (
+        os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+        or os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        or ""
+    ).strip()
+    api_version = (os.getenv("AZURE_OPENAI_VERSION") or "2024-02-15-preview").strip()
+    if not endpoint or not api_key or not deployment:
+        return None
+    return {
+        "endpoint": endpoint.rstrip("/"),
+        "api_key": api_key,
+        "deployment": deployment,
+        "api_version": api_version,
+    }
+
+
 def _normalize_place_name(raw: str) -> str:
     text = re.sub(r"\s+", " ", raw).strip()
     text = re.sub(r"[\"'`<>\\[\\](){}]", "", text)
@@ -112,6 +158,20 @@ def _normalize_place_name(raw: str) -> str:
     text = re.sub(r"\s*(이라는|라는|인)$", "", text).strip()
     text = re.sub(r"(입니다|이에요|네요|요)$", "", text).strip()
     return text
+
+
+def _is_valid_place_name(name: str) -> bool:
+    if len(name) < 2 or len(name) > 30:
+        return False
+    if name in PLACE_NOISE_TOKENS:
+        return False
+    if re.fullmatch(r"[0-9]+", name):
+        return False
+    if re.search(r"(구합니다|문의|초대|모임|좋아요 수|댓글 수)", name):
+        return False
+    if len(name) <= 3 and re.search(r"[시군구동읍면리]$", name):
+        return False
+    return True
 
 
 def _categorize_text(text: str, category_hint: str) -> str:
@@ -129,20 +189,145 @@ def _extract_places_from_text(text: str) -> list[str]:
         candidates.append(match.group(1))
     for match in PLACE_NAME_PATTERN.finditer(text):
         candidates.append(match.group(1))
+    for match in re.finditer(r"[가-힣A-Za-z0-9]{2,20}\s*에\s*있는\s*([가-힣A-Za-z0-9]{2,20})", text):
+        candidates.append(match.group(1))
+
+    if any(token in text for token in ("맛있", "추천")):
+        for part in re.split(r"[,!/·\n]+", text):
+            token = _normalize_place_name(part)
+            if 2 <= len(token) <= 20 and " " not in token:
+                candidates.append(token)
+
+    stripped = _normalize_place_name(text)
+    if 2 <= len(stripped) <= 20 and " " not in stripped and "http" not in stripped.lower():
+        candidates.append(stripped)
 
     normalized: list[str] = []
     seen: set[str] = set()
     for candidate in candidates:
         name = _normalize_place_name(candidate)
-        if len(name) < 2 or len(name) > 30:
-            continue
         if name.lower() in {"저기", "여기", "거기", "이곳", "그곳"}:
+            continue
+        if any(token in name for token in ("초대", "모임", "구합니다", "문의", "동네생활", "게시글")):
+            continue
+        if not _is_valid_place_name(name):
             continue
         if name in seen:
             continue
         seen.add(name)
         normalized.append(name)
     return normalized
+
+
+def _contains_entity_hint(text: str, category_hint: str) -> bool:
+    merged = f"{category_hint} {text}"
+    if any(keyword in merged for keyword in CATEGORY_RESTAURANT_HINTS + CATEGORY_EVENT_HINTS):
+        return True
+    return PLACE_SUFFIX_PATTERN.search(text) is not None or PLACE_NAME_PATTERN.search(text) is not None
+
+
+def _truncate_text(raw: str, limit: int) -> str:
+    text = re.sub(r"\s+", " ", raw).strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit]
+
+
+def _parse_llm_json(raw: str) -> dict[str, Any]:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text.replace("json\n", "", 1).strip()
+    return json.loads(text)
+
+
+def _build_llm_payload(rows: list[CommunityText]) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for idx, row in enumerate(rows, start=1):
+        payload.append(
+            {
+                "id": str(idx),
+                "city_name": row.city_name,
+                "category_hint": row.category_hint,
+                "text": _truncate_text(row.text, MENTION_LLM_TEXT_LIMIT),
+            }
+        )
+    return payload
+
+
+def _extract_mentions_with_llm(rows: list[CommunityText], config: dict[str, str]) -> Counter[tuple[str, str, str]]:
+    mention_counter: Counter[tuple[str, str, str]] = Counter()
+    batch_size = max(MENTION_LLM_BATCH_SIZE, 1)
+
+    for start_idx in range(0, len(rows), batch_size):
+        batch_rows = rows[start_idx : start_idx + batch_size]
+        payload_rows = _build_llm_payload(batch_rows)
+        prompt = {
+            "instruction": "각 text에서 실제로 언급된 장소명을 추출하세요. 추측 금지.",
+            "category_rule": "카테고리는 반드시 맛집, 명소, 행사 중 하나",
+            "output_schema": {
+                "results": [
+                    {
+                        "id": "string",
+                        "mentions": [
+                            {"place_name": "string", "category": "맛집|명소|행사"}
+                        ],
+                    }
+                ]
+            },
+            "rows": payload_rows,
+        }
+
+        url = (
+            f"{config['endpoint']}/openai/deployments/{config['deployment']}/chat/completions"
+            f"?api-version={config['api_version']}"
+        )
+        try:
+            response = requests.post(
+                url,
+                headers={"api-key": config["api_key"], "Content-Type": "application/json"},
+                json={
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "너는 한국어 지역 커뮤니티 데이터에서 장소명을 구조화 추출하는 도우미다.",
+                        },
+                        {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                    ],
+                    "temperature": 0,
+                    "max_tokens": 1400,
+                },
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            body = response.json()
+            content = body["choices"][0]["message"]["content"]
+            parsed = _parse_llm_json(content)
+        except Exception:
+            LOGGER.exception("mention_stage=llm_batch_failed start=%d size=%d", start_idx, len(batch_rows))
+            parsed = {"results": []}
+
+        id_to_city = {str(i + 1): row.city_name for i, row in enumerate(batch_rows)}
+        id_to_row = {str(i + 1): row for i, row in enumerate(batch_rows)}
+        for item in parsed.get("results", []):
+            row_id = str(item.get("id") or "")
+            city_name = id_to_city.get(row_id)
+            source_row = id_to_row.get(row_id)
+            if not city_name or source_row is None:
+                continue
+            mentions = item.get("mentions") or []
+            if not isinstance(mentions, list):
+                continue
+            for mention in mentions:
+                place_name = _normalize_place_name(str(mention.get("place_name") or ""))
+                if not _is_valid_place_name(place_name):
+                    continue
+                category = str(mention.get("category") or "").strip()
+                if category not in {"맛집", "명소", "행사"}:
+                    category = _categorize_text(source_row.text, source_row.category_hint)
+                mention_counter[(place_name, category, city_name)] += 1
+
+    return mention_counter
 
 
 def _request_html(session: requests.Session, url: str) -> str:
@@ -593,7 +778,7 @@ def _load_recent_community_texts(conn: psycopg.Connection, lookback_days: int) -
     ]
 
 
-def _aggregate_place_mentions(
+def _aggregate_place_mentions_rule_based(
     rows: list[CommunityText],
 ) -> Counter[tuple[str, str, str]]:
     counter: Counter[tuple[str, str, str]] = Counter()
@@ -612,6 +797,13 @@ def _upsert_place_mentions_weekly(
 ) -> int:
     affected = 0
     with conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM daangn.place_mentions_weekly
+            WHERE week_start = %s
+            """,
+            (week_start,),
+        )
         for (place_name, category, city_name), mention_count in mention_counter.items():
             cur.execute(
                 """
@@ -1018,14 +1210,32 @@ def daangn_place_mentions_aggregator(timer: func.TimerRequest) -> None:
 
     with psycopg.connect(db_dsn) as conn:
         rows = _load_recent_community_texts(conn, lookback_days)
-        mention_counter = _aggregate_place_mentions(rows)
+        candidate_rows = rows
+        if MENTION_LLM_MAX_ROWS > 0:
+            candidate_rows = candidate_rows[:MENTION_LLM_MAX_ROWS]
+
+        mention_counter: Counter[tuple[str, str, str]]
+        llm_used = False
+        llm_config = _azure_openai_config() if _is_llm_enabled() else None
+        if llm_config and candidate_rows:
+            mention_counter = _extract_mentions_with_llm(candidate_rows, llm_config)
+            llm_used = True
+        else:
+            mention_counter = Counter()
+
+        # Keep fallback so the job still produces output when LLM is disabled or partially fails.
+        if not mention_counter:
+            mention_counter = _aggregate_place_mentions_rule_based(candidate_rows)
+
         affected = _upsert_place_mentions_weekly(conn, week_start, mention_counter)
 
     LOGGER.info(
-        "mention_stage=done week_start=%s source_rows=%d entities=%d affected_rows=%d elapsed_ms=%d",
+        "mention_stage=done week_start=%s source_rows=%d candidate_rows=%d entities=%d affected_rows=%d llm_used=%s elapsed_ms=%d",
         week_start.isoformat(),
         len(rows),
+        len(candidate_rows),
         len(mention_counter),
         affected,
+        llm_used,
         _elapsed_ms(started_at),
     )
