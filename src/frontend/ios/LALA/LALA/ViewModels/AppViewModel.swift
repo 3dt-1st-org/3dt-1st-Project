@@ -105,9 +105,6 @@ final class AppViewModel: ObservableObject {
         if preferred.hasPrefix("ko") {
             return .korean
         }
-        if preferred.hasPrefix("ja") {
-            return .japanese
-        }
         return .english
     }
 }

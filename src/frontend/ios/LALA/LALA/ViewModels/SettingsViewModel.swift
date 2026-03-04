@@ -35,8 +35,6 @@ final class SettingsViewModel: ObservableObject {
             return "설정"
         case .english:
             return "Settings"
-        case .japanese:
-            return "設定"
         }
     }
 
@@ -46,8 +44,6 @@ final class SettingsViewModel: ObservableObject {
             return "개인정보 동의 안내"
         case .english:
             return "Privacy Consent"
-        case .japanese:
-            return "個人情報同意案内"
         }
     }
 
@@ -57,8 +53,6 @@ final class SettingsViewModel: ObservableObject {
             return "서비스 품질 향상을 위해 최소한의 이용 정보와 위치 기반 추천 정보가 사용됩니다."
         case .english:
             return "We only use minimal usage data and location-based context to improve recommendations."
-        case .japanese:
-            return "おすすめ品質向上のため、最小限の利用情報と位置ベース情報を利用します。"
         }
     }
 
@@ -68,8 +62,6 @@ final class SettingsViewModel: ObservableObject {
             return PrivacyNoticeContent.detailKo
         case .english:
             return PrivacyNoticeContent.detailEn
-        case .japanese:
-            return PrivacyNoticeContent.detailJa
         }
     }
 
@@ -79,8 +71,6 @@ final class SettingsViewModel: ObservableObject {
             return "자세히 보기"
         case .english:
             return "View Details"
-        case .japanese:
-            return "詳細を見る"
         }
     }
 
@@ -90,8 +80,6 @@ final class SettingsViewModel: ObservableObject {
             return "닫기"
         case .english:
             return "Close"
-        case .japanese:
-            return "閉じる"
         }
     }
 
@@ -101,8 +89,6 @@ final class SettingsViewModel: ObservableObject {
             return "위치기반 정보 제공 동의"
         case .english:
             return "Location-Based Data Consent"
-        case .japanese:
-            return "位置情報提供への同意"
         }
     }
 
@@ -112,8 +98,6 @@ final class SettingsViewModel: ObservableObject {
             return "언어"
         case .english:
             return "Language"
-        case .japanese:
-            return "言語"
         }
     }
 
@@ -123,8 +107,6 @@ final class SettingsViewModel: ObservableObject {
             return "글꼴 크기"
         case .english:
             return "Font Size"
-        case .japanese:
-            return "文字サイズ"
         }
     }
 }

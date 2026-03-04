@@ -21,13 +21,10 @@ enum MapPlaceFilter: String, CaseIterable, Identifiable {
         switch (self, language) {
         case (.all, .korean): return "전체"
         case (.all, .english): return "All"
-        case (.all, .japanese): return "すべて"
         case (.attraction, .korean): return "명소"
         case (.attraction, .english): return "Attractions"
-        case (.attraction, .japanese): return "名所"
         case (.restaurant, .korean): return "맛집"
         case (.restaurant, .english): return "Restaurants"
-        case (.restaurant, .japanese): return "グルメ"
         }
     }
 }

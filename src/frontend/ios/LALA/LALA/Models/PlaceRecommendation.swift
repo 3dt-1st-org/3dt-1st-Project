@@ -83,7 +83,7 @@ struct PlaceRecommendation: Identifiable {
         switch language {
         case .korean:
             return nameKo
-        case .english, .japanese:
+        case .english:
             return nameEn
         }
     }
@@ -92,7 +92,7 @@ struct PlaceRecommendation: Identifiable {
         switch language {
         case .korean:
             return categoryKo
-        case .english, .japanese:
+        case .english:
             return categoryEn
         }
     }
@@ -101,7 +101,7 @@ struct PlaceRecommendation: Identifiable {
         switch language {
         case .korean:
             return districtKo
-        case .english, .japanese:
+        case .english:
             return districtEn
         }
     }
@@ -110,7 +110,7 @@ struct PlaceRecommendation: Identifiable {
         switch language {
         case .korean:
             return guideKo
-        case .english, .japanese:
+        case .english:
             return guideEn
         }
     }
@@ -119,7 +119,7 @@ struct PlaceRecommendation: Identifiable {
         switch language {
         case .korean:
             return addressKo
-        case .english, .japanese:
+        case .english:
             return addressEn
         }
     }

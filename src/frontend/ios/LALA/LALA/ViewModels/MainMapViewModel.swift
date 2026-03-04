@@ -90,8 +90,6 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             return "현재 날씨 \(weatherValue)"
         case .english:
             return "Current weather \(weatherValue)"
-        case .japanese:
-            return "現在の天気 \(weatherValue)"
         }
     }
 
@@ -105,8 +103,6 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 return "주변 추천 장소가 없습니다."
             case .english:
                 return "No recommended places found nearby."
-            case .japanese:
-                return "周辺におすすめスポットが見つかりません。"
             }
         case .networkError:
             switch language {
@@ -114,8 +110,6 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 return "데이터를 불러오지 못했습니다. API 서버 설정 또는 네트워크를 확인하세요."
             case .english:
                 return "Failed to load data. Check API server configuration or network."
-            case .japanese:
-                return "データを読み込めません。APIサーバー設定またはネットワークを確認してください。"
             }
         }
     }
@@ -131,8 +125,6 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             return "추천 이유"
         case .english:
             return "Why This Place"
-        case .japanese:
-            return "おすすめ理由"
         }
     }
 
@@ -153,11 +145,6 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 return "A highly rated \(category.lowercased()) spot around \(district). \(address)"
             }
             return "A recommended \(category.lowercased()) spot about \(distance) from your current location. \(address)"
-        case .japanese:
-            if distance.isEmpty {
-                return "\(district)で人気の\(category)スポットです。\(address)"
-            }
-            return "現在地から約\(distance)の\(category)おすすめスポットです。\(address)"
         }
     }
 
@@ -167,8 +154,6 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             return "음성 안내: 지금 위치 기준 15분 거리의 로컬 맛집과 산책 코스를 안내해드릴게요."
         case .english:
             return "Voice guide: I can guide you to local food spots and walks within 15 minutes."
-        case .japanese:
-            return "音声ガイド: 現在地から15分圏内のローカル名所とグルメを案内します。"
         }
     }
 
@@ -178,8 +163,6 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             return "음성 안내가 꺼져 있습니다. 하단 버튼을 눌러 다시 시작하세요."
         case .english:
             return "Voice guidance is off. Tap the bottom button to resume."
-        case .japanese:
-            return "音声ガイドはオフです。下のボタンを押して再開してください。"
         }
     }
 
@@ -195,8 +178,6 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             voiceCode = "ko-KR"
         case .english:
             voiceCode = "en-US"
-        case .japanese:
-            voiceCode = "ja-JP"
         }
         utterance.voice = AVSpeechSynthesisVoice(language: voiceCode)
         utterance.rate = 0.5

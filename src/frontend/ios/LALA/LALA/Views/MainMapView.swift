@@ -361,8 +361,6 @@ struct MainMapView: View {
             return "주변 장소 로딩 중..."
         case .english:
             return "Loading nearby places..."
-        case .japanese:
-            return "周辺スポットを読み込み中..."
         }
     }
 
@@ -372,8 +370,6 @@ struct MainMapView: View {
             return "다시시도"
         case .english:
             return "Retry"
-        case .japanese:
-            return "再試行"
         }
     }
 
@@ -383,8 +379,6 @@ struct MainMapView: View {
             return "설정"
         case .english:
             return "Settings"
-        case .japanese:
-            return "設定"
         }
     }
 
@@ -394,8 +388,6 @@ struct MainMapView: View {
             return "음성 안내 토글"
         case .english:
             return "Toggle voice guidance"
-        case .japanese:
-            return "音声ガイド切替"
         }
     }
 
@@ -405,8 +397,6 @@ struct MainMapView: View {
             return "현재 위치로 이동"
         case .english:
             return "Go to current location"
-        case .japanese:
-            return "現在地へ移動"
         }
     }
 }

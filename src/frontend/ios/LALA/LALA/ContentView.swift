@@ -182,8 +182,6 @@ private struct PrivacyNoticeSheet: View {
             return PrivacyNoticeContent.titleKo
         case .english:
             return PrivacyNoticeContent.titleEn
-        case .japanese:
-            return PrivacyNoticeContent.titleJa
         }
     }
 
@@ -193,8 +191,6 @@ private struct PrivacyNoticeSheet: View {
             return PrivacyNoticeContent.summaryKo
         case .english:
             return PrivacyNoticeContent.summaryEn
-        case .japanese:
-            return PrivacyNoticeContent.summaryJa
         }
     }
 
@@ -204,8 +200,6 @@ private struct PrivacyNoticeSheet: View {
             return PrivacyNoticeContent.detailKo
         case .english:
             return PrivacyNoticeContent.detailEn
-        case .japanese:
-            return PrivacyNoticeContent.detailJa
         }
     }
 
@@ -215,8 +209,6 @@ private struct PrivacyNoticeSheet: View {
             return "동의 안내"
         case .english:
             return "Terms of Agree"
-        case .japanese:
-            return "同意案内"
         }
     }
 
@@ -226,8 +218,6 @@ private struct PrivacyNoticeSheet: View {
             return "동의하고 계속하기"
         case .english:
             return "Agree and Continue"
-        case .japanese:
-            return "同意して続行"
         }
     }
 }
@@ -269,8 +259,6 @@ private struct LocationConsentSheet: View {
             return "위치기반 정보 제공 동의"
         case .english:
             return "Location Consent"
-        case .japanese:
-            return "位置情報提供への同意"
         }
     }
 
@@ -280,8 +268,6 @@ private struct LocationConsentSheet: View {
             return "LALA는 현재 위치를 기반으로 주변 로컬 명소와 맛집을 추천합니다. 동의 후 iOS 위치 권한 허용이 필요합니다."
         case .english:
             return "LALA uses your current location to recommend nearby local places. iOS location permission is required."
-        case .japanese:
-            return "LALAは現在地を基準に周辺のローカル名所とグルメをおすすめします。同意後にiOS位置権限が必要です。"
         }
     }
 
@@ -291,8 +277,6 @@ private struct LocationConsentSheet: View {
             return "동의하고 위치 권한 요청"
         case .english:
             return "Agree and Request Location"
-        case .japanese:
-            return "同意して位置権限を要求"
         }
     }
 }
@@ -350,8 +334,6 @@ private struct LocationRequiredOverlay: View {
             return "위치 권한이 필요합니다"
         case .english:
             return "Location Permission Required"
-        case .japanese:
-            return "位置情報の権限が必要です"
         }
     }
 
@@ -361,8 +343,6 @@ private struct LocationRequiredOverlay: View {
             return "iOS 위치 사용이 꺼져 있어 LALA를 실행할 수 없습니다.\n앱 설정에서 위치 권한을 '사용하는 동안'으로 켜주세요."
         case .english:
             return "LALA cannot run while iOS location access is off.\nPlease enable location permission for this app in Settings."
-        case .japanese:
-            return "iOSの位置情報がオフのためLALAを利用できません。\n設定でこのアプリの位置情報権限を有効にしてください。"
         }
     }
 
@@ -372,8 +352,6 @@ private struct LocationRequiredOverlay: View {
             return "앱 위치 설정 열기"
         case .english:
             return "Open App Location Settings"
-        case .japanese:
-            return "アプリの位置設定を開く"
         }
     }
 
@@ -383,8 +361,6 @@ private struct LocationRequiredOverlay: View {
             return "다시 확인"
         case .english:
             return "Check Again"
-        case .japanese:
-            return "再確認"
         }
     }
 }
