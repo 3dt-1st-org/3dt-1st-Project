@@ -9,6 +9,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
+from urllib.parse import quote_plus
 
 import azure.functions as func
 import psycopg
@@ -381,13 +382,20 @@ def _extract_post_links(search_html: str) -> list[str]:
 
 
 def _build_search_urls(target: TargetDong, keyword: str) -> list[str]:
+    city = quote_plus(target.city_name)
+    dong = quote_plus(target.dong_name)
+    kw = quote_plus(keyword)
     return [
-        f"https://www.daangn.com/kr/community/s/?in={target.dong_slug}&search={keyword}",
-        f"https://www.daangn.com/kr/community/s/?in={target.dong_slug}&search={target.dong_name}%20{keyword}",
-        f"https://www.daangn.com/kr/community/s/?search={target.city_name}%20{target.dong_name}%20{keyword}",
-        f"https://www.daangn.com/kr/community/s/?search={target.city_name}%20{keyword}",
-        f"https://www.daangn.com/kr/community/s/?search={target.city_name}%20{target.dong_name}",
-        f"https://www.daangn.com/kr/community/s/?search={target.dong_name}",
+        f"https://www.daangn.com/kr/community/s/?in={target.dong_slug}&search={kw}",
+        f"https://www.daangn.com/kr/community/s/?in={target.dong_slug}&search={dong}+{kw}",
+        f"https://www.daangn.com/kr/community/s/?search={city}+{dong}+{kw}",
+        f"https://www.daangn.com/kr/community/s/?search={city}+{kw}",
+        f"https://www.daangn.com/kr/community/s/?search={city}+{dong}",
+        f"https://www.daangn.com/kr/community/s/?search={dong}+{kw}",
+        f"https://www.daangn.com/kr/community/s/?search={city}+{kw}+추천",
+        f"https://www.daangn.com/kr/community/s/?search={city}+맛집+추천",
+        f"https://www.daangn.com/kr/community/s/?search={city}+명소+추천",
+        f"https://www.daangn.com/kr/community/s/?search={city}+행사",
     ]
 
 
