@@ -133,8 +133,9 @@ struct PlaceRecommendation: Identifiable {
 
     func distanceLabel(in language: AppLanguage) -> String? {
         guard let distanceMeters else { return nil }
-        if language == .korean {
-            return "\(distanceMeters)m"
+        if distanceMeters >= 1_000 {
+            let kilometers = Double(distanceMeters) / 1_000.0
+            return String(format: "%.1fkm", kilometers)
         }
         return "\(distanceMeters)m"
     }
