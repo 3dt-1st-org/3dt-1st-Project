@@ -397,6 +397,7 @@ def _extract_post_links(search_html: str) -> list[str]:
 
 def _build_search_urls(target: TargetDong, keyword: str) -> list[str]:
     city = quote_plus(target.city_name)
+    city_short = quote_plus(target.city_name[:-1] if target.city_name.endswith("시") else target.city_name)
     dong = quote_plus(target.dong_name)
     kw = quote_plus(keyword)
     return [
@@ -410,6 +411,10 @@ def _build_search_urls(target: TargetDong, keyword: str) -> list[str]:
         f"https://www.daangn.com/kr/community/s/?search={city}+맛집+추천",
         f"https://www.daangn.com/kr/community/s/?search={city}+명소+추천",
         f"https://www.daangn.com/kr/community/s/?search={city}+행사",
+        f"https://www.daangn.com/kr/community/s/?search={city_short}+{kw}",
+        f"https://www.daangn.com/kr/community/s/?search={city_short}+맛집",
+        f"https://www.daangn.com/kr/community/s/?search={city_short}+명소",
+        f"https://www.daangn.com/kr/community/s/?search={city_short}+행사",
     ]
 
 
