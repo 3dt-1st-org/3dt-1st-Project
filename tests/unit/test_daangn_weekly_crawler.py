@@ -9,6 +9,8 @@ from pathlib import Path
 
 
 def _load_module():
+    original_modules = {name: sys.modules.get(name) for name in ("azure", "azure.functions", "psycopg", "requests", "bs4")}
+
     azure_mod = types.ModuleType("azure")
     azure_functions_mod = types.ModuleType("azure.functions")
 
@@ -84,25 +86,32 @@ def _load_module():
 
     bs4_mod.BeautifulSoup = DummyBeautifulSoup
 
-    sys.modules["azure"] = azure_mod
-    sys.modules["azure.functions"] = azure_functions_mod
-    sys.modules["psycopg"] = psycopg_mod
-    sys.modules["requests"] = requests_mod
-    sys.modules["bs4"] = bs4_mod
+    try:
+        sys.modules["azure"] = azure_mod
+        sys.modules["azure.functions"] = azure_functions_mod
+        sys.modules["psycopg"] = psycopg_mod
+        sys.modules["requests"] = requests_mod
+        sys.modules["bs4"] = bs4_mod
 
-    module_path = (
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "functions"
-        / "daangn_weekly_crawler"
-        / "function_app.py"
-    )
-    spec = importlib.util.spec_from_file_location("daangn_function_app", module_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec is not None
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+        module_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "functions"
+            / "daangn_weekly_crawler"
+            / "function_app.py"
+        )
+        spec = importlib.util.spec_from_file_location("daangn_function_app", module_path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec is not None
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for name, original in original_modules.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
 
 
 class TestDaangnWeeklyCrawler(unittest.TestCase):
@@ -217,6 +226,18 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
         now = datetime(2026, 3, 4, 12, 0, 0, tzinfo=timezone.utc)
         week_start = self.module._get_week_start_utc(now)
         self.assertEqual(str(week_start), "2026-03-02")
+
+    def test_parse_post_created_at_iso(self):
+        parsed = self.module._parse_post_created_at("2025-01-01T00:00:00.000+09:00")
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.tzinfo, timezone.utc)
+        self.assertEqual(parsed.year, 2024)
+        self.assertEqual(parsed.month, 12)
+
+    def test_is_post_in_crawl_window(self):
+        self.assertTrue(self.module._is_post_in_crawl_window("2025-01-01T00:00:00+00:00"))
+        self.assertFalse(self.module._is_post_in_crawl_window("2024-12-31T23:59:59+00:00"))
+        self.assertFalse(self.module._is_post_in_crawl_window(None))
 
     def test_aggregate_place_mentions(self):
         rows = [

@@ -26,6 +26,8 @@ REQUEST_RETRY_COUNT = int(os.getenv("REQUEST_RETRY_COUNT", "3"))
 REQUEST_RETRY_BASE_SECONDS = float(os.getenv("REQUEST_RETRY_BASE_SECONDS", "0.6"))
 SEARCH_URL_LIMIT = int(os.getenv("SEARCH_URL_LIMIT", "4"))
 MAX_DONGS_PER_CITY = int(os.getenv("MAX_DONGS_PER_CITY", "5"))
+CRAWL_MIN_DATE_RAW = os.getenv("DAANGN_CRAWL_MIN_DATE", "2025-01-01").strip()
+RUN_STALE_MINUTES = int(os.getenv("RUN_STALE_MINUTES", "90"))
 TASK_QUEUE_NAME = os.getenv("DAANGN_TASK_QUEUE", "daangn-crawl-tasks")
 MENTION_AGGREGATION_CRON = os.getenv("MENTION_AGGREGATION_CRON", "0 30 3 * * 1")
 MENTION_LOOKBACK_DAYS = int(os.getenv("MENTION_LOOKBACK_DAYS", "7"))
@@ -77,6 +79,15 @@ def _utc_now() -> datetime:
 
 def _elapsed_ms(started_at: datetime) -> int:
     return int((_utc_now() - started_at).total_seconds() * 1000)
+
+
+def _crawl_min_datetime_utc() -> datetime:
+    raw = CRAWL_MIN_DATE_RAW
+    try:
+        parsed_date = date.fromisoformat(raw)
+    except ValueError as exc:
+        raise RuntimeError("DAANGN_CRAWL_MIN_DATE must be YYYY-MM-DD format.") from exc
+    return datetime(parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -550,6 +561,35 @@ def _extract_comments_from_inline_json(post_html: str) -> list[dict[str, Any]]:
     return flatten(comments_data)
 
 
+def _parse_post_created_at(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        match = re.search(r"(\d{4})-(\d{2})-(\d{2})", raw)
+        if not match:
+            return None
+        year, month, day = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        parsed = datetime(year, month, day, tzinfo=timezone.utc)
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _is_post_in_crawl_window(post_created_at: Optional[str]) -> bool:
+    parsed = _parse_post_created_at(post_created_at)
+    if parsed is None:
+        return False
+    return parsed >= _crawl_min_datetime_utc()
+
+
 def _extract_post_payload(post_html: str) -> tuple[str, str, Optional[str], list[dict[str, Any]]]:
     pattern = re.compile(
         r'"title":"((?:\\.|[^"\\])*)","content":"((?:\\.|[^"\\])*)","status":"NORMAL","createdAt":"([^"]+)"',
@@ -629,6 +669,78 @@ def _insert_run_start(conn: psycopg.Connection) -> str:
         run_id = cur.fetchone()[0]
     conn.commit()
     return str(run_id)
+
+
+def _mark_stale_running_runs(conn: psycopg.Connection, stale_minutes: int) -> tuple[int, int]:
+    stale_minutes = max(stale_minutes, 10)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE daangn.crawl_tasks
+            SET status = 'failed',
+                finished_at = NOW(),
+                updated_at = NOW(),
+                error_message = 'reset by stale run guard'
+            WHERE run_id IN (
+                SELECT run_id
+                FROM daangn.crawl_runs
+                WHERE status = 'running'
+                  AND started_at < NOW() - (%s::int * INTERVAL '1 minute')
+            )
+              AND status IN ('pending', 'running')
+            """,
+            (stale_minutes,),
+        )
+        updated_tasks = int(cur.rowcount or 0)
+
+        cur.execute(
+            """
+            UPDATE daangn.crawl_runs
+            SET status = 'failed',
+                finished_at = NOW(),
+                error_message = COALESCE(error_message, 'reset by stale run guard')
+            WHERE status = 'running'
+              AND started_at < NOW() - (%s::int * INTERVAL '1 minute')
+            """,
+            (stale_minutes,),
+        )
+        updated_runs = int(cur.rowcount or 0)
+
+    conn.commit()
+    return updated_tasks, updated_runs
+
+
+def _find_running_run_id(conn: psycopg.Connection) -> Optional[str]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT run_id::text
+            FROM daangn.crawl_runs
+            WHERE status = 'running'
+            ORDER BY started_at DESC
+            LIMIT 1
+            """
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    return str(row[0])
+
+
+def _load_run_status(conn: psycopg.Connection, run_id: str) -> Optional[str]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT status
+            FROM daangn.crawl_runs
+            WHERE run_id = %s::uuid
+            """,
+            (run_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    return str(row[0])
 
 
 def _finish_run(
@@ -727,7 +839,7 @@ def _load_task_status(conn: psycopg.Connection, task_id: str) -> Optional[str]:
     return str(row[0])
 
 
-def _mark_task_running(conn: psycopg.Connection, task_id: str) -> None:
+def _mark_task_running(conn: psycopg.Connection, task_id: str) -> bool:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -737,10 +849,14 @@ def _mark_task_running(conn: psycopg.Connection, task_id: str) -> None:
                 started_at = NOW(),
                 updated_at = NOW()
             WHERE task_id = %s::uuid
+              AND status = 'pending'
+            RETURNING task_id
             """,
             (task_id,),
         )
+        updated_row = cur.fetchone()
     conn.commit()
+    return updated_row is not None
 
 
 def _mark_task_success(conn: psycopg.Connection, task_id: str, post_count: int, comment_count: int) -> None:
@@ -779,6 +895,23 @@ def _mark_task_failed(conn: psycopg.Connection, task_id: str, error_message: str
 
 def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> None:
     with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT status
+            FROM daangn.crawl_runs
+            WHERE run_id = %s::uuid
+            """,
+            (run_id,),
+        )
+        current = cur.fetchone()
+        if not current:
+            conn.commit()
+            return
+        current_status = str(current[0] or "")
+        if current_status in {"success", "failed"}:
+            conn.commit()
+            return
+
         cur.execute(
             """
             SELECT
@@ -1141,16 +1274,29 @@ def _crawl_target_keyword(
                 )
                 continue
 
-            post_key = _hash_key(
-                _normalize_url(post_url)
-            )
+            parsed_created_at = _parse_post_created_at(post_created_at)
+            if not _is_post_in_crawl_window(post_created_at):
+                LOGGER.info(
+                    "crawl_stage=post_skipped_before_cutoff city=%s dong=%s keyword=%s index=%d url=%s created_at=%s cutoff=%s elapsed_ms=%d",
+                    target.city_name,
+                    target.dong_name,
+                    keyword,
+                    idx,
+                    post_url,
+                    post_created_at,
+                    CRAWL_MIN_DATE_RAW,
+                    _elapsed_ms(post_started_at),
+                )
+                continue
+
+            post_key = _hash_key(_normalize_url(post_url))
             _upsert_post(
                 conn=conn,
                 post_key=post_key,
                 source_url=post_url,
                 title=title or "(no-title)",
                 body=body,
-                post_created_at=post_created_at,
+                post_created_at=parsed_created_at.isoformat() if parsed_created_at else None,
                 city_name=target.city_name,
                 dong_name=target.dong_name,
                 searched_keyword=keyword,
@@ -1222,6 +1368,23 @@ def daangn_weekly_crawler(timer: func.TimerRequest) -> None:
         return
 
     with psycopg.connect(db_dsn) as conn:
+        stale_tasks, stale_runs = _mark_stale_running_runs(conn, RUN_STALE_MINUTES)
+        if stale_runs or stale_tasks:
+            LOGGER.warning(
+                "run_stage=stale_guard_reset stale_runs=%d stale_tasks=%d stale_minutes=%d",
+                stale_runs,
+                stale_tasks,
+                RUN_STALE_MINUTES,
+            )
+
+        active_run_id = _find_running_run_id(conn)
+        if active_run_id:
+            LOGGER.warning(
+                "run_stage=scheduler_skipped reason=active_run_exists run_id=%s",
+                active_run_id,
+            )
+            return
+
         run_id = _insert_run_start(conn)
         task_count = 0
         targets = _load_target_dongs(conn)
@@ -1291,13 +1454,26 @@ def daangn_crawl_worker(queue_message: func.QueueMessage) -> None:
             LOGGER.warning("Task not found. task_id=%s", task_id)
             return
 
+        run_status = _load_run_status(conn, task.run_id)
+        if run_status != "running":
+            LOGGER.warning(
+                "task_stage=skipped run_not_running task_id=%s run_id=%s run_status=%s",
+                task_id,
+                task.run_id,
+                run_status,
+            )
+            return
+
         status = _load_task_status(conn, task_id)
         if status in {"success", "failed"}:
             LOGGER.info("Task already completed. task_id=%s status=%s", task_id, status)
             _refresh_run_status(conn, task.run_id)
             return
 
-        _mark_task_running(conn, task_id)
+        if not _mark_task_running(conn, task_id):
+            LOGGER.info("task_stage=skip_non_pending task_id=%s status=%s", task_id, status)
+            _refresh_run_status(conn, task.run_id)
+            return
         LOGGER.info(
             "task_stage=running task_id=%s run_id=%s city=%s dong=%s keyword=%s",
             task_id,
