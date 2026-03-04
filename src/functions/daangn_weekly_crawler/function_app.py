@@ -25,6 +25,7 @@ REQUEST_SLEEP_SECONDS = float(os.getenv("REQUEST_SLEEP_SECONDS", "0.2"))
 REQUEST_RETRY_COUNT = int(os.getenv("REQUEST_RETRY_COUNT", "3"))
 REQUEST_RETRY_BASE_SECONDS = float(os.getenv("REQUEST_RETRY_BASE_SECONDS", "0.6"))
 SEARCH_URL_LIMIT = int(os.getenv("SEARCH_URL_LIMIT", "4"))
+MAX_DONGS_PER_CITY = int(os.getenv("MAX_DONGS_PER_CITY", "5"))
 TASK_QUEUE_NAME = os.getenv("DAANGN_TASK_QUEUE", "daangn-crawl-tasks")
 MENTION_AGGREGATION_CRON = os.getenv("MENTION_AGGREGATION_CRON", "0 30 3 * * 1")
 MENTION_LOOKBACK_DAYS = int(os.getenv("MENTION_LOOKBACK_DAYS", "7"))
@@ -601,7 +602,19 @@ def _load_target_dongs(conn: psycopg.Connection) -> list[TargetDong]:
         )
         rows = cur.fetchall()
 
-    return [TargetDong(city_name=row[0], dong_name=row[1], dong_slug=row[2]) for row in rows]
+    targets = [TargetDong(city_name=row[0], dong_name=row[1], dong_slug=row[2]) for row in rows]
+    limit = MAX_DONGS_PER_CITY
+    if limit <= 0:
+        return targets
+
+    by_city: dict[str, list[TargetDong]] = {}
+    for target in targets:
+        by_city.setdefault(target.city_name, []).append(target)
+
+    trimmed: list[TargetDong] = []
+    for city in sorted(by_city):
+        trimmed.extend(by_city[city][:limit])
+    return trimmed
 
 
 def _insert_run_start(conn: psycopg.Connection) -> str:
