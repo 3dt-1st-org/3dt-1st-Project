@@ -1,8 +1,8 @@
-import os
 import sys
 from pathlib import Path
 from flask import Flask
 from dotenv import load_dotenv
+from config.vault_manager import vault
 
 
 def _read_version() -> str:
@@ -23,7 +23,7 @@ def _read_version() -> str:
     except Exception:
         return "0.1.0"
 
-load_dotenv()
+load_dotenv()  # KEY_VAULT_URL을 .env에서 읽기 위해 유지
 
 # app.py 기준 절대 경로 — 실행 위치에 관계없이 항상 올바르게 탐색
 _BASE = Path(__file__).parent
@@ -35,10 +35,10 @@ def create_app() -> Flask:
         template_folder=str(_BASE / "templates"),
         static_folder=str(_BASE / "static"),
     )
-    app.secret_key = os.getenv("FLASK_SECRET_KEY", "lala-dev-secret")
+    app.secret_key = vault.get_secret("flask-secret-key")
 
     # 카카오맵 키를 Jinja2 전역 변수로 주입
-    app.jinja_env.globals["kakao_js_key"] = os.getenv("KAKAO_JS_KEY", "")
+    app.jinja_env.globals["kakao_js_key"] = vault.get_secret("kakao-js-key")
 
     # 앱 버전 (모든 템플릿에서 {{ app_version }} 사용 가능)
     app.jinja_env.globals["app_version"] = _read_version()

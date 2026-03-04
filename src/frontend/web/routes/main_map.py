@@ -1,12 +1,22 @@
-import os
 import math
 import psycopg2
 import psycopg2.extras
 import requests as http_requests
 from datetime import datetime, timedelta
 from flask import Blueprint, render_template, request, jsonify
+from dotenv import load_dotenv
+from config.vault_manager import vault
+
+load_dotenv()  # KEY_VAULT_URL을 .env에서 읽기 위해 유지
 
 main_map_bp = Blueprint("main_map", __name__)
+
+# DB 설정 — 모듈 임포트 시 1회만 Key Vault 조회 (요청마다 네트워크 호출 방지)
+_DB_HOST = vault.get_secret("lala-db-host")
+_DB_PORT = int(vault.get_secret("lala-db-port"))
+_DB_NAME = vault.get_secret("lala-db-name")
+_DB_USER = vault.get_secret("lala-db-user")
+_DB_PASS = vault.get_secret("lala-db-password")
 
 # ==============================================================================
 # 기상청 LCC 격자 변환 (notebooks/validation/api-test.ipynb 참고)
@@ -48,11 +58,11 @@ _WEATHER_API_URL = (
 # ==============================================================================
 def _get_conn():
     return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", "5432")),
-        dbname=os.getenv("DB_NAME", "postgres"),
-        user=os.getenv("DB_USER", "admin_user"),
-        password=os.getenv("DB_PASSWORD", ""),
+        host=_DB_HOST,
+        port=_DB_PORT,
+        dbname=_DB_NAME,
+        user=_DB_USER,
+        password=_DB_PASS,
         sslmode="require",                 # Azure PostgreSQL 필수
         connect_timeout=5,
     )
@@ -79,17 +89,9 @@ def api_weather():
     except ValueError:
         return jsonify({"error": "잘못된 파라미터"}), 400
 
-    # .env 우선, 없으면 Key Vault fallback (Windows \r 제거)
-    api_key = os.getenv("WEATHER_API_KEY", "").strip()
+    api_key = vault.get_secret("weather-api-key")
     if not api_key:
-        try:
-            from config.vault_manager import vault
-            api_key = (vault.get_secret("weather-api-key") or "").strip()
-        except Exception:
-            pass
-
-    if not api_key:
-        return jsonify({"error": "WEATHER_API_KEY 없음"}), 503
+        return jsonify({"error": "weather-api-key 시크릿 없음"}), 503
 
     # 기상청 API는 ~10분 지연 → 안전하게 1시간 전 기준시 사용
     now = datetime.now() - timedelta(hours=1)
