@@ -29,6 +29,7 @@ MAX_DONGS_PER_CITY = int(os.getenv("MAX_DONGS_PER_CITY", "5"))
 CRAWL_MIN_DATE_RAW = os.getenv("DAANGN_CRAWL_MIN_DATE", "2025-01-01").strip()
 RUN_STALE_MINUTES = int(os.getenv("RUN_STALE_MINUTES", "90"))
 TASK_QUEUE_NAME = os.getenv("DAANGN_TASK_QUEUE", "daangn-crawl-tasks")
+MENTION_QUEUE_NAME = os.getenv("DAANGN_MENTION_QUEUE", "daangn-mention-tasks")
 MENTION_AGGREGATION_CRON = os.getenv("MENTION_AGGREGATION_CRON", "0 30 3 * * 1")
 MENTION_LOOKBACK_DAYS = int(os.getenv("MENTION_LOOKBACK_DAYS", "0"))
 MENTION_LLM_BATCH_SIZE = int(os.getenv("MENTION_LLM_BATCH_SIZE", "20"))
@@ -919,7 +920,9 @@ def _mark_task_failed(conn: psycopg.Connection, task_id: str, error_message: str
     conn.commit()
 
 
-def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> None:
+def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> tuple[bool, Optional[str]]:
+    finalized = False
+    finalized_status: Optional[str] = None
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -932,11 +935,11 @@ def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> None:
         current = cur.fetchone()
         if not current:
             conn.commit()
-            return
+            return finalized, finalized_status
         current_status = str(current[0] or "")
         if current_status in {"success", "failed"}:
             conn.commit()
-            return
+            return finalized, current_status
 
         cur.execute(
             """
@@ -969,9 +972,13 @@ def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> None:
                     comment_count = 0,
                     error_message = NULL
                 WHERE run_id = %s::uuid
+                  AND finished_at IS NULL
                 """,
                 (run_id,),
             )
+            finalized = cur.rowcount == 1
+            if finalized:
+                finalized_status = "success"
         elif finished_tasks >= total_tasks:
             status = "failed" if failed_tasks > 0 else "success"
             error_message = f"{failed_tasks} task(s) failed" if failed_tasks > 0 else None
@@ -984,9 +991,13 @@ def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> None:
                     comment_count = %s,
                     error_message = %s
                 WHERE run_id = %s::uuid
+                  AND finished_at IS NULL
                 """,
                 (status, post_count, comment_count, error_message, run_id),
             )
+            finalized = cur.rowcount == 1
+            if finalized:
+                finalized_status = status
         else:
             cur.execute(
                 """
@@ -999,6 +1010,7 @@ def _refresh_run_status(conn: psycopg.Connection, run_id: str) -> None:
                 (post_count, comment_count, run_id),
             )
     conn.commit()
+    return finalized, finalized_status
 
 
 def _enqueue_task_message(task_id: str, run_id: str) -> None:
@@ -1016,6 +1028,24 @@ def _enqueue_task_message(task_id: str, run_id: str) -> None:
         pass
 
     raw_payload = json.dumps({"task_id": task_id, "run_id": run_id})
+    encoded_payload = base64.b64encode(raw_payload.encode("utf-8")).decode("utf-8")
+    queue_client.send_message(encoded_payload)
+
+
+def _enqueue_mention_message(run_id: str) -> None:
+    connection_string = os.getenv("AzureWebJobsStorage")
+    if not connection_string:
+        raise RuntimeError("AzureWebJobsStorage is required to enqueue mention tasks.")
+
+    from azure.storage.queue import QueueClient  # type: ignore
+
+    queue_client = QueueClient.from_connection_string(connection_string, MENTION_QUEUE_NAME)
+    try:
+        queue_client.create_queue()
+    except Exception:
+        pass
+
+    raw_payload = json.dumps({"run_id": run_id})
     encoded_payload = base64.b64encode(raw_payload.encode("utf-8")).decode("utf-8")
     queue_client.send_message(encoded_payload)
 
@@ -1139,6 +1169,54 @@ def _upsert_place_mentions_weekly(
             affected += cur.rowcount
     conn.commit()
     return affected
+
+
+def _run_place_mentions_aggregation(trigger_label: str) -> None:
+    started_at = _utc_now()
+    db_dsn = os.getenv("DB_DSN")
+    if not db_dsn:
+        raise RuntimeError("DB_DSN is required.")
+
+    lookback_days = MENTION_LOOKBACK_DAYS
+    week_start = _get_week_start_utc(started_at)
+    LOGGER.info(
+        "mention_stage=start trigger=%s week_start=%s lookback_days=%d",
+        trigger_label,
+        week_start.isoformat(),
+        lookback_days,
+    )
+
+    with psycopg.connect(db_dsn) as conn:
+        rows = _load_recent_community_texts(conn, lookback_days)
+        candidate_rows = rows
+        if MENTION_LLM_MAX_ROWS > 0:
+            candidate_rows = candidate_rows[:MENTION_LLM_MAX_ROWS]
+
+        mention_counter: Counter[tuple[str, str, str]]
+        llm_used = False
+        llm_config = _azure_openai_config() if _is_llm_enabled() else None
+        if llm_config and candidate_rows:
+            mention_counter = _extract_mentions_with_llm(candidate_rows, llm_config)
+            llm_used = True
+        else:
+            mention_counter = Counter()
+
+        if not mention_counter:
+            mention_counter = _aggregate_place_mentions_rule_based(candidate_rows)
+
+        affected = _upsert_place_mentions_weekly(conn, week_start, mention_counter)
+
+    LOGGER.info(
+        "mention_stage=done trigger=%s week_start=%s source_rows=%d candidate_rows=%d entities=%d affected_rows=%d llm_used=%s elapsed_ms=%d",
+        trigger_label,
+        week_start.isoformat(),
+        len(rows),
+        len(candidate_rows),
+        len(mention_counter),
+        affected,
+        llm_used,
+        _elapsed_ms(started_at),
+    )
 
 
 def _upsert_post(
@@ -1563,7 +1641,17 @@ def daangn_crawl_worker(queue_message: func.QueueMessage) -> None:
                 _elapsed_ms(worker_started_at),
             )
         finally:
-            _refresh_run_status(conn, task.run_id)
+            finalized, run_status = _refresh_run_status(conn, task.run_id)
+            if finalized and run_status == "success":
+                try:
+                    _enqueue_mention_message(task.run_id)
+                    LOGGER.info(
+                        "task_stage=mention_enqueued run_id=%s queue=%s",
+                        task.run_id,
+                        MENTION_QUEUE_NAME,
+                    )
+                except Exception:
+                    LOGGER.exception("task_stage=mention_enqueue_failed run_id=%s", task.run_id)
             LOGGER.info(
                 "task_stage=worker_done task_id=%s run_id=%s elapsed_ms=%d",
                 task_id,
@@ -1580,47 +1668,16 @@ def daangn_crawl_worker(queue_message: func.QueueMessage) -> None:
 )
 def daangn_place_mentions_aggregator(timer: func.TimerRequest) -> None:
     _ = timer
-    started_at = _utc_now()
-    db_dsn = os.getenv("DB_DSN")
-    if not db_dsn:
-        raise RuntimeError("DB_DSN is required.")
+    _run_place_mentions_aggregation("timer")
 
-    lookback_days = MENTION_LOOKBACK_DAYS
-    week_start = _get_week_start_utc(started_at)
-    LOGGER.info(
-        "mention_stage=start week_start=%s lookback_days=%d",
-        week_start.isoformat(),
-        lookback_days,
-    )
 
-    with psycopg.connect(db_dsn) as conn:
-        rows = _load_recent_community_texts(conn, lookback_days)
-        candidate_rows = rows
-        if MENTION_LLM_MAX_ROWS > 0:
-            candidate_rows = candidate_rows[:MENTION_LLM_MAX_ROWS]
-
-        mention_counter: Counter[tuple[str, str, str]]
-        llm_used = False
-        llm_config = _azure_openai_config() if _is_llm_enabled() else None
-        if llm_config and candidate_rows:
-            mention_counter = _extract_mentions_with_llm(candidate_rows, llm_config)
-            llm_used = True
-        else:
-            mention_counter = Counter()
-
-        # Keep fallback so the job still produces output when LLM is disabled or partially fails.
-        if not mention_counter:
-            mention_counter = _aggregate_place_mentions_rule_based(candidate_rows)
-
-        affected = _upsert_place_mentions_weekly(conn, week_start, mention_counter)
-
-    LOGGER.info(
-        "mention_stage=done week_start=%s source_rows=%d candidate_rows=%d entities=%d affected_rows=%d llm_used=%s elapsed_ms=%d",
-        week_start.isoformat(),
-        len(rows),
-        len(candidate_rows),
-        len(mention_counter),
-        affected,
-        llm_used,
-        _elapsed_ms(started_at),
-    )
+@APP.queue_trigger(
+    arg_name="queue_message",
+    queue_name=MENTION_QUEUE_NAME,
+    connection="AzureWebJobsStorage",
+)
+def daangn_place_mentions_worker(queue_message: func.QueueMessage) -> None:
+    payload = _decode_queue_body(queue_message)
+    run_id = str(payload.get("run_id") or "").strip()
+    trigger_label = f"queue:{run_id}" if run_id else "queue"
+    _run_place_mentions_aggregation(trigger_label)
