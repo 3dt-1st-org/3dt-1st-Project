@@ -50,12 +50,12 @@ protocol MapDataProviding {
 }
 
 final class MapRemoteService: MapDataProviding {
-    private let baseURL: URL
+    private let baseURL: URL?
     private let session: URLSession
     private let decoder = JSONDecoder()
 
     init(
-        baseURL: URL = AppRuntime.apiBaseURL,
+        baseURL: URL? = AppRuntime.apiBaseURL,
         session: URLSession = .shared
     ) {
         self.baseURL = baseURL
@@ -104,13 +104,32 @@ final class MapRemoteService: MapDataProviding {
     }
 
     private func makeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
+        guard let baseURL else {
+            throw MapServiceError.missingBaseURL
+        }
+        if let host = baseURL.host?.lowercased(),
+           host == "localhost" || host == "127.0.0.1" {
+            throw MapServiceError.localhostNotAllowed
+        }
+
         guard var components = URLComponents(
             url: baseURL,
             resolvingAgainstBaseURL: false
         ) else {
             throw MapServiceError.invalidBaseURL
         }
-        components.path = path
+
+        let endpointPath = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        let normalizedBasePath = components.path
+            .split(separator: "/")
+            .map(String.init)
+            .joined(separator: "/")
+
+        if normalizedBasePath.isEmpty {
+            components.path = "/\(endpointPath)"
+        } else {
+            components.path = "/\(normalizedBasePath)/\(endpointPath)"
+        }
         components.queryItems = queryItems
 
         guard let url = components.url else {
@@ -187,6 +206,8 @@ final class MapRemoteService: MapDataProviding {
 }
 
 enum MapServiceError: LocalizedError {
+    case missingBaseURL
+    case localhostNotAllowed
     case invalidBaseURL
     case invalidRequestURL
     case invalidResponse
@@ -194,6 +215,10 @@ enum MapServiceError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .missingBaseURL:
+            return "API base URL is missing."
+        case .localhostNotAllowed:
+            return "localhost is not allowed for API base URL."
         case .invalidBaseURL:
             return "API base URL is invalid."
         case .invalidRequestURL:
@@ -207,13 +232,48 @@ enum MapServiceError: LocalizedError {
 }
 
 enum AppRuntime {
-    static var apiBaseURL: URL {
-        if let custom = Bundle.main.object(forInfoDictionaryKey: "LALA_API_BASE_URL") as? String,
+    static var apiBaseURL: URL? {
+        if let custom = loadBaseURLFromAppConfig(named: "AppConfig.local"),
            let url = URL(string: custom) {
             return url
         }
 
-        return URL(string: "http://localhost:5000")!
+        if let custom = loadBaseURLFromAppConfig(named: "AppConfig"),
+           let url = URL(string: custom) {
+            return url
+        }
+
+        if let custom = Bundle.main.object(forInfoDictionaryKey: "LALA_API_BASE_URL") as? String,
+           !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let url = URL(string: custom) {
+            return url
+        }
+
+        return nil
+    }
+
+    private static func loadBaseURLFromAppConfig(named resourceName: String) -> String? {
+        let candidates: [(String?, String)] = [
+            ("Config", resourceName),
+            (nil, resourceName)
+        ]
+
+        for candidate in candidates {
+            if let url = Bundle.main.url(
+                forResource: candidate.1,
+                withExtension: "plist",
+                subdirectory: candidate.0
+            ),
+            let dictionary = NSDictionary(contentsOf: url) as? [String: Any],
+            let value = dictionary["API_BASE_URL"] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+
+        return nil
     }
 }
 

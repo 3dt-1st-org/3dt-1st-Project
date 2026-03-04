@@ -24,7 +24,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     @Published private(set) var places: [PlaceRecommendation]
     @Published var selectedFilter: MapPlaceFilter = .all
     @Published private(set) var isLoadingPlaces = false
-    @Published private(set) var mapStatusMessage: String?
+    @Published private(set) var mapStatus: MapStatus = .none
 
     private let speechSynthesizer = AVSpeechSynthesizer()
     private let locationManager = CLLocationManager()
@@ -44,7 +44,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     init(mapDataProvider: MapDataProviding? = nil) {
         self.mapDataProvider = mapDataProvider ?? MapRemoteService()
         region = initialRegion
-        places = PlaceRecommendation.fallbackData
+        places = []
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
@@ -96,25 +96,26 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     func statusMessage(for language: AppLanguage) -> String? {
-        mapStatusMessage.flatMap { _ in
-            if places.isEmpty {
-                switch language {
-                case .korean:
-                    return "주변 추천 장소가 없습니다."
-                case .english:
-                    return "No recommended places found nearby."
-                case .japanese:
-                    return "周辺におすすめスポットが見つかりません。"
-                }
-            }
-
+        switch mapStatus {
+        case .none:
+            return nil
+        case .noResults:
             switch language {
             case .korean:
-                return "네트워크 문제로 임시 추천 목록을 표시 중입니다."
+                return "주변 추천 장소가 없습니다."
             case .english:
-                return "Showing fallback recommendations due to a network issue."
+                return "No recommended places found nearby."
             case .japanese:
-                return "ネットワークの問題により、代替おすすめを表示しています。"
+                return "周辺におすすめスポットが見つかりません。"
+            }
+        case .networkError:
+            switch language {
+            case .korean:
+                return "데이터를 불러오지 못했습니다. API 서버 설정 또는 네트워크를 확인하세요."
+            case .english:
+                return "Failed to load data. Check API server configuration or network."
+            case .japanese:
+                return "データを読み込めません。APIサーバー設定またはネットワークを確認してください。"
             }
         }
     }
@@ -270,7 +271,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         reloadTask = Task { [weak self] in
             guard let self else { return }
             isLoadingPlaces = true
-            mapStatusMessage = nil
+            mapStatus = .none
 
             do {
                 async let loadedPlaces = mapDataProvider.fetchPlaces(
@@ -290,19 +291,14 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             } catch {
                 guard !Task.isCancelled else { return }
                 isLoadingPlaces = false
-                mapStatusMessage = error.localizedDescription
-
-                // Keep existing places when available. If empty, show static fallback.
-                if places.isEmpty {
-                    places = PlaceRecommendation.fallbackData
-                }
+                mapStatus = .networkError
             }
         }
     }
 
     private func applyPlaces(_ loadedPlaces: [PlaceRecommendation]) {
         places = loadedPlaces
-        mapStatusMessage = loadedPlaces.isEmpty ? "NO_RESULTS" : nil
+        mapStatus = loadedPlaces.isEmpty ? .noResults : .none
 
         guard let selectedPlaceID else { return }
         if !loadedPlaces.contains(where: { $0.id == selectedPlaceID }) {
@@ -405,4 +401,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // Keep UI responsive even if a one-shot location request fails.
     }
+}
+
+enum MapStatus {
+    case none
+    case noResults
+    case networkError
 }
