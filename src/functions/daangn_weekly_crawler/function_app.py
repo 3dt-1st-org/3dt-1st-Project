@@ -74,6 +74,23 @@ PLACE_NOISE_TOKENS = {
 }
 GENERAL_PLACE_EXACTS = {"송탄역", "복창육교", "북창육교"}
 GENERAL_PLACE_SUFFIXES = ("역", "육교", "정류장", "터미널", "교차로", "사거리", "나들목")
+NON_RECOMMENDABLE_EXACTS = {
+    "경기 도청",
+    "광교1동",
+    "수지구청역",
+    "성대역",
+    "송탄역",
+    "용인 둔전",
+    "오뚜기 진짬뽕컵밥",
+}
+NON_RECOMMENDABLE_SUFFIXES = (
+    "역",
+    "육교",
+    "구청",
+    "도청",
+    "시청",
+)
+PRODUCT_HINT_TOKENS = ("컵밥", "라면", "과자", "음료", "식품", "제품")
 
 
 def _utc_now() -> datetime:
@@ -208,6 +225,21 @@ def _is_general_place(name: str) -> bool:
     return any(name.endswith(suffix) for suffix in GENERAL_PLACE_SUFFIXES)
 
 
+def _is_non_recommendable_entity(name: str) -> bool:
+    if name in NON_RECOMMENDABLE_EXACTS:
+        return True
+    if any(token in name for token in PRODUCT_HINT_TOKENS):
+        return True
+    # Keep this strict to avoid dropping valid venue names.
+    if len(name) >= 2 and any(name.endswith(suffix) for suffix in NON_RECOMMENDABLE_SUFFIXES):
+        return True
+    # Exclude only when it looks like a standalone administrative area token.
+    # e.g., 광교1동, 서현동, 둔전읍
+    if re.fullmatch(r"[가-힣0-9]{2,8}(동|읍|면|리)", name):
+        return True
+    return False
+
+
 def _finalize_mention_category(
     place_name: str,
     category: str,
@@ -303,8 +335,8 @@ def _extract_mentions_with_llm(rows: list[CommunityText], config: dict[str, str]
         batch_rows = rows[start_idx : start_idx + batch_size]
         payload_rows = _build_llm_payload(batch_rows)
         prompt = {
-            "instruction": "각 text에서 실제로 언급된 장소명을 추출하세요. 추측 금지.",
-            "category_rule": "카테고리는 반드시 맛집, 명소, 행사 중 하나. 역/육교/정류장/터미널 같은 일반 지명은 명소로 분류",
+            "instruction": "각 text에서 실제로 언급된 추천 가능한 장소/행사명만 추출하세요. 추측 금지.",
+            "category_rule": "카테고리는 반드시 맛집, 명소, 행사 중 하나. 역/육교/행정기관/행정동/식품명은 제외",
             "output_schema": {
                 "results": [
                     {
@@ -361,6 +393,8 @@ def _extract_mentions_with_llm(rows: list[CommunityText], config: dict[str, str]
             for mention in mentions:
                 place_name = _normalize_place_name(str(mention.get("place_name") or ""))
                 if not _is_valid_place_name(place_name):
+                    continue
+                if _is_non_recommendable_entity(place_name):
                     continue
                 category = _finalize_mention_category(
                     place_name=place_name,
@@ -1124,6 +1158,8 @@ def _aggregate_place_mentions_rule_based(
     for row in rows:
         places = _extract_places_from_text(row.text)
         for place_name in places:
+            if _is_non_recommendable_entity(place_name):
+                continue
             category = _finalize_mention_category(
                 place_name=place_name,
                 category=_categorize_text(row.text, row.category_hint),

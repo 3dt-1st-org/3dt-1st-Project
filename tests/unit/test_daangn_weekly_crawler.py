@@ -240,6 +240,13 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
         )
         self.assertEqual(category, "맛집")
 
+    def test_non_recommendable_entity_filter(self):
+        self.assertTrue(self.module._is_non_recommendable_entity("송탄역"))
+        self.assertTrue(self.module._is_non_recommendable_entity("경기 도청"))
+        self.assertTrue(self.module._is_non_recommendable_entity("광교1동"))
+        self.assertTrue(self.module._is_non_recommendable_entity("오뚜기 진짬뽕컵밥"))
+        self.assertFalse(self.module._is_non_recommendable_entity("어풍당당"))
+
     def test_get_week_start_utc(self):
         now = datetime(2026, 3, 4, 12, 0, 0, tzinfo=timezone.utc)
         week_start = self.module._get_week_start_utc(now)
