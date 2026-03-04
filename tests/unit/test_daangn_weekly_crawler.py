@@ -222,6 +222,24 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
         self.assertEqual(self.module._categorize_text("망포 맛집 추천해요", ""), "맛집")
         self.assertEqual(self.module._categorize_text("동네 산책 명소", ""), "명소")
 
+    def test_finalize_mention_category_overrides_general_place(self):
+        category = self.module._finalize_mention_category(
+            place_name="송탄역",
+            category="맛집",
+            source_text="송탄역 근처 괜찮아요",
+            category_hint="맛집",
+        )
+        self.assertEqual(category, "명소")
+
+    def test_finalize_mention_category_keeps_restaurant(self):
+        category = self.module._finalize_mention_category(
+            place_name="어풍당당",
+            category="맛집",
+            source_text="망포 맛집 추천",
+            category_hint="맛집",
+        )
+        self.assertEqual(category, "맛집")
+
     def test_get_week_start_utc(self):
         now = datetime(2026, 3, 4, 12, 0, 0, tzinfo=timezone.utc)
         week_start = self.module._get_week_start_utc(now)

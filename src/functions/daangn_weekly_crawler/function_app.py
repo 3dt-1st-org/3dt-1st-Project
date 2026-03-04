@@ -30,9 +30,9 @@ CRAWL_MIN_DATE_RAW = os.getenv("DAANGN_CRAWL_MIN_DATE", "2025-01-01").strip()
 RUN_STALE_MINUTES = int(os.getenv("RUN_STALE_MINUTES", "90"))
 TASK_QUEUE_NAME = os.getenv("DAANGN_TASK_QUEUE", "daangn-crawl-tasks")
 MENTION_AGGREGATION_CRON = os.getenv("MENTION_AGGREGATION_CRON", "0 30 3 * * 1")
-MENTION_LOOKBACK_DAYS = int(os.getenv("MENTION_LOOKBACK_DAYS", "7"))
+MENTION_LOOKBACK_DAYS = int(os.getenv("MENTION_LOOKBACK_DAYS", "0"))
 MENTION_LLM_BATCH_SIZE = int(os.getenv("MENTION_LLM_BATCH_SIZE", "20"))
-MENTION_LLM_MAX_ROWS = int(os.getenv("MENTION_LLM_MAX_ROWS", "400"))
+MENTION_LLM_MAX_ROWS = int(os.getenv("MENTION_LLM_MAX_ROWS", "0"))
 MENTION_LLM_TEXT_LIMIT = int(os.getenv("MENTION_LLM_TEXT_LIMIT", "280"))
 NOISE_EXACT_MATCHES = {
     ",",
@@ -71,6 +71,8 @@ PLACE_NOISE_TOKENS = {
     "공원",
     "헌옷 수거",
 }
+GENERAL_PLACE_EXACTS = {"송탄역", "복창육교", "북창육교"}
+GENERAL_PLACE_SUFFIXES = ("역", "육교", "정류장", "터미널", "교차로", "사거리", "나들목")
 
 
 def _utc_now() -> datetime:
@@ -199,6 +201,27 @@ def _categorize_text(text: str, category_hint: str) -> str:
     return "명소"
 
 
+def _is_general_place(name: str) -> bool:
+    if name in GENERAL_PLACE_EXACTS:
+        return True
+    return any(name.endswith(suffix) for suffix in GENERAL_PLACE_SUFFIXES)
+
+
+def _finalize_mention_category(
+    place_name: str,
+    category: str,
+    source_text: str,
+    category_hint: str,
+) -> str:
+    normalized = category if category in {"맛집", "명소", "행사"} else _categorize_text(source_text, category_hint)
+    merged = f"{category_hint} {source_text}"
+    if any(keyword in merged for keyword in CATEGORY_EVENT_HINTS):
+        return "행사"
+    if _is_general_place(place_name) and normalized == "맛집":
+        return "명소"
+    return normalized
+
+
 def _extract_places_from_text(text: str) -> list[str]:
     candidates: list[str] = []
     for match in PLACE_SUFFIX_PATTERN.finditer(text):
@@ -280,7 +303,7 @@ def _extract_mentions_with_llm(rows: list[CommunityText], config: dict[str, str]
         payload_rows = _build_llm_payload(batch_rows)
         prompt = {
             "instruction": "각 text에서 실제로 언급된 장소명을 추출하세요. 추측 금지.",
-            "category_rule": "카테고리는 반드시 맛집, 명소, 행사 중 하나",
+            "category_rule": "카테고리는 반드시 맛집, 명소, 행사 중 하나. 역/육교/정류장/터미널 같은 일반 지명은 명소로 분류",
             "output_schema": {
                 "results": [
                     {
@@ -338,9 +361,12 @@ def _extract_mentions_with_llm(rows: list[CommunityText], config: dict[str, str]
                 place_name = _normalize_place_name(str(mention.get("place_name") or ""))
                 if not _is_valid_place_name(place_name):
                     continue
-                category = str(mention.get("category") or "").strip()
-                if category not in {"맛집", "명소", "행사"}:
-                    category = _categorize_text(source_row.text, source_row.category_hint)
+                category = _finalize_mention_category(
+                    place_name=place_name,
+                    category=str(mention.get("category") or "").strip(),
+                    source_text=source_row.text,
+                    category_hint=source_row.category_hint,
+                )
                 mention_counter[(place_name, category, city_name)] += 1
 
     return mention_counter
@@ -1017,20 +1043,37 @@ def _get_week_start_utc(now: datetime) -> date:
 
 def _load_recent_community_texts(conn: psycopg.Connection, lookback_days: int) -> list[CommunityText]:
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT city_name, title || ' ' || COALESCE(body, ''), searched_keyword
-            FROM daangn.community_posts
-            WHERE COALESCE(post_created_at, crawled_at) >= NOW() - (%s::int * INTERVAL '1 day')
+        if lookback_days <= 0:
+            cutoff_at = _crawl_min_datetime_utc()
+            cur.execute(
+                """
+                SELECT city_name, title || ' ' || COALESCE(body, ''), searched_keyword
+                FROM daangn.community_posts
+                WHERE COALESCE(post_created_at, crawled_at) >= %s
 
-            UNION ALL
+                UNION ALL
 
-            SELECT city_name, comment_body, ''
-            FROM daangn.community_comments
-            WHERE COALESCE(commented_at, crawled_at) >= NOW() - (%s::int * INTERVAL '1 day')
-            """,
-            (lookback_days, lookback_days),
-        )
+                SELECT city_name, comment_body, ''
+                FROM daangn.community_comments
+                WHERE COALESCE(commented_at, crawled_at) >= %s
+                """,
+                (cutoff_at, cutoff_at),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT city_name, title || ' ' || COALESCE(body, ''), searched_keyword
+                FROM daangn.community_posts
+                WHERE COALESCE(post_created_at, crawled_at) >= NOW() - (%s::int * INTERVAL '1 day')
+
+                UNION ALL
+
+                SELECT city_name, comment_body, ''
+                FROM daangn.community_comments
+                WHERE COALESCE(commented_at, crawled_at) >= NOW() - (%s::int * INTERVAL '1 day')
+                """,
+                (lookback_days, lookback_days),
+            )
         rows = cur.fetchall()
 
     return [
@@ -1049,9 +1092,14 @@ def _aggregate_place_mentions_rule_based(
 ) -> Counter[tuple[str, str, str]]:
     counter: Counter[tuple[str, str, str]] = Counter()
     for row in rows:
-        category = _categorize_text(row.text, row.category_hint)
         places = _extract_places_from_text(row.text)
         for place_name in places:
+            category = _finalize_mention_category(
+                place_name=place_name,
+                category=_categorize_text(row.text, row.category_hint),
+                source_text=row.text,
+                category_hint=row.category_hint,
+            )
             counter[(place_name, category, row.city_name)] += 1
     return counter
 
@@ -1537,7 +1585,7 @@ def daangn_place_mentions_aggregator(timer: func.TimerRequest) -> None:
     if not db_dsn:
         raise RuntimeError("DB_DSN is required.")
 
-    lookback_days = max(MENTION_LOOKBACK_DAYS, 1)
+    lookback_days = MENTION_LOOKBACK_DAYS
     week_start = _get_week_start_utc(started_at)
     LOGGER.info(
         "mention_stage=start week_start=%s lookback_days=%d",
