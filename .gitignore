@@ -222,3 +222,4 @@ artifacts/**
 **/*.xcuserstate
 **/*.xccheckout
 **/*.xcscmblueprint
+**/.DS_Store
