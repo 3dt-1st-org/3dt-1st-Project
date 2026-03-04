@@ -89,8 +89,9 @@ struct MainMapView: View {
 
             subtitleView
             ZStack {
-                voiceToggleButton
+                autoDocentModeButton
                 HStack {
+                    muteToggleButton
                     Spacer()
                     currentLocationButton
                 }
@@ -152,7 +153,7 @@ struct MainMapView: View {
 
                                     Text(place.category(in: appViewModel.selectedLanguage))
                                         .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
-                                        .foregroundStyle(Color(AppThemeColor.east.rawValue))
+                                        .foregroundStyle(categoryTextColor(for: place.categoryKind))
                                         .lineLimit(1)
 
                                     HStack(spacing: 6) {
@@ -296,27 +297,50 @@ struct MainMapView: View {
             .padding(.horizontal, 14)
     }
 
-    private var voiceToggleButton: some View {
+    private var muteToggleButton: some View {
         Button {
             viewModel.toggleVoiceGuidance(for: appViewModel.selectedLanguage)
+        } label: {
+            Image(systemName: viewModel.isVoiceGuidanceEnabled ? "speaker.wave.3.fill" : "speaker.slash.fill")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 46, height: 46)
+                .background(
+                    Circle()
+                        .fill(
+                            viewModel.isVoiceGuidanceEnabled
+                                ? Color(AppThemeColor.east.rawValue)
+                                : Color(AppThemeColor.north.rawValue).opacity(0.8)
+                        )
+                )
+        }
+        .accessibilityLabel(muteVoiceText)
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+    }
+
+    private var autoDocentModeButton: some View {
+        Button {
+            viewModel.toggleAutoDocentMode(for: appViewModel.selectedLanguage)
         } label: {
             ZStack {
                 Circle()
                     .fill(
-                        viewModel.isVoiceGuidanceEnabled
+                        viewModel.isAutoDocentEnabled
                             ? Color(AppThemeColor.east.rawValue)
                             : Color(AppThemeColor.north.rawValue).opacity(0.8)
                     )
                     .frame(width: 74, height: 74)
 
-                Image(systemName: viewModel.isVoiceGuidanceEnabled ? "speaker.wave.3.fill" : "speaker.slash.fill")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(.white)
+                VStack(spacing: 2) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 17, weight: .bold))
+                    Text(viewModel.isAutoDocentEnabled ? "ON" : "OFF")
+                        .font(.system(size: 10, weight: .bold))
+                }
+                .foregroundStyle(.white)
             }
         }
-        .accessibilityLabel(
-            toggleVoiceText
-        )
+        .accessibilityLabel(autoDocentText)
     }
 
     private var currentLocationButton: some View {
@@ -362,12 +386,12 @@ struct MainMapView: View {
         }
     }
 
-    private var toggleVoiceText: String {
+    private var muteVoiceText: String {
         switch appViewModel.selectedLanguage {
         case .korean:
-            return "음성 안내 토글"
+            return "음성 안내 음소거 토글"
         case .english:
-            return "Toggle voice guidance"
+            return "Toggle voice mute"
         }
     }
 
@@ -377,6 +401,15 @@ struct MainMapView: View {
             return "현재 위치로 이동"
         case .english:
             return "Go to current location"
+        }
+    }
+
+    private var autoDocentText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "자동 도슨트 모드 토글"
+        case .english:
+            return "Toggle auto docent mode"
         }
     }
 
@@ -399,6 +432,18 @@ struct MainMapView: View {
             return Color(AppThemeColor.north.rawValue)
         default:
             return .white
+        }
+    }
+
+    private func categoryTextColor(for kind: PlaceCategoryKind) -> Color {
+        switch kind {
+        case .attraction:
+            return Color(AppThemeColor.south.rawValue).opacity(0.95)
+        case .restaurant:
+            // Yellow needs a darker tone on white cards for readability.
+            return Color(red: 0.55, green: 0.45, blue: 0.12)
+        case .event:
+            return Color(AppThemeColor.east.rawValue).opacity(0.95)
         }
     }
 }

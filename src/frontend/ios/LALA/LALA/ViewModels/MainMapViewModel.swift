@@ -16,6 +16,7 @@ import SwiftUI
 final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var region: MKCoordinateRegion
     @Published var isVoiceGuidanceEnabled = true
+    @Published var isAutoDocentEnabled = false
     @Published var subtitle = ""
     @Published var weatherSymbol = WeatherSnapshot.placeholder.symbolName
     @Published var weatherValue = WeatherSnapshot.placeholder.temperatureText
@@ -30,12 +31,13 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private let locationManager = CLLocationManager()
     private let mapDataProvider: MapDataProviding
     private let searchRadiusMeters = 3_000
+    private let autoDocentTriggerRadiusMeters: CLLocationDistance = 100
     private let defaultMapSpan = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
     private var hasAppliedInitialUserFocus = false
     private var isAppLocationConsentEnabled = false
     private var activeLanguage: AppLanguage = .korean
     private var reloadTask: Task<Void, Never>?
-    private var debounceTask: Task<Void, Never>?
+    private var lastAutoGuidedPlaceID: String?
 
     private let initialRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 36.35, longitude: 127.9),
@@ -60,7 +62,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     func updateLanguage(_ language: AppLanguage) {
         refreshSubtitle(for: language)
-        reloadMapData(around: region.center)
+        reloadMapData()
     }
 
     func toggleVoiceGuidance(for language: AppLanguage) {
@@ -69,12 +71,25 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             speechSynthesizer.stopSpeaking(at: .immediate)
         }
         refreshSubtitle(for: language)
+        if isAutoDocentEnabled {
+            runAutoDocentIfNeeded(language: language, forceAnnounce: false)
+        }
+    }
+
+    func toggleAutoDocentMode(for language: AppLanguage) {
+        activeLanguage = language
+        isAutoDocentEnabled.toggle()
+        if isAutoDocentEnabled {
+            runAutoDocentIfNeeded(language: language, forceAnnounce: true)
+        } else {
+            lastAutoGuidedPlaceID = nil
+        }
     }
 
     func selectFilter(_ filter: MapPlaceFilter) {
         guard selectedFilter != filter else { return }
         selectedFilter = filter
-        reloadMapData(around: region.center)
+        reloadMapData()
     }
 
     func handlePlaceTap(_ place: PlaceRecommendation, language: AppLanguage) {
@@ -206,6 +221,9 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         if result.shouldSpeak {
             speak(result.subtitle, language: language)
         }
+        if let selected = result.selectedPlaceID {
+            lastAutoGuidedPlaceID = selected
+        }
     }
 
     private func defaultSubtitle(for language: AppLanguage) -> String {
@@ -229,25 +247,17 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     func updateRegionFromMap(_ candidate: MKCoordinateRegion) {
         let clamped = clampRegion(candidate)
         guard !isNearlyEqual(region, clamped) else { return }
-        Task { @MainActor [clamped] in
-            self.region = clamped
-            self.scheduleDebouncedReload(center: clamped.center)
+        // Avoid mutating ObservableObject synchronously during SwiftUI Map update passes.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard !isNearlyEqual(region, clamped) else { return }
+            region = clamped
         }
     }
 
-    private func scheduleDebouncedReload(center: CLLocationCoordinate2D) {
+    private func reloadMapData() {
         guard isAppLocationConsentEnabled else { return }
-
-        debounceTask?.cancel()
-        debounceTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 550_000_000)
-            guard !Task.isCancelled else { return }
-            self?.reloadMapData(around: center)
-        }
-    }
-
-    private func reloadMapData(around center: CLLocationCoordinate2D) {
-        guard isAppLocationConsentEnabled else { return }
+        let anchor = userCoordinate ?? region.center
 
         reloadTask?.cancel()
         reloadTask = Task { [weak self] in
@@ -257,11 +267,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
             do {
                 async let loadedPlaces = mapDataProvider.fetchPlaces(
-                    center: center,
+                    center: anchor,
                     radiusMeters: searchRadiusMeters,
                     category: selectedFilter
                 )
-                async let weather = mapDataProvider.fetchWeather(at: center)
+                async let weather = mapDataProvider.fetchWeather(at: anchor)
 
                 let (placesResult, weatherResult) = try await (loadedPlaces, weather)
                 guard !Task.isCancelled else { return }
@@ -290,10 +300,12 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 speechSynthesizer.stopSpeaking(at: .immediate)
             }
         }
+
+        runAutoDocentIfNeeded(language: activeLanguage, forceAnnounce: false)
     }
 
     func retryLoadingPlaces() {
-        reloadMapData(around: region.center)
+        reloadMapData()
     }
 
     func configureLocationUpdates(consentEnabled: Bool) {
@@ -310,7 +322,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         case .authorizedWhenInUse, .authorizedAlways:
             locationManager.startUpdatingLocation()
             locationManager.requestLocation()
-            reloadMapData(around: userCoordinate ?? region.center)
+            reloadMapData()
         case .denied, .restricted:
             locationManager.stopUpdatingLocation()
         @unknown default:
@@ -336,7 +348,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         } else {
             region = clamped
         }
-        reloadMapData(around: clamped.center)
+        reloadMapData()
     }
 
     func centerOnPlace(_ place: PlaceRecommendation, animated: Bool) {
@@ -375,13 +387,46 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             return
         }
 
-        if places.isEmpty {
-            reloadMapData(around: latest.coordinate)
-        }
+        reloadMapData()
+        runAutoDocentIfNeeded(language: activeLanguage, forceAnnounce: false)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // Keep UI responsive even if a one-shot location request fails.
+    }
+
+    private func runAutoDocentIfNeeded(language: AppLanguage, forceAnnounce: Bool) {
+        guard isAutoDocentEnabled, let userCoordinate, !places.isEmpty else { return }
+        guard let nearest = nearestPlace(to: userCoordinate) else { return }
+        guard nearest.distance <= autoDocentTriggerRadiusMeters else {
+            // Keep silent outside trigger radius and reset so entering range can announce.
+            lastAutoGuidedPlaceID = nil
+            return
+        }
+        guard forceAnnounce || nearest.place.id != lastAutoGuidedPlaceID else { return }
+
+        selectedPlaceID = nearest.place.id
+        subtitle = nearest.place.guide(in: language)
+        lastAutoGuidedPlaceID = nearest.place.id
+
+        if isVoiceGuidanceEnabled {
+            speak(subtitle, language: language)
+        }
+    }
+
+    private func nearestPlace(to userCoordinate: CLLocationCoordinate2D) -> (place: PlaceRecommendation, distance: CLLocationDistance)? {
+        places
+            .map { place in
+                (place: place, distance: distance(from: userCoordinate, to: place.coordinate))
+            }
+            .min { lhs, rhs in
+                lhs.distance < rhs.distance
+            }
+    }
+
+    private func distance(from lhs: CLLocationCoordinate2D, to rhs: CLLocationCoordinate2D) -> CLLocationDistance {
+        CLLocation(latitude: lhs.latitude, longitude: lhs.longitude)
+            .distance(from: CLLocation(latitude: rhs.latitude, longitude: rhs.longitude))
     }
 }
 
