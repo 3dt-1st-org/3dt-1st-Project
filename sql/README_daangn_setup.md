@@ -13,6 +13,8 @@ psql "$DB_DSN" -f sql/dml/daangn_target_dongs_seed.sql
 psql "$DB_DSN" -f sql/migration/Script-daangn-community-260226.sql
 psql "$DB_DSN" -f sql/migration/Script-daangn-crawl-tasks-260303.sql
 psql "$DB_DSN" -f sql/migration/Script-daangn-place-mentions-weekly-260304.sql
+psql "$DB_DSN" -f sql/migration/Script-daangn-community-post-dedup-260304.sql
+psql "$DB_DSN" -f sql/migration/Script-daangn-drop-raw-payload-260304.sql
 ```
 
 중복 방지 스모크 테스트:
