@@ -88,23 +88,48 @@ struct PlaceRecommendation: Identifiable {
     }
 
     func name(in language: AppLanguage) -> String {
-        language == .korean ? nameKo : nameEn
+        switch language {
+        case .korean:
+            return nameKo
+        case .english, .japanese:
+            return nameEn
+        }
     }
 
     func category(in language: AppLanguage) -> String {
-        language == .korean ? categoryKo : categoryEn
+        switch language {
+        case .korean:
+            return categoryKo
+        case .english, .japanese:
+            return categoryEn
+        }
     }
 
     func district(in language: AppLanguage) -> String {
-        language == .korean ? districtKo : districtEn
+        switch language {
+        case .korean:
+            return districtKo
+        case .english, .japanese:
+            return districtEn
+        }
     }
 
     func guide(in language: AppLanguage) -> String {
-        language == .korean ? guideKo : guideEn
+        switch language {
+        case .korean:
+            return guideKo
+        case .english, .japanese:
+            return guideEn
+        }
     }
 
     func address(in language: AppLanguage) -> String {
-        language == .korean ? addressKo : addressEn
+        switch language {
+        case .korean:
+            return addressKo
+        case .english, .japanese:
+            return addressEn
+        }
     }
 
     func distanceLabel(in language: AppLanguage) -> String? {

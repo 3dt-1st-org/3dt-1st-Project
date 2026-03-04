@@ -21,10 +21,13 @@ enum MapPlaceFilter: String, CaseIterable, Identifiable {
         switch (self, language) {
         case (.all, .korean): return "전체"
         case (.all, .english): return "All"
+        case (.all, .japanese): return "すべて"
         case (.attraction, .korean): return "명소"
         case (.attraction, .english): return "Attractions"
+        case (.attraction, .japanese): return "名所"
         case (.restaurant, .korean): return "맛집"
         case (.restaurant, .english): return "Restaurants"
+        case (.restaurant, .japanese): return "グルメ"
         }
     }
 }
@@ -40,8 +43,7 @@ protocol MapDataProviding {
     func fetchPlaces(
         center: CLLocationCoordinate2D,
         radiusMeters: Int,
-        category: MapPlaceFilter,
-        language: AppLanguage
+        category: MapPlaceFilter
     ) async throws -> [PlaceRecommendation]
 
     func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot
@@ -63,8 +65,7 @@ final class MapRemoteService: MapDataProviding {
     func fetchPlaces(
         center: CLLocationCoordinate2D,
         radiusMeters: Int,
-        category: MapPlaceFilter,
-        language: AppLanguage
+        category: MapPlaceFilter
     ) async throws -> [PlaceRecommendation] {
         let requestURL = try makeURL(
             path: "/api/places",
@@ -80,9 +81,7 @@ final class MapRemoteService: MapDataProviding {
         try validate(response: response)
 
         let decoded = try decoder.decode(RemotePlacesResponse.self, from: data)
-        return decoded.places.map { item in
-            Self.mapPlace(from: item, language: language)
-        }
+        return decoded.places.map(Self.mapPlace(from:))
     }
 
     func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot {
@@ -129,7 +128,7 @@ final class MapRemoteService: MapDataProviding {
         }
     }
 
-    private static func mapPlace(from item: RemotePlaceItem, language: AppLanguage) -> PlaceRecommendation {
+    private static func mapPlace(from item: RemotePlaceItem) -> PlaceRecommendation {
         let kind = PlaceCategoryKind.fromRemoteCategory(item.category)
         let categoryKo = item.category == "restaurant" ? "로컬 맛집" : "로컬 명소"
         let categoryEn = item.category == "restaurant" ? "Local Eats" : "Attraction"

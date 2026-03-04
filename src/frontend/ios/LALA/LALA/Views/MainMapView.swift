@@ -84,6 +84,10 @@ struct MainMapView: View {
                 statusBanner(status)
             }
 
+            if let selectedPlace = viewModel.selectedPlace {
+                recommendationPanel(for: selectedPlace)
+            }
+
             Spacer()
 
             subtitleView
@@ -218,7 +222,7 @@ struct MainMapView: View {
         HStack(spacing: 10) {
             ProgressView()
                 .tint(Color(AppThemeColor.east.rawValue))
-            Text(appViewModel.selectedLanguage == .korean ? "주변 장소 로딩 중..." : "Loading nearby places...")
+            Text(loadingText)
                 .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
                 .foregroundStyle(Color(AppThemeColor.north.rawValue))
         }
@@ -228,6 +232,28 @@ struct MainMapView: View {
             Capsule(style: .continuous)
                 .fill(Color.white.opacity(0.94))
         )
+    }
+
+    private func recommendationPanel(for place: PlaceRecommendation) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(viewModel.recommendationTitle(for: appViewModel.selectedLanguage))
+                .font(.system(size: 12 * appViewModel.fontScale, weight: .bold))
+                .foregroundStyle(Color(AppThemeColor.east.rawValue))
+
+            Text(viewModel.recommendationReason(for: place, language: appViewModel.selectedLanguage))
+                .font(.system(size: 13 * appViewModel.fontScale, weight: .medium))
+                .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                .lineLimit(3)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.94))
+        )
+        .padding(.horizontal, 16)
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     private func statusBanner(_ text: String) -> some View {
@@ -242,7 +268,7 @@ struct MainMapView: View {
 
             Spacer(minLength: 6)
 
-            Button(appViewModel.selectedLanguage == .korean ? "다시시도" : "Retry") {
+            Button(retryText) {
                 viewModel.retryLoadingPlaces()
             }
             .font(.system(size: 12 * appViewModel.fontScale, weight: .bold))
@@ -270,7 +296,7 @@ struct MainMapView: View {
                         .fill(Color.white.opacity(0.93))
                 )
         }
-        .accessibilityLabel(appViewModel.selectedLanguage == .korean ? "설정" : "Settings")
+        .accessibilityLabel(settingsText)
     }
 
     private var subtitleView: some View {
@@ -309,9 +335,7 @@ struct MainMapView: View {
             }
         }
         .accessibilityLabel(
-            appViewModel.selectedLanguage == .korean
-                ? "음성 안내 토글"
-                : "Toggle voice guidance"
+            toggleVoiceText
         )
     }
 
@@ -327,8 +351,63 @@ struct MainMapView: View {
                     Circle().fill(Color(AppThemeColor.east.rawValue))
                 )
         }
-        .accessibilityLabel(appViewModel.selectedLanguage == .korean ? "현재 위치로 이동" : "Go to current location")
+        .accessibilityLabel(currentLocationText)
         .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+    }
+
+    private var loadingText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "주변 장소 로딩 중..."
+        case .english:
+            return "Loading nearby places..."
+        case .japanese:
+            return "周辺スポットを読み込み中..."
+        }
+    }
+
+    private var retryText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "다시시도"
+        case .english:
+            return "Retry"
+        case .japanese:
+            return "再試行"
+        }
+    }
+
+    private var settingsText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "설정"
+        case .english:
+            return "Settings"
+        case .japanese:
+            return "設定"
+        }
+    }
+
+    private var toggleVoiceText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "음성 안내 토글"
+        case .english:
+            return "Toggle voice guidance"
+        case .japanese:
+            return "音声ガイド切替"
+        }
+    }
+
+    private var currentLocationText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "현재 위치로 이동"
+        case .english:
+            return "Go to current location"
+        case .japanese:
+            return "現在地へ移動"
+        }
     }
 }
 

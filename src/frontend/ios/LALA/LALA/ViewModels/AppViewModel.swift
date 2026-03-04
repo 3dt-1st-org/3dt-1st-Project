@@ -102,7 +102,13 @@ final class AppViewModel: ObservableObject {
         guard let preferred = Locale.preferredLanguages.first?.lowercased() else {
             return .english
         }
-        return preferred.hasPrefix("ko") ? .korean : .english
+        if preferred.hasPrefix("ko") {
+            return .korean
+        }
+        if preferred.hasPrefix("ja") {
+            return .japanese
+        }
+        return .english
     }
 }
 

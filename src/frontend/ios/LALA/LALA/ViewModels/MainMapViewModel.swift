@@ -41,8 +41,8 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         span: MKCoordinateSpan(latitudeDelta: 7.0, longitudeDelta: 8.0)
     )
 
-    init(mapDataProvider: MapDataProviding = MapRemoteService()) {
-        self.mapDataProvider = mapDataProvider
+    init(mapDataProvider: MapDataProviding? = nil) {
+        self.mapDataProvider = mapDataProvider ?? MapRemoteService()
         region = initialRegion
         places = PlaceRecommendation.fallbackData
         super.init()
@@ -85,39 +85,101 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     func weatherA11yText(for language: AppLanguage) -> String {
-        language == .korean
-            ? "현재 날씨 \(weatherValue)"
-            : "Current weather \(weatherValue)"
+        switch language {
+        case .korean:
+            return "현재 날씨 \(weatherValue)"
+        case .english:
+            return "Current weather \(weatherValue)"
+        case .japanese:
+            return "現在の天気 \(weatherValue)"
+        }
     }
 
     func statusMessage(for language: AppLanguage) -> String? {
         mapStatusMessage.flatMap { _ in
             if places.isEmpty {
-                return language == .korean
-                    ? "주변 추천 장소가 없습니다."
-                    : "No recommended places found nearby."
+                switch language {
+                case .korean:
+                    return "주변 추천 장소가 없습니다."
+                case .english:
+                    return "No recommended places found nearby."
+                case .japanese:
+                    return "周辺におすすめスポットが見つかりません。"
+                }
             }
 
-            return language == .korean
-                ? "네트워크 문제로 임시 추천 목록을 표시 중입니다."
-                : "Showing fallback recommendations due to a network issue."
+            switch language {
+            case .korean:
+                return "네트워크 문제로 임시 추천 목록을 표시 중입니다."
+            case .english:
+                return "Showing fallback recommendations due to a network issue."
+            case .japanese:
+                return "ネットワークの問題により、代替おすすめを表示しています。"
+            }
+        }
+    }
+
+    var selectedPlace: PlaceRecommendation? {
+        guard let selectedPlaceID else { return nil }
+        return places.first(where: { $0.id == selectedPlaceID })
+    }
+
+    func recommendationTitle(for language: AppLanguage) -> String {
+        switch language {
+        case .korean:
+            return "추천 이유"
+        case .english:
+            return "Why This Place"
+        case .japanese:
+            return "おすすめ理由"
+        }
+    }
+
+    func recommendationReason(for place: PlaceRecommendation, language: AppLanguage) -> String {
+        let category = place.category(in: language)
+        let district = place.district(in: language)
+        let address = place.address(in: language)
+        let distance = place.distanceLabel(in: language) ?? ""
+
+        switch language {
+        case .korean:
+            if distance.isEmpty {
+                return "\(district)의 \(category) 카테고리에서 인기가 높은 장소예요. \(address)"
+            }
+            return "현재 위치에서 약 \(distance) 거리의 \(category) 추천 장소예요. \(address)"
+        case .english:
+            if distance.isEmpty {
+                return "A highly rated \(category.lowercased()) spot around \(district). \(address)"
+            }
+            return "A recommended \(category.lowercased()) spot about \(distance) from your current location. \(address)"
+        case .japanese:
+            if distance.isEmpty {
+                return "\(district)で人気の\(category)スポットです。\(address)"
+            }
+            return "現在地から約\(distance)の\(category)おすすめスポットです。\(address)"
         }
     }
 
     private func voiceOnSubtitle(for language: AppLanguage) -> String {
-        if language == .korean {
+        switch language {
+        case .korean:
             return "음성 안내: 지금 위치 기준 15분 거리의 로컬 맛집과 산책 코스를 안내해드릴게요."
+        case .english:
+            return "Voice guide: I can guide you to local food spots and walks within 15 minutes."
+        case .japanese:
+            return "音声ガイド: 現在地から15分圏内のローカル名所とグルメを案内します。"
         }
-
-        return "Voice guide: I can guide you to local food spots and walks within 15 minutes."
     }
 
     private func voiceOffSubtitle(for language: AppLanguage) -> String {
-        if language == .korean {
+        switch language {
+        case .korean:
             return "음성 안내가 꺼져 있습니다. 하단 버튼을 눌러 다시 시작하세요."
+        case .english:
+            return "Voice guidance is off. Tap the bottom button to resume."
+        case .japanese:
+            return "音声ガイドはオフです。下のボタンを押して再開してください。"
         }
-
-        return "Voice guidance is off. Tap the bottom button to resume."
     }
 
     private func speak(_ text: String, language: AppLanguage) {
@@ -126,7 +188,16 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
 
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: language == .korean ? "ko-KR" : "en-US")
+        let voiceCode: String
+        switch language {
+        case .korean:
+            voiceCode = "ko-KR"
+        case .english:
+            voiceCode = "en-US"
+        case .japanese:
+            voiceCode = "ja-JP"
+        }
+        utterance.voice = AVSpeechSynthesisVoice(language: voiceCode)
         utterance.rate = 0.5
         speechSynthesizer.speak(utterance)
     }
@@ -188,7 +259,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         debounceTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 550_000_000)
             guard !Task.isCancelled else { return }
-            await self?.reloadMapData(around: center)
+            self?.reloadMapData(around: center)
         }
     }
 
@@ -205,8 +276,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 async let loadedPlaces = mapDataProvider.fetchPlaces(
                     center: center,
                     radiusMeters: searchRadiusMeters,
-                    category: selectedFilter,
-                    language: activeLanguage
+                    category: selectedFilter
                 )
                 async let weather = mapDataProvider.fetchWeather(at: center)
 

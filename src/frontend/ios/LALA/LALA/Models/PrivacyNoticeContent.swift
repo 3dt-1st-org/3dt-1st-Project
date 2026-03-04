@@ -12,6 +12,8 @@ struct PrivacyNoticeContent {
     static let summaryKo = "LALA는 경기도 로컬 추천 제공을 위해 위치정보를 포함한 최소한의 개인정보를 수집합니다."
     static let titleEn = "Privacy and Location Consent Notice"
     static let summaryEn = "LALA collects minimal personal data including location to provide local recommendations in Gyeonggi-do."
+    static let titleJa = "個人情報および位置情報利用同意のご案内"
+    static let summaryJa = "LALAは京畿道のローカルおすすめ提供のため、位置情報を含む最小限の個人情報を収集します。"
 
     static let detailKo = """
 제1조(수집 항목)
@@ -57,5 +59,28 @@ As a rule, we do not provide personal data to third parties, unless required by 
 Article 5 (Right to Refuse and Impact)
 You may refuse consent to personal data and location data processing.
 However, because core features are location-based, refusing consent or disabling iOS location permission will restrict app usage.
+"""
+
+    static let detailJa = """
+第1条（収集項目）
+LALAはサービス提供のため、次の情報を収集します。
+- 必須: 端末識別情報、利用ログ、現在地（緯度/経度）
+- 任意: 言語、フォントサイズなどのアプリ設定情報
+
+第2条（利用目的）
+収集した情報は次の目的に限り利用します。
+- ユーザー周辺のローカル名所・グルメ推薦の提供
+- 音声ガイドおよび字幕ベースの案内提供
+- サービス品質向上とエラー分析
+
+第3条（保有および利用期間）
+個人情報は目的達成後、遅滞なく削除します。ただし法令により保存義務がある場合は当該期間保管します。
+
+第4条（第三者提供）
+当社は原則としてユーザーの個人情報を第三者に提供しません。ただし法令上の根拠がある場合、またはユーザー同意がある場合に限り提供します。
+
+第5条（同意拒否の権利と不利益）
+ユーザーは個人情報および位置情報の収集・利用への同意を拒否できます。
+ただし本サービスは位置情報ベースの機能が中核のため、同意拒否またはiOS位置権限の無効化時にはアプリ利用が制限されます。
 """
 }
