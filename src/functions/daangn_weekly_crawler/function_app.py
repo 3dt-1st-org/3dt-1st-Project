@@ -9,7 +9,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import azure.functions as func
 import psycopg
@@ -21,7 +21,7 @@ APP = func.FunctionApp()
 
 DEFAULT_SCHEDULE = os.getenv("TIMER_CRON", "0 0 3 * * 1")
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
-REQUEST_SLEEP_SECONDS = float(os.getenv("REQUEST_SLEEP_SECONDS", "0.3"))
+REQUEST_SLEEP_SECONDS = float(os.getenv("REQUEST_SLEEP_SECONDS", "0"))
 TASK_QUEUE_NAME = os.getenv("DAANGN_TASK_QUEUE", "daangn-crawl-tasks")
 MENTION_AGGREGATION_CRON = os.getenv("MENTION_AGGREGATION_CRON", "0 30 3 * * 1")
 MENTION_LOOKBACK_DAYS = int(os.getenv("MENTION_LOOKBACK_DAYS", "7"))
@@ -341,6 +341,17 @@ def _extract_post_links(search_html: str) -> list[str]:
     soup = BeautifulSoup(search_html, "html.parser")
     links: set[str] = set()
 
+    def is_valid_post_url(url: str) -> bool:
+        parsed = urlparse(url)
+        path = parsed.path.rstrip("/")
+        if path == "/kr/community":
+            return False
+        if not path.startswith("/kr/community/"):
+            return False
+        if path == "/kr/community/s" or path.startswith("/kr/community/s/"):
+            return False
+        return True
+
     for anchor in soup.select("a[href]"):
         href = anchor.get("href", "")
         if "/kr/community/" not in href:
@@ -355,28 +366,31 @@ def _extract_post_links(search_html: str) -> list[str]:
         else:
             url = f"https://www.daangn.com{href}"
 
-        links.add(_normalize_url(url))
+        normalized = _normalize_url(url)
+        if is_valid_post_url(normalized):
+            links.add(normalized)
 
     # Fallback: some pages render links in inline JSON instead of anchor tags.
     normalized_html = search_html.replace("\\/", "/")
-    for matched in re.finditer(r'(?:https?:)?/kr/community/[^"\'\s,]+', normalized_html):
-        raw = matched.group(0)
-        if raw.startswith("//"):
-            url = f"https:{raw}"
-        elif raw.startswith("http"):
-            url = raw
-        elif raw.startswith("/kr/community/"):
-            url = f"https://www.daangn.com{raw}"
-        else:
-            continue
+    inline_patterns = [
+        r"https?://www\.daangn\.com/kr/community/[^\"'\s,]+",
+        r'(?:https?:)?/kr/community/[^"\'\s,]+',
+    ]
+    for pattern in inline_patterns:
+        for matched in re.finditer(pattern, normalized_html):
+            raw = matched.group(0)
+            if raw.startswith("//"):
+                url = f"https:{raw}"
+            elif raw.startswith("http"):
+                url = raw
+            elif raw.startswith("/kr/community/"):
+                url = f"https://www.daangn.com{raw}"
+            else:
+                continue
 
-        if "/kr/community/s/" in url:
-            continue
-        if url.rstrip("/") == "https://www.daangn.com/kr/community":
-            continue
-        if not re.search(r"/kr/community/(articles|[A-Za-z0-9\-_%]+)", url):
-            continue
-        links.add(_normalize_url(url))
+            normalized = _normalize_url(url)
+            if is_valid_post_url(normalized):
+                links.add(normalized)
 
     return sorted(links)
 
@@ -1073,7 +1087,8 @@ def _crawl_target_keyword(
                 post_url,
                 _elapsed_ms(post_started_at),
             )
-        time.sleep(REQUEST_SLEEP_SECONDS)
+        if REQUEST_SLEEP_SECONDS > 0:
+            time.sleep(REQUEST_SLEEP_SECONDS)
 
     LOGGER.info(
         "crawl_stage=target_keyword_done city=%s dong=%s keyword=%s posts=%d comments=%d elapsed_ms=%d",
