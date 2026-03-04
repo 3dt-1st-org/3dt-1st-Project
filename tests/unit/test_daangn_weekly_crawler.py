@@ -4,6 +4,7 @@ import sys
 import types
 import unittest
 import base64
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -183,6 +184,29 @@ class TestDaangnWeeklyCrawler(unittest.TestCase):
         payload = self.module._decode_queue_body(msg)
         self.assertEqual(payload["task_id"], "abc")
         self.assertEqual(payload["run_id"], "def")
+
+    def test_extract_places_from_text(self):
+        text = "망포 먹자골목에 어풍당당 이라는 횟집있어요"
+        places = self.module._extract_places_from_text(text)
+        self.assertIn("어풍당당", places)
+
+    def test_categorize_text(self):
+        self.assertEqual(self.module._categorize_text("오늘 축제 다녀왔어요", ""), "행사")
+        self.assertEqual(self.module._categorize_text("망포 맛집 추천해요", ""), "맛집")
+        self.assertEqual(self.module._categorize_text("동네 산책 명소", ""), "명소")
+
+    def test_get_week_start_utc(self):
+        now = datetime(2026, 3, 4, 12, 0, 0, tzinfo=timezone.utc)
+        week_start = self.module._get_week_start_utc(now)
+        self.assertEqual(str(week_start), "2026-03-02")
+
+    def test_aggregate_place_mentions(self):
+        rows = [
+            self.module.CommunityText(city_name="수원시", text="어풍당당 맛집 추천", category_hint="맛집"),
+            self.module.CommunityText(city_name="수원시", text="어풍당당 맛집", category_hint=""),
+        ]
+        counter = self.module._aggregate_place_mentions(rows)
+        self.assertEqual(counter[("어풍당당", "맛집", "수원시")], 2)
 
 
 if __name__ == "__main__":

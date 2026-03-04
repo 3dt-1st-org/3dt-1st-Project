@@ -5,8 +5,9 @@ import logging
 import os
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 import azure.functions as func
@@ -21,6 +22,8 @@ DEFAULT_SCHEDULE = os.getenv("TIMER_CRON", "0 0 3 * * 1")
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
 REQUEST_SLEEP_SECONDS = float(os.getenv("REQUEST_SLEEP_SECONDS", "0.3"))
 TASK_QUEUE_NAME = os.getenv("DAANGN_TASK_QUEUE", "daangn-crawl-tasks")
+MENTION_AGGREGATION_CRON = os.getenv("MENTION_AGGREGATION_CRON", "0 30 3 * * 1")
+MENTION_LOOKBACK_DAYS = int(os.getenv("MENTION_LOOKBACK_DAYS", "7"))
 NOISE_EXACT_MATCHES = {
     ",",
     ".",
@@ -36,6 +39,14 @@ NOISE_EXACT_MATCHES = {
     "ㅜ",
     "ㅜㅜ",
 }
+PLACE_SUFFIX_PATTERN = re.compile(
+    r"([가-힣A-Za-z0-9][가-힣A-Za-z0-9\s]{1,28})\s*(?:이라는|라는|인)?\s*(맛집|식당|카페|횟집|명소|축제|행사)"
+)
+PLACE_NAME_PATTERN = re.compile(
+    r"(?:추천|가볼만|방문|다녀옴|다녀왔어요|좋아요)\s*(?:장소|곳)?\s*[:\-]?\s*([가-힣A-Za-z0-9][가-힣A-Za-z0-9\s]{1,28})"
+)
+CATEGORY_RESTAURANT_HINTS = ("맛집", "식당", "카페", "횟집", "음식점", "먹자", "점심", "저녁")
+CATEGORY_EVENT_HINTS = ("행사", "축제", "박람회", "공연", "페스티벌", "플리마켓", "전시")
 
 
 def _utc_now() -> datetime:
@@ -63,6 +74,13 @@ class CrawlTask:
     keyword: str
 
 
+@dataclass(frozen=True)
+class CommunityText:
+    city_name: str
+    text: str
+    category_hint: str
+
+
 def _normalize_url(url: str) -> str:
     return url.split("?")[0].rstrip("/")
 
@@ -85,6 +103,46 @@ def _is_noise_comment(comment_text: str) -> bool:
 def _get_keywords() -> list[str]:
     raw = os.getenv("DAANGN_KEYWORDS", "맛집,명소,행사")
     return [token.strip() for token in raw.split(",") if token.strip()]
+
+
+def _normalize_place_name(raw: str) -> str:
+    text = re.sub(r"\s+", " ", raw).strip()
+    text = re.sub(r"[\"'`<>\\[\\](){}]", "", text)
+    text = re.sub(r"^.*(?:에|에서|근처|부근|쪽)\s+", "", text)
+    text = re.sub(r"\s*(이라는|라는|인)$", "", text).strip()
+    text = re.sub(r"(입니다|이에요|네요|요)$", "", text).strip()
+    return text
+
+
+def _categorize_text(text: str, category_hint: str) -> str:
+    merged = f"{category_hint} {text}"
+    if any(keyword in merged for keyword in CATEGORY_EVENT_HINTS):
+        return "행사"
+    if any(keyword in merged for keyword in CATEGORY_RESTAURANT_HINTS):
+        return "맛집"
+    return "명소"
+
+
+def _extract_places_from_text(text: str) -> list[str]:
+    candidates: list[str] = []
+    for match in PLACE_SUFFIX_PATTERN.finditer(text):
+        candidates.append(match.group(1))
+    for match in PLACE_NAME_PATTERN.finditer(text):
+        candidates.append(match.group(1))
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        name = _normalize_place_name(candidate)
+        if len(name) < 2 or len(name) > 30:
+            continue
+        if name.lower() in {"저기", "여기", "거기", "이곳", "그곳"}:
+            continue
+        if name in seen:
+            continue
+        seen.add(name)
+        normalized.append(name)
+    return normalized
 
 
 def _request_html(session: requests.Session, url: str) -> str:
@@ -500,6 +558,83 @@ def _decode_queue_body(message: func.QueueMessage) -> dict[str, Any]:
         raise ValueError("Queue payload must be a JSON object.")
     return data
 
+
+def _get_week_start_utc(now: datetime) -> date:
+    current = now.date()
+    return current - timedelta(days=current.weekday())
+
+
+def _load_recent_community_texts(conn: psycopg.Connection, lookback_days: int) -> list[CommunityText]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT city_name, title || ' ' || COALESCE(body, ''), searched_keyword
+            FROM daangn.community_posts
+            WHERE COALESCE(post_created_at, crawled_at) >= NOW() - (%s::int * INTERVAL '1 day')
+
+            UNION ALL
+
+            SELECT city_name, comment_body, ''
+            FROM daangn.community_comments
+            WHERE COALESCE(commented_at, crawled_at) >= NOW() - (%s::int * INTERVAL '1 day')
+            """,
+            (lookback_days, lookback_days),
+        )
+        rows = cur.fetchall()
+
+    return [
+        CommunityText(
+            city_name=str(row[0]),
+            text=str(row[1] or "").strip(),
+            category_hint=str(row[2] or "").strip(),
+        )
+        for row in rows
+        if str(row[1] or "").strip()
+    ]
+
+
+def _aggregate_place_mentions(
+    rows: list[CommunityText],
+) -> Counter[tuple[str, str, str]]:
+    counter: Counter[tuple[str, str, str]] = Counter()
+    for row in rows:
+        category = _categorize_text(row.text, row.category_hint)
+        places = _extract_places_from_text(row.text)
+        for place_name in places:
+            counter[(place_name, category, row.city_name)] += 1
+    return counter
+
+
+def _upsert_place_mentions_weekly(
+    conn: psycopg.Connection,
+    week_start: date,
+    mention_counter: Counter[tuple[str, str, str]],
+) -> int:
+    affected = 0
+    with conn.cursor() as cur:
+        for (place_name, category, city_name), mention_count in mention_counter.items():
+            cur.execute(
+                """
+                INSERT INTO daangn.place_mentions_weekly (
+                    place_name,
+                    category,
+                    city_name,
+                    mention_count,
+                    week_start
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (place_name, category, city_name, week_start)
+                DO UPDATE SET
+                    mention_count = EXCLUDED.mention_count,
+                    updated_at = NOW()
+                """,
+                (place_name, category, city_name, int(mention_count), week_start),
+            )
+            affected += cur.rowcount
+    conn.commit()
+    return affected
+
+
 def _upsert_post(
     conn: psycopg.Connection,
     post_key: str,
@@ -858,3 +993,39 @@ def daangn_crawl_worker(queue_message: func.QueueMessage) -> None:
                 task.run_id,
                 _elapsed_ms(worker_started_at),
             )
+
+
+@APP.schedule(
+    schedule=MENTION_AGGREGATION_CRON,
+    arg_name="timer",
+    run_on_startup=False,
+    use_monitor=True,
+)
+def daangn_place_mentions_aggregator(timer: func.TimerRequest) -> None:
+    _ = timer
+    started_at = _utc_now()
+    db_dsn = os.getenv("DB_DSN")
+    if not db_dsn:
+        raise RuntimeError("DB_DSN is required.")
+
+    lookback_days = max(MENTION_LOOKBACK_DAYS, 1)
+    week_start = _get_week_start_utc(started_at)
+    LOGGER.info(
+        "mention_stage=start week_start=%s lookback_days=%d",
+        week_start.isoformat(),
+        lookback_days,
+    )
+
+    with psycopg.connect(db_dsn) as conn:
+        rows = _load_recent_community_texts(conn, lookback_days)
+        mention_counter = _aggregate_place_mentions(rows)
+        affected = _upsert_place_mentions_weekly(conn, week_start, mention_counter)
+
+    LOGGER.info(
+        "mention_stage=done week_start=%s source_rows=%d entities=%d affected_rows=%d elapsed_ms=%d",
+        week_start.isoformat(),
+        len(rows),
+        len(mention_counter),
+        affected,
+        _elapsed_ms(started_at),
+    )
