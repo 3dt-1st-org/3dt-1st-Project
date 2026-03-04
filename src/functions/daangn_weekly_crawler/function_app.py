@@ -972,7 +972,10 @@ def _crawl_target_keyword(
             "User-Agent": os.getenv(
                 "DAANGN_USER_AGENT",
                 "Mozilla/5.0 (compatible; LocalLinkBot/1.0; +https://example.com)",
-            )
+            ),
+            "Accept-Language": os.getenv("DAANGN_ACCEPT_LANGUAGE", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer": "https://www.daangn.com/kr/community/",
         }
     )
 
