@@ -337,6 +337,21 @@ def _request_html(session: requests.Session, url: str) -> str:
     return response.content.decode("utf-8", errors="replace")
 
 
+def _search_page_diagnostics(html: str) -> dict[str, Any]:
+    lowered = html.lower()
+    return {
+        "html_len": len(html),
+        "community_count": html.count("/kr/community/"),
+        "escaped_community_count": html.count("\\/kr\\/community\\/"),
+        "is_bot_challenge": int(
+            any(
+                marker in lowered
+                for marker in ("captcha", "cf-challenge", "robot", "access denied", "verify you are human")
+            )
+        ),
+    }
+
+
 def _extract_post_links(search_html: str) -> list[str]:
     soup = BeautifulSoup(search_html, "html.parser")
     links: set[str] = set()
@@ -990,7 +1005,9 @@ def _crawl_target_keyword(
     post_links: list[str] = []
     for search_url in _build_search_urls(target, keyword):
         try:
-            search_html = _request_html(session, search_url)
+            response = session.get(search_url, timeout=REQUEST_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            search_html = response.content.decode("utf-8", errors="replace")
         except Exception:
             LOGGER.exception(
                 "crawl_stage=search_failed city=%s dong=%s keyword=%s url=%s elapsed_ms=%d",
@@ -1005,14 +1022,30 @@ def _crawl_target_keyword(
         post_links = _extract_post_links(search_html)
         if post_links:
             LOGGER.info(
-                "crawl_stage=search_selected city=%s dong=%s keyword=%s url=%s links=%d",
+                "crawl_stage=search_selected city=%s dong=%s keyword=%s url=%s final_url=%s links=%d html_len=%d community_count=%d",
                 target.city_name,
                 target.dong_name,
                 keyword,
                 search_url,
+                response.url,
                 len(post_links),
+                len(search_html),
+                search_html.count("/kr/community/"),
             )
             break
+        diag = _search_page_diagnostics(search_html)
+        LOGGER.info(
+            "crawl_stage=search_empty city=%s dong=%s keyword=%s url=%s final_url=%s html_len=%d community_count=%d escaped_community_count=%d bot_challenge=%d",
+            target.city_name,
+            target.dong_name,
+            keyword,
+            search_url,
+            response.url,
+            int(diag["html_len"]),
+            int(diag["community_count"]),
+            int(diag["escaped_community_count"]),
+            int(diag["is_bot_challenge"]),
+        )
 
     post_links = post_links[:max_posts]
     LOGGER.info(
