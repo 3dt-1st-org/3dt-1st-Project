@@ -27,20 +27,21 @@ def get_db_connection():
     )
 
 # ==============================================================================
-# 1. 위치 기반 음식점 필터링 로직 (반경 80m)
+# 1. 위치 기반 음식점 필터링 로직 (반경 150m)
 # ==============================================================================
-def get_current_location():
-    """사용자의 현재 위치를 반환합니다. (개발 단계 가상 좌표)"""
-    lat = 37.2826
-    lon = 127.0145
+def get_current_location(lat=None, lon=None):
+    """사용자의 현재 위치를 반환합니다. (파라미터 없으면 기본값 사용)"""
+    if lat is None or lon is None:
+        lat = 37.2826
+        lon = 127.0145
     return lat, lon
 
-def filter_restaurants_by_location(radius_m=80):
+def filter_restaurants_by_location(radius_m=150, lat=None, lon=None):
     """
-    현재 위치 기준 지정된 반경 내의 음식점 리스트를 추출합니다.
+    사용자가 설정한 GPS 좌표 기준 지정된 반경 내의 음식점 리스트를 추출합니다.
     (gg_restaurant_info 테이블의 실제 컬럼명 반영)
     """
-    user_lat, user_lon = get_current_location()
+    user_lat, user_lon = get_current_location(lat, lon)
     
     # [수정 포인트] 테이블명: gg_restaurant_info, 컬럼명: refine_wgs84_lat, refine_wgs84_logt
     query = f"""

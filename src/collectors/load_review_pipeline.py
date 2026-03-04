@@ -137,8 +137,13 @@ def run_review_pipeline(target_attraction):
     print(f"🚀 [{target_attraction}] 리뷰 파이프라인 가동 시작")
     print("==========================================================\n")
 
-    # [STEP 1] 네이버 블로그 API 호출 (최대 100개)
-    search_word = urllib.parse.quote(f"{target_attraction} 설명")
+    # 검색용으로만 괄호 제거 (예: '연무대(동장대)' → '연무대')
+    search_attraction = target_attraction.split('(')[0].strip()
+    if search_attraction != target_attraction:
+        print(f"🔍 검색어 정규화: '{target_attraction}' → '{search_attraction}'")
+
+    # [STEP 1] 네이버 블로그 API 호출 (최대 100개) - 정규화된 이름으로 검색
+    search_word = urllib.parse.quote(f"{search_attraction} 설명")
     url = f"https://openapi.naver.com/v1/search/blog?query={search_word}&display=100&sort=sim"
     
     request = urllib.request.Request(url)
@@ -219,7 +224,7 @@ def run_review_pipeline(target_attraction):
             # 벡터를 pgvector 호환 문자열로 변환 (예: '[0.12, -0.34, ...]')
             embedding_str = "[" + ",".join(map(str, embedding)) + "]" if embedding else None
             cursor.execute(insert_query, (
-                target_attraction,          # 명소 이름 (TEXT)
+                target_attraction,          # 원본 명소 이름 (괄호 포함) - DB FK 참조
                 data['title'],              # 원본 제목
                 data['description'],        # 원본 내용
                 data['post_date'],          # 작성일 (DATE 타입 호환)
