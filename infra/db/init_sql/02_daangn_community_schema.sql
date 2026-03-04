@@ -27,8 +27,7 @@ CREATE TABLE IF NOT EXISTS daangn.community_posts (
     dong_name TEXT NOT NULL,
     searched_keyword TEXT NOT NULL,
     post_created_at TIMESTAMPTZ,
-    crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    raw_payload JSONB
+    crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_community_posts_city_dong
@@ -36,6 +35,9 @@ ON daangn.community_posts (city_name, dong_name);
 
 CREATE INDEX IF NOT EXISTS idx_community_posts_crawled_at
 ON daangn.community_posts (crawled_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_community_posts_source_url
+ON daangn.community_posts (source_url);
 
 CREATE TABLE IF NOT EXISTS daangn.community_comments (
     id BIGSERIAL PRIMARY KEY,
@@ -45,8 +47,7 @@ CREATE TABLE IF NOT EXISTS daangn.community_comments (
     city_name TEXT NOT NULL,
     dong_name TEXT NOT NULL,
     commented_at TIMESTAMPTZ,
-    crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    raw_payload JSONB
+    crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_community_comments_post_key
