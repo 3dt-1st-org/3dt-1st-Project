@@ -16,86 +16,53 @@ import SwiftUI
 final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var region: MKCoordinateRegion
     @Published var isVoiceGuidanceEnabled = true
+    @Published var isAutoDocentEnabled = false
     @Published var subtitle = ""
-    @Published var weatherSymbol = "cloud.sun.fill"
-    @Published var weatherValue = "13°C"
-    @Published var selectedPlaceID: UUID?
+    @Published var weatherSymbol = WeatherSnapshot.placeholder.symbolName
+    @Published var weatherValue = WeatherSnapshot.placeholder.temperatureText
+    @Published var selectedPlaceID: String?
     @Published private(set) var userCoordinate: CLLocationCoordinate2D?
+    @Published private(set) var places: [PlaceRecommendation]
+    @Published var selectedFilter: MapPlaceFilter = .all
+    @Published private(set) var isLoadingPlaces = false
+    @Published private(set) var mapStatus: MapStatus = .none
+    @Published private(set) var moreInfoEligiblePlaceID: String?
 
-    let places: [PlaceRecommendation]
     private let speechSynthesizer = AVSpeechSynthesizer()
     private let locationManager = CLLocationManager()
+    private let mapDataProvider: MapDataProviding
+    private let searchRadiusMeters = 3_000
+    private let autoDocentTriggerRadiusMeters: CLLocationDistance = 100
+    private let defaultMapSpan = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
     private var hasAppliedInitialUserFocus = false
     private var isAppLocationConsentEnabled = false
+    private var activeLanguage: AppLanguage = .korean
+    private var reloadTask: Task<Void, Never>?
+    private var lastAutoGuidedPlaceID: String?
+    private var hiddenMoreInfoPlaceID: String?
 
     private let initialRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 36.35, longitude: 127.9),
         span: MKCoordinateSpan(latitudeDelta: 7.0, longitudeDelta: 8.0)
     )
 
-    override init() {
+    init(mapDataProvider: MapDataProviding? = nil) {
+        self.mapDataProvider = mapDataProvider ?? MapRemoteService()
         region = initialRegion
-
-        places = [
-            PlaceRecommendation(
-                nameKo: "행주산성",
-                nameEn: "Haengjusanseong Fortress",
-                categoryKind: .history,
-                categoryKo: "역사 명소",
-                categoryEn: "Historic Site",
-                districtKo: "고양시",
-                districtEn: "Goyang",
-                guideKo: "행주산성은 한강 전망과 성곽 산책이 좋은 역사 명소예요. 근처 로컬 식당도 함께 추천해드릴게요.",
-                guideEn: "Haengjusanseong offers scenic fortress walks and river views. I can also recommend nearby local restaurants.",
-                coordinate: CLLocationCoordinate2D(latitude: 37.6001, longitude: 126.8171)
-            ),
-            PlaceRecommendation(
-                nameKo: "남한산성 전통길",
-                nameEn: "Namhansanseong Trail",
-                categoryKind: .trekking,
-                categoryKo: "로컬 트레킹",
-                categoryEn: "Local Trekking",
-                districtKo: "광주시",
-                districtEn: "Gwangju",
-                guideKo: "남한산성 전통길은 숲길과 성곽 풍경을 함께 즐기기 좋은 코스입니다. 초행자에게도 부담이 적어요.",
-                guideEn: "Namhansanseong Trail is a great local course with forest paths and fortress scenery, suitable even for first-time visitors.",
-                coordinate: CLLocationCoordinate2D(latitude: 37.4767, longitude: 127.1830)
-            ),
-            PlaceRecommendation(
-                nameKo: "화성행궁 야간거리",
-                nameEn: "Hwaseong Haenggung Night Street",
-                categoryKind: .nightWalk,
-                categoryKo: "야간 산책",
-                categoryEn: "Night Walk",
-                districtKo: "수원시",
-                districtEn: "Suwon",
-                guideKo: "화성행궁 주변은 밤에 조명이 아름다워 산책하기 좋아요. 전통 간식과 골목 맛집도 가까이에 있습니다.",
-                guideEn: "The Hwaseong Haenggung area is ideal for night walks with beautiful lighting, plus local snack spots nearby.",
-                coordinate: CLLocationCoordinate2D(latitude: 37.2810, longitude: 127.0143)
-            ),
-            PlaceRecommendation(
-                nameKo: "포천 이동갈비 골목",
-                nameEn: "Pocheon Galbi Alley",
-                categoryKind: .localEats,
-                categoryKo: "로컬 맛집",
-                categoryEn: "Local Eats",
-                districtKo: "포천시",
-                districtEn: "Pocheon",
-                guideKo: "포천 이동갈비 골목은 현지인도 자주 찾는 대표 맛집 거리예요. 대기 시간을 줄일 수 있는 매장도 안내해드릴게요.",
-                guideEn: "Pocheon Galbi Alley is a well-known local food street. I can guide you to places with shorter wait times.",
-                coordinate: CLLocationCoordinate2D(latitude: 37.8939, longitude: 127.2006)
-            )
-        ]
-
+        places = []
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
     func refreshSubtitle(for language: AppLanguage) {
-        subtitle = isVoiceGuidanceEnabled
-            ? voiceOnSubtitle(for: language)
-            : voiceOffSubtitle(for: language)
+        activeLanguage = language
+        subtitle = voiceOnSubtitle(for: language)
+    }
+
+    func updateLanguage(_ language: AppLanguage) {
+        refreshSubtitle(for: language)
+        reloadMapData()
     }
 
     func toggleVoiceGuidance(for language: AppLanguage) {
@@ -103,7 +70,29 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         if !isVoiceGuidanceEnabled, speechSynthesizer.isSpeaking {
             speechSynthesizer.stopSpeaking(at: .immediate)
         }
-        refreshSubtitle(for: language)
+        // Do not replace current caption with a "voice off" notice.
+        if isVoiceGuidanceEnabled, selectedPlaceID == nil {
+            subtitle = voiceOnSubtitle(for: language)
+        }
+        if isAutoDocentEnabled {
+            runAutoDocentIfNeeded(language: language, forceAnnounce: false)
+        }
+    }
+
+    func toggleAutoDocentMode(for language: AppLanguage) {
+        activeLanguage = language
+        isAutoDocentEnabled.toggle()
+        if isAutoDocentEnabled {
+            runAutoDocentIfNeeded(language: language, forceAnnounce: true)
+        } else {
+            lastAutoGuidedPlaceID = nil
+        }
+    }
+
+    func selectFilter(_ filter: MapPlaceFilter) {
+        guard selectedFilter != filter else { return }
+        selectedFilter = filter
+        reloadMapData()
     }
 
     func handlePlaceTap(_ place: PlaceRecommendation, language: AppLanguage) {
@@ -114,26 +103,123 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         applySelection(for: place, language: language)
     }
 
+    func activatePlaceForDetail(_ place: PlaceRecommendation, language: AppLanguage) {
+        activeLanguage = language
+        selectedPlaceID = place.id
+        hiddenMoreInfoPlaceID = nil
+        subtitle = place.guide(in: language)
+        lastAutoGuidedPlaceID = place.id
+        moreInfoEligiblePlaceID = place.id
+        centerOnPlace(place, animated: true)
+
+        if isVoiceGuidanceEnabled {
+            speak(subtitle, language: language)
+        } else if speechSynthesizer.isSpeaking {
+            speechSynthesizer.stopSpeaking(at: .immediate)
+        }
+    }
+
     func weatherA11yText(for language: AppLanguage) -> String {
-        language == .korean
-            ? "현재 날씨 \(weatherValue)"
-            : "Current weather \(weatherValue)"
+        switch language {
+        case .korean:
+            return "현재 날씨 \(weatherValue)"
+        case .english:
+            return "Current weather \(weatherValue)"
+        }
+    }
+
+    func statusMessage(for language: AppLanguage) -> String? {
+        switch mapStatus {
+        case .none:
+            return nil
+        case .noResults:
+            switch language {
+            case .korean:
+                return "주변 추천 장소가 없습니다."
+            case .english:
+                return "No recommended places found nearby."
+            }
+        case .networkError:
+            switch language {
+            case .korean:
+                return "데이터를 불러오지 못했습니다. API 서버 설정 또는 네트워크를 확인하세요."
+            case .english:
+                return "Failed to load data. Check API server configuration or network."
+            }
+        }
+    }
+
+    var selectedPlace: PlaceRecommendation? {
+        guard let selectedPlaceID else { return nil }
+        return places.first(where: { $0.id == selectedPlaceID })
+    }
+
+    func recommendationTitle(for language: AppLanguage) -> String {
+        switch language {
+        case .korean:
+            return "추천 이유"
+        case .english:
+            return "Why This Place"
+        }
+    }
+
+    func recommendationReason(for place: PlaceRecommendation, language: AppLanguage) -> String {
+        let category = place.category(in: language)
+        let district = place.district(in: language)
+        let address = place.address(in: language)
+        let distance = place.distanceLabel(in: language) ?? ""
+
+        switch language {
+        case .korean:
+            if distance.isEmpty {
+                return "\(district)의 \(category) 카테고리에서 인기가 높은 장소예요. \(address)"
+            }
+            return "현재 위치에서 약 \(distance) 거리의 \(category) 추천 장소예요. \(address)"
+        case .english:
+            if distance.isEmpty {
+                return "A highly rated \(category.lowercased()) spot around \(district). \(address)"
+            }
+            return "A recommended \(category.lowercased()) spot about \(distance) from your current location. \(address)"
+        }
+    }
+
+    func moreInfoButtonTitle(for language: AppLanguage) -> String {
+        switch language {
+        case .korean:
+            return "정보 더 듣기"
+        case .english:
+            return "Hear More Info"
+        }
+    }
+
+    func canPlayMoreInfo(for placeID: String) -> Bool {
+        moreInfoEligiblePlaceID == placeID &&
+            hiddenMoreInfoPlaceID != placeID
+    }
+
+    func playMoreInfo(for place: PlaceRecommendation, language: AppLanguage) {
+        guard canPlayMoreInfo(for: place.id) else { return }
+        activeLanguage = language
+        let narration = buildMoreInfoNarration(for: place, language: language)
+        subtitle = narration
+        hiddenMoreInfoPlaceID = place.id
+        moreInfoEligiblePlaceID = nil
+        guard isVoiceGuidanceEnabled else {
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.stopSpeaking(at: .immediate)
+            }
+            return
+        }
+        speak(narration, language: language)
     }
 
     private func voiceOnSubtitle(for language: AppLanguage) -> String {
-        if language == .korean {
+        switch language {
+        case .korean:
             return "음성 안내: 지금 위치 기준 15분 거리의 로컬 맛집과 산책 코스를 안내해드릴게요."
+        case .english:
+            return "Voice guide: I can guide you to local food spots and walks within 15 minutes."
         }
-
-        return "Voice guide: I can guide you to local food spots and walks within 15 minutes."
-    }
-
-    private func voiceOffSubtitle(for language: AppLanguage) -> String {
-        if language == .korean {
-            return "음성 안내가 꺼져 있습니다. 하단 버튼을 눌러 다시 시작하세요."
-        }
-
-        return "Voice guidance is off. Tap the bottom button to resume."
     }
 
     private func speak(_ text: String, language: AppLanguage) {
@@ -142,7 +228,14 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
 
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: language == .korean ? "ko-KR" : "en-US")
+        let voiceCode: String
+        switch language {
+        case .korean:
+            voiceCode = "ko-KR"
+        case .english:
+            voiceCode = "en-US"
+        }
+        utterance.voice = AVSpeechSynthesisVoice(language: voiceCode)
         utterance.rate = 0.5
         speechSynthesizer.speak(utterance)
     }
@@ -159,6 +252,14 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         selectedPlaceID = result.selectedPlaceID
         subtitle = result.subtitle
 
+        if result.selectedPlaceID == nil {
+            hiddenMoreInfoPlaceID = nil
+            moreInfoEligiblePlaceID = nil
+        } else if result.selectedPlaceID != hiddenMoreInfoPlaceID {
+            hiddenMoreInfoPlaceID = nil
+            moreInfoEligiblePlaceID = result.selectedPlaceID
+        }
+
         if result.shouldStopSpeaking, speechSynthesizer.isSpeaking {
             speechSynthesizer.stopSpeaking(at: .immediate)
         }
@@ -166,12 +267,18 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             centerOnPlace(place, animated: true)
         }
         if result.shouldSpeak {
+            moreInfoEligiblePlaceID = place.id
             speak(result.subtitle, language: language)
+        } else if result.selectedPlaceID != place.id {
+            moreInfoEligiblePlaceID = nil
+        }
+        if let selected = result.selectedPlaceID {
+            lastAutoGuidedPlaceID = selected
         }
     }
 
     private func defaultSubtitle(for language: AppLanguage) -> String {
-        isVoiceGuidanceEnabled ? voiceOnSubtitle(for: language) : voiceOffSubtitle(for: language)
+        voiceOnSubtitle(for: language)
     }
 
     func clampRegion(_ candidate: MKCoordinateRegion) -> MKCoordinateRegion {
@@ -191,9 +298,67 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     func updateRegionFromMap(_ candidate: MKCoordinateRegion) {
         let clamped = clampRegion(candidate)
         guard !isNearlyEqual(region, clamped) else { return }
-        Task { @MainActor [clamped] in
-            self.region = clamped
+        // Avoid mutating ObservableObject synchronously during SwiftUI Map update passes.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard !isNearlyEqual(region, clamped) else { return }
+            region = clamped
         }
+    }
+
+    private func reloadMapData() {
+        guard isAppLocationConsentEnabled else { return }
+        let anchor = userCoordinate ?? region.center
+
+        reloadTask?.cancel()
+        reloadTask = Task { [weak self] in
+            guard let self else { return }
+            isLoadingPlaces = true
+            mapStatus = .none
+
+            do {
+                async let loadedPlaces = mapDataProvider.fetchPlaces(
+                    center: anchor,
+                    radiusMeters: searchRadiusMeters,
+                    category: selectedFilter
+                )
+                async let weather = mapDataProvider.fetchWeather(at: anchor)
+
+                let (placesResult, weatherResult) = try await (loadedPlaces, weather)
+                guard !Task.isCancelled else { return }
+
+                applyPlaces(placesResult)
+                weatherSymbol = weatherResult.symbolName
+                weatherValue = weatherResult.temperatureText
+                isLoadingPlaces = false
+            } catch {
+                guard !Task.isCancelled else { return }
+                isLoadingPlaces = false
+                mapStatus = .networkError
+            }
+        }
+    }
+
+    private func applyPlaces(_ loadedPlaces: [PlaceRecommendation]) {
+        places = loadedPlaces
+        mapStatus = loadedPlaces.isEmpty ? .noResults : .none
+
+        guard let selectedPlaceID else { return }
+        if !loadedPlaces.contains(where: { $0.id == selectedPlaceID }) {
+            self.selectedPlaceID = nil
+            hiddenMoreInfoPlaceID = nil
+            moreInfoEligiblePlaceID = nil
+            subtitle = defaultSubtitle(for: activeLanguage)
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.stopSpeaking(at: .immediate)
+            }
+        }
+
+        runAutoDocentIfNeeded(language: activeLanguage, forceAnnounce: false)
+    }
+
+    func retryLoadingPlaces() {
+        reloadMapData()
     }
 
     func configureLocationUpdates(consentEnabled: Bool) {
@@ -210,6 +375,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         case .authorizedWhenInUse, .authorizedAlways:
             locationManager.startUpdatingLocation()
             locationManager.requestLocation()
+            reloadMapData()
         case .denied, .restricted:
             locationManager.stopUpdatingLocation()
         @unknown default:
@@ -225,7 +391,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
         let focused = MKCoordinateRegion(
             center: coordinate,
-            span: MKCoordinateSpan(latitudeDelta: 0.002, longitudeDelta: 0.002)
+            span: defaultMapSpan
         )
         let clamped = clampRegion(focused)
         if animated {
@@ -235,12 +401,13 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         } else {
             region = clamped
         }
+        reloadMapData()
     }
 
     func centerOnPlace(_ place: PlaceRecommendation, animated: Bool) {
         let focused = MKCoordinateRegion(
             center: place.coordinate,
-            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            span: defaultMapSpan
         )
         let clamped = clampRegion(focused)
         if animated {
@@ -270,10 +437,71 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         if !hasAppliedInitialUserFocus {
             hasAppliedInitialUserFocus = true
             centerOnUserLocation(animated: false)
+            return
         }
+
+        reloadMapData()
+        runAutoDocentIfNeeded(language: activeLanguage, forceAnnounce: false)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // Keep UI responsive even if a one-shot location request fails.
     }
+
+    private func runAutoDocentIfNeeded(language: AppLanguage, forceAnnounce: Bool) {
+        guard isAutoDocentEnabled, let userCoordinate, !places.isEmpty else { return }
+        guard let nearest = nearestPlace(to: userCoordinate) else { return }
+        guard nearest.distance <= autoDocentTriggerRadiusMeters else {
+            // Keep silent outside trigger radius and reset so entering range can announce.
+            lastAutoGuidedPlaceID = nil
+            return
+        }
+        guard forceAnnounce || nearest.place.id != lastAutoGuidedPlaceID else { return }
+
+        selectedPlaceID = nearest.place.id
+        hiddenMoreInfoPlaceID = nil
+        subtitle = nearest.place.guide(in: language)
+        lastAutoGuidedPlaceID = nearest.place.id
+        moreInfoEligiblePlaceID = nearest.place.id
+
+        if isVoiceGuidanceEnabled {
+            speak(subtitle, language: language)
+        }
+    }
+
+    private func buildMoreInfoNarration(for place: PlaceRecommendation, language: AppLanguage) -> String {
+        let name = place.name(in: language)
+        let category = place.category(in: language)
+        let district = place.district(in: language)
+        let address = place.address(in: language)
+        let reason = recommendationReason(for: place, language: language)
+
+        switch language {
+        case .korean:
+            return "\(name)은(는) \(district) 지역의 \(category) 추천 장소입니다. 주소는 \(address)입니다. \(reason) 방문 전 운영 시간과 현장 상황을 함께 확인해 주세요."
+        case .english:
+            return "\(name) is a recommended \(category.lowercased()) spot in \(district). The address is \(address). \(reason) Please also check opening hours and local conditions before you visit."
+        }
+    }
+
+    private func nearestPlace(to userCoordinate: CLLocationCoordinate2D) -> (place: PlaceRecommendation, distance: CLLocationDistance)? {
+        places
+            .map { place in
+                (place: place, distance: distance(from: userCoordinate, to: place.coordinate))
+            }
+            .min { lhs, rhs in
+                lhs.distance < rhs.distance
+            }
+    }
+
+    private func distance(from lhs: CLLocationCoordinate2D, to rhs: CLLocationCoordinate2D) -> CLLocationDistance {
+        CLLocation(latitude: lhs.latitude, longitude: lhs.longitude)
+            .distance(from: CLLocation(latitude: rhs.latitude, longitude: rhs.longitude))
+    }
+}
+
+enum MapStatus {
+    case none
+    case noResults
+    case networkError
 }
