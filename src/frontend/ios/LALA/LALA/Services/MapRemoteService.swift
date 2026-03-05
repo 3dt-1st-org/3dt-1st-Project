@@ -53,12 +53,18 @@ struct WeatherForecastItem: Identifiable {
     let temperatureText: String
 }
 
+struct PlacesSnapshot {
+    let places: [PlaceRecommendation]
+    let city: String?
+}
+
 protocol MapDataProviding {
     func fetchPlaces(
         center: CLLocationCoordinate2D,
         radiusMeters: Int,
-        category: MapPlaceFilter
-    ) async throws -> [PlaceRecommendation]
+        category: MapPlaceFilter,
+        cityHint: String?
+    ) async throws -> PlacesSnapshot
 
     func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot
 }
@@ -82,8 +88,9 @@ final class MapRemoteService: MapDataProviding {
     func fetchPlaces(
         center: CLLocationCoordinate2D,
         radiusMeters: Int,
-        category: MapPlaceFilter
-    ) async throws -> [PlaceRecommendation] {
+        category: MapPlaceFilter,
+        cityHint: String?
+    ) async throws -> PlacesSnapshot {
         guard baseURL != nil else {
             throw MapServiceError.missingBaseURL
         }
@@ -91,14 +98,24 @@ final class MapRemoteService: MapDataProviding {
             throw MapServiceError.missingAPIKey
         }
 
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "lat", value: String(center.latitude)),
+            URLQueryItem(name: "lng", value: String(center.longitude)),
+            URLQueryItem(name: "scope", value: "city"),
+            URLQueryItem(name: "radius", value: String(radiusMeters)),
+            URLQueryItem(name: "category", value: category.apiValue),
+            URLQueryItem(name: "limit", value: "100")
+        ]
+        if let cityHint {
+            let normalizedCityHint = cityHint.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalizedCityHint.isEmpty {
+                queryItems.append(URLQueryItem(name: "city", value: normalizedCityHint))
+            }
+        }
+
         let requestURL = try makeURL(
             path: "/api/ios/v1/places",
-            queryItems: [
-                URLQueryItem(name: "lat", value: String(center.latitude)),
-                URLQueryItem(name: "lng", value: String(center.longitude)),
-                URLQueryItem(name: "radius", value: String(radiusMeters)),
-                URLQueryItem(name: "category", value: category.apiValue)
-            ]
+            queryItems: queryItems
         )
 
         do {
@@ -106,7 +123,10 @@ final class MapRemoteService: MapDataProviding {
             try validate(response: response)
 
             let decoded = try decoder.decode(RemotePlacesResponse.self, from: data)
-            return decoded.places.map(Self.mapPlace(from:))
+            return PlacesSnapshot(
+                places: decoded.places.map(Self.mapPlace(from:)),
+                city: decoded.city
+            )
         } catch {
             throw error
         }
@@ -155,7 +175,7 @@ final class MapRemoteService: MapDataProviding {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.timeoutInterval = 12
+        request.timeoutInterval = 25
         request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
         return try await session.data(for: request)
     }
@@ -571,6 +591,9 @@ enum AppRuntime {
 }
 
 private struct RemotePlacesResponse: Decodable {
+    let count: Int?
+    let scope: String?
+    let city: String?
     let places: [RemotePlaceItem]
 }
 

@@ -600,6 +600,8 @@ def _fetch_places_by_city(
                             ORDER BY CASE WHEN tsp.lat IS NOT NULL AND tsp.lng IS NOT NULL THEN 0 ELSE 1 END
                             LIMIT 1
                         ) tsp ON TRUE
+                        WHERE COALESCE(TRIM(ad.attraction_name), '') <> ''
+                          AND REPLACE(COALESCE(TRIM(ad.sigun_nm), ''), ' ', '') = ANY(%s)
                     )
                     SELECT
                         MD5(COALESCE(src.attraction_name, '') || '|' || COALESCE(src.sigun_nm, '')) AS id,
@@ -631,18 +633,17 @@ def _fetch_places_by_city(
                     LEFT JOIN city_centers cc
                       ON cc.city_name = COALESCE(src.sigun_nm, '')
                     WHERE COALESCE(TRIM(src.attraction_name), '') <> ''
-                      AND REPLACE(COALESCE(TRIM(src.sigun_nm), ''), ' ', '') = ANY(%s)
                     ORDER BY distance_m, name
                     LIMIT %s
                     """,
                     (
+                        city_aliases,
                         _DEFAULT_LAT,
                         _DEFAULT_LNG,
                         lng,
                         lat,
                         _DEFAULT_LNG,
                         _DEFAULT_LAT,
-                        city_aliases,
                         limit,
                     ),
                 )

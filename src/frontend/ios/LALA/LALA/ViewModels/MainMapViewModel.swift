@@ -37,8 +37,8 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private let docentDataProvider: DocentRemoteProviding
     private let searchRadiusMeters = 10_000
     private let autoDocentTriggerRadiusMeters: CLLocationDistance = 100
-    private let placesReloadThresholdMeters: CLLocationDistance = 250
-    private let weatherReloadThresholdMeters: CLLocationDistance = 600
+    private let placesReloadThresholdMeters: CLLocationDistance = 3_000
+    private let weatherReloadThresholdMeters: CLLocationDistance = 10_000
     private let placesLoadingMaxSeconds: Double = 20
     private let placesFailureRetryCooldownSeconds: Double = 8
     private let defaultMapSpan = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
@@ -52,6 +52,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private var hiddenMoreInfoPlaceID: String?
     private var allPlaces: [PlaceRecommendation] = []
     private var lastPlacesFetchCoordinate: CLLocationCoordinate2D?
+    private var lastPlacesFetchCity: String?
     private var lastWeatherFetchCoordinate: CLLocationCoordinate2D?
     private var placesReloadToken = 0
     private var placesLoadingStartedAt: Date?
@@ -493,13 +494,15 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 let loadedPlaces = try await mapDataProvider.fetchPlaces(
                     center: anchor,
                     radiusMeters: searchRadiusMeters,
-                    category: .all
+                    category: .all,
+                    cityHint: lastPlacesFetchCity
                 )
                 guard !Task.isCancelled else { return }
                 guard placesReloadToken == token else { return }
 
-                allPlaces = loadedPlaces
+                allPlaces = loadedPlaces.places
                 lastPlacesFetchCoordinate = anchor
+                lastPlacesFetchCity = loadedPlaces.city
                 lastPlacesFailureAt = nil
                 lastPlacesFailureCoordinate = nil
                 applyFilteredPlaces()
@@ -508,7 +511,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 guard placesReloadToken == token else { return }
                 lastPlacesFailureAt = Date()
                 lastPlacesFailureCoordinate = anchor
-                mapStatus = .networkError
+                if allPlaces.isEmpty {
+                    mapStatus = .networkError
+                } else {
+                    mapStatus = .none
+                }
             }
         }
     }
@@ -605,6 +612,9 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     private func shouldReloadPlaces(for coordinate: CLLocationCoordinate2D) -> Bool {
+        if allPlaces.isEmpty {
+            return true
+        }
         if lastPlacesFetchCoordinate == nil {
             return true
         }
@@ -712,6 +722,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             region = clampRegion(focused)
         }
 
+        refreshDistancesForCurrentLocation(latest.coordinate)
         refreshData(forcePlaces: false, forceWeather: false)
         runAutoDocentIfNeeded(language: activeLanguage, forceAnnounce: false)
     }
@@ -753,6 +764,17 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private func distance(from lhs: CLLocationCoordinate2D, to rhs: CLLocationCoordinate2D) -> CLLocationDistance {
         CLLocation(latitude: lhs.latitude, longitude: lhs.longitude)
             .distance(from: CLLocation(latitude: rhs.latitude, longitude: rhs.longitude))
+    }
+
+    private func refreshDistancesForCurrentLocation(_ coordinate: CLLocationCoordinate2D) {
+        guard !allPlaces.isEmpty else { return }
+        allPlaces = allPlaces
+            .map { place in
+                let nextDistance = Int(distance(from: coordinate, to: place.coordinate).rounded())
+                return place.updatingDistanceMeters(nextDistance)
+            }
+            .sorted { ($0.distanceMeters ?? Int.max) < ($1.distanceMeters ?? Int.max) }
+        applyFilteredPlaces()
     }
 }
 
