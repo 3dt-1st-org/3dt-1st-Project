@@ -3,5 +3,5 @@
 # azure-monitor-opentelemetry
 
 azure-functions
-azure-eventhub
-requests
+azure-eventhub>=5.11
+aiohttp

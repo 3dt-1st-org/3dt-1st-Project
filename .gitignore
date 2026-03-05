@@ -222,3 +222,5 @@ artifacts/**
 **/*.xcuserstate
 **/*.xccheckout
 **/*.xcscmblueprint
+
+local.settings.json

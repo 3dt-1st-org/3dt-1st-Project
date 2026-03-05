@@ -1,6 +1,6 @@
 {
     "azureFunctions.deploySubpath": ".",
-    "azureFunctions.scmDoBuildDuringDeployment": true,
+    "azureFunctions.scmDoBuildDuringDeployment": false,
     "azureFunctions.pythonVenv": ".venv",
     "azureFunctions.projectLanguage": "Python",
     "azureFunctions.projectRuntime": "~4",

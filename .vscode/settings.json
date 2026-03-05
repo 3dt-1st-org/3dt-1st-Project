@@ -6,8 +6,5 @@
     "azureFunctions.projectRuntime": "~4",
     "debug.internalConsoleOptions": "neverOpen",
     "azureFunctions.projectLanguageModel": 2,
-    "azureFunctions.projectSubpaths": [
-        "src\\functions\\daangn_weekly_crawler",
-        "src\\functions\\weather_air_func"
-    ]
+    "azureFunctions.projectSubpath": "src\\functions\\weather_air_func"
 }
