@@ -34,7 +34,7 @@ if __name__ == "__main__":
     print("="*80)
     print(f"📍 GPS 좌표: ({GPS_LAT}, {GPS_LON})")
     
-    restaurants, status = filter_restaurants_by_location(radius_m=150, lat=GPS_LAT, lon=GPS_LON)
+    restaurants, status = filter_restaurants_by_location(radius_m=80, lat=GPS_LAT, lon=GPS_LON)
     
     if not restaurants:
         print(f"⚠️ 상태: {status}")
