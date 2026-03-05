@@ -140,4 +140,24 @@ struct PlaceRecommendation: Identifiable {
         return "\(distanceMeters)m"
     }
 
+    func updatingDistanceMeters(_ nextDistanceMeters: Int?) -> PlaceRecommendation {
+        PlaceRecommendation(
+            id: id,
+            nameKo: nameKo,
+            nameEn: nameEn,
+            categoryKind: categoryKind,
+            categoryKo: categoryKo,
+            categoryEn: categoryEn,
+            districtKo: districtKo,
+            districtEn: districtEn,
+            guideKo: guideKo,
+            guideEn: guideEn,
+            coordinate: coordinate,
+            distanceMeters: nextDistanceMeters,
+            addressKo: addressKo,
+            addressEn: addressEn,
+            imageURL: imageURL
+        )
+    }
+
 }

@@ -56,6 +56,7 @@ _DUST_GRADE_LABELS = {
 
 
 _VALID_PLACE_CATEGORIES = {"all", "attraction", "restaurant", "event"}
+_VALID_PLACE_SCOPES = {"radius", "city"}
 _VALID_DOCENT_CATEGORIES = {"attraction", "restaurant", "event"}
 _VALID_LANGUAGES = {"ko", "en"}
 _VALID_MODES = {"brief", "detail"}
@@ -478,8 +479,310 @@ def _normalize_image_url(raw) -> str | None:
 
 
 def _normalize_place_row(row: dict) -> dict:
+    def _clean_text(value, default: str = "") -> str:
+        if value is None:
+            return default
+        text = str(value).strip()
+        return text or default
+
+    row["name"] = _clean_text(row.get("name"), "이름 없음")
+    row["name_en"] = _clean_text(row.get("name_en"), row["name"])
+    row["address"] = _clean_text(row.get("address"))
+    row["address_en"] = _clean_text(row.get("address_en"), row["address"])
+    row["region"] = _clean_text(row.get("region"))
+    row["region_en"] = _clean_text(row.get("region_en"), row["region"])
     row["image_url"] = _normalize_image_url(row.get("image_url"))
     return row
+
+
+def _city_aliases(raw_city: str) -> list[str]:
+    city = re.sub(r"\s+", "", (raw_city or "").strip())
+    if not city:
+        return []
+    aliases = {city}
+    if city.endswith(("시", "군", "구")) and len(city) > 1:
+        aliases.add(city[:-1])
+    else:
+        aliases.add(f"{city}시")
+    return [alias for alias in aliases if alias]
+
+
+def _resolve_city_from_coordinate(cursor, lat: float, lng: float) -> str | None:
+    cursor.execute(
+        """
+        SELECT COALESCE(TRIM(sigun_nm), '') AS city
+        FROM locallink.gg_restaurant_info
+        WHERE refine_wgs84_lat IS NOT NULL
+          AND refine_wgs84_logt IS NOT NULL
+          AND refine_wgs84_lat::TEXT <> 'NaN'
+          AND refine_wgs84_logt::TEXT <> 'NaN'
+          AND COALESCE(TRIM(sigun_nm), '') <> ''
+          AND bsn_state_nm = '영업'
+        ORDER BY
+          ST_Distance(
+            ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+            ST_SetSRID(ST_MakePoint(refine_wgs84_logt::FLOAT, refine_wgs84_lat::FLOAT), 4326)::geography
+          ) ASC
+        LIMIT 1
+        """,
+        (lng, lat),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+    city = str(row["city"] or "").strip()
+    if not city:
+        return None
+    return city
+
+
+def _fetch_places_by_city(
+    lat: float,
+    lng: float,
+    city: str,
+    category: str,
+    limit: int,
+) -> list[dict]:
+    city_aliases = _city_aliases(city)
+    if not city_aliases:
+        return []
+
+    results: list[dict] = []
+    with get_db_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            normalized_city_expr = "REPLACE(COALESCE(TRIM(sigun_nm), ''), ' ', '')"
+            normalized_event_city_expr = "REPLACE(COALESCE(TRIM(city), ''), ' ', '')"
+
+            if category in {"all", "attraction"}:
+                cursor.execute(
+                    f"""
+                    WITH city_centers AS (
+                        SELECT
+                            COALESCE(sigun_nm, '') AS city_name,
+                            AVG(refine_wgs84_lat::FLOAT) AS center_lat,
+                            AVG(refine_wgs84_logt::FLOAT) AS center_lng
+                        FROM locallink.gg_restaurant_info
+                        WHERE refine_wgs84_lat IS NOT NULL
+                          AND refine_wgs84_logt IS NOT NULL
+                          AND refine_wgs84_lat::TEXT <> 'NaN'
+                          AND refine_wgs84_logt::TEXT <> 'NaN'
+                          AND COALESCE(TRIM(sigun_nm), '') <> ''
+                          AND bsn_state_nm = '영업'
+                        GROUP BY COALESCE(sigun_nm, '')
+                    ),
+                    attraction_source AS (
+                        SELECT
+                            ad.attraction_name,
+                            ad.sigun_nm,
+                            ad.image_urls,
+                            tsp.tourist_nm_en,
+                            tsp.road_addr,
+                            tsp.road_addr_en,
+                            tsp.spot_lat,
+                            tsp.spot_lng
+                        FROM locallink.attraction_descriptions ad
+                        LEFT JOIN LATERAL (
+                            SELECT
+                                NULLIF(TRIM(tourist_nm_en), '') AS tourist_nm_en,
+                                NULLIF(TRIM(road_addr), '') AS road_addr,
+                                NULLIF(TRIM(road_addr_en), '') AS road_addr_en,
+                                CASE
+                                    WHEN lat IS NOT NULL AND lng IS NOT NULL THEN lat::FLOAT
+                                    ELSE NULL
+                                END AS spot_lat,
+                                CASE
+                                    WHEN lat IS NOT NULL AND lng IS NOT NULL THEN lng::FLOAT
+                                    ELSE NULL
+                                END AS spot_lng
+                            FROM locallink.tourist_spot_info tsp
+                            WHERE COALESCE(TRIM(tsp.tourist_nm), '') = COALESCE(TRIM(ad.attraction_name), '')
+                              AND REPLACE(COALESCE(TRIM(tsp.sigun_nm), ''), ' ', '') = REPLACE(COALESCE(TRIM(ad.sigun_nm), ''), ' ', '')
+                            ORDER BY CASE WHEN tsp.lat IS NOT NULL AND tsp.lng IS NOT NULL THEN 0 ELSE 1 END
+                            LIMIT 1
+                        ) tsp ON TRUE
+                    )
+                    SELECT
+                        MD5(COALESCE(src.attraction_name, '') || '|' || COALESCE(src.sigun_nm, '')) AS id,
+                        COALESCE(src.attraction_name, '관광지') AS name,
+                        COALESCE(src.tourist_nm_en, src.attraction_name, 'Attraction') AS name_en,
+                        COALESCE(src.spot_lat, cc.center_lat, %s) AS lat,
+                        COALESCE(src.spot_lng, cc.center_lng, %s) AS lng,
+                        'attraction' AS category,
+                        COALESCE(src.road_addr, '') AS address,
+                        COALESCE(src.road_addr_en, src.road_addr, '') AS address_en,
+                        COALESCE(src.sigun_nm, '') AS region,
+                        COALESCE(src.sigun_nm, '') AS region_en,
+                        ROUND(
+                            ST_Distance(
+                                ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                                ST_SetSRID(
+                                    ST_MakePoint(COALESCE(src.spot_lng, cc.center_lng, %s), COALESCE(src.spot_lat, cc.center_lat, %s)),
+                                    4326
+                                )::geography
+                            )::NUMERIC,
+                            0
+                        )::INT AS distance_m,
+                        COALESCE(NULLIF(TRIM(src.image_urls), ''), NULL) AS image_url,
+                        (src.spot_lat IS NULL OR src.spot_lng IS NULL) AS is_approximate_location,
+                        NULL::TEXT AS event_start_date,
+                        NULL::TEXT AS event_end_date,
+                        NULL::TEXT AS event_url
+                    FROM attraction_source src
+                    LEFT JOIN city_centers cc
+                      ON cc.city_name = COALESCE(src.sigun_nm, '')
+                    WHERE COALESCE(TRIM(src.attraction_name), '') <> ''
+                      AND REPLACE(COALESCE(TRIM(src.sigun_nm), ''), ' ', '') = ANY(%s)
+                    ORDER BY distance_m, name
+                    LIMIT %s
+                    """,
+                    (
+                        _DEFAULT_LAT,
+                        _DEFAULT_LNG,
+                        lng,
+                        lat,
+                        _DEFAULT_LNG,
+                        _DEFAULT_LAT,
+                        city_aliases,
+                        limit,
+                    ),
+                )
+                results.extend(_normalize_place_row(dict(row)) for row in cursor.fetchall())
+
+            if category in {"all", "restaurant"}:
+                restaurant_image_expr = _restaurant_image_expr(cursor)
+                cursor.execute(
+                    f"""
+                    SELECT
+                        MD5(bizplc_nm || COALESCE(refine_roadnm_addr, '')) AS id,
+                        bizplc_nm AS name,
+                        COALESCE(NULLIF(TRIM(bizplc_nm_en), ''), bizplc_nm) AS name_en,
+                        refine_wgs84_lat::FLOAT AS lat,
+                        refine_wgs84_logt::FLOAT AS lng,
+                        'restaurant' AS category,
+                        COALESCE(refine_roadnm_addr, refine_lotno_addr, '') AS address,
+                        COALESCE(NULLIF(TRIM(refine_roadnm_addr_en), ''), COALESCE(refine_roadnm_addr, refine_lotno_addr, '')) AS address_en,
+                        COALESCE(sigun_nm, '') AS region,
+                        COALESCE(sigun_nm, '') AS region_en,
+                        ROUND(
+                            ST_Distance(
+                                ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                                ST_SetSRID(
+                                    ST_MakePoint(refine_wgs84_logt::FLOAT, refine_wgs84_lat::FLOAT),
+                                    4326
+                                )::geography
+                            )::NUMERIC,
+                            0
+                        )::INT AS distance_m,
+                        {restaurant_image_expr} AS image_url,
+                        FALSE AS is_approximate_location,
+                        NULL::TEXT AS event_start_date,
+                        NULL::TEXT AS event_end_date,
+                        NULL::TEXT AS event_url
+                    FROM locallink.gg_restaurant_info
+                    WHERE refine_wgs84_lat IS NOT NULL
+                      AND refine_wgs84_logt IS NOT NULL
+                      AND refine_wgs84_lat::TEXT <> 'NaN'
+                      AND refine_wgs84_logt::TEXT <> 'NaN'
+                      AND bsn_state_nm = '영업'
+                      AND {normalized_city_expr} = ANY(%s)
+                    ORDER BY distance_m
+                    LIMIT %s
+                    """,
+                    (lng, lat, city_aliases, limit),
+                )
+                results.extend(_normalize_place_row(dict(row)) for row in cursor.fetchall())
+
+            if category in {"all", "event"}:
+                cursor.execute(
+                    f"""
+                    WITH city_centers AS (
+                        SELECT
+                            COALESCE(sigun_nm, '') AS city_name,
+                            AVG(refine_wgs84_lat::FLOAT) AS center_lat,
+                            AVG(refine_wgs84_logt::FLOAT) AS center_lng
+                        FROM locallink.gg_restaurant_info
+                        WHERE refine_wgs84_lat IS NOT NULL
+                          AND refine_wgs84_logt IS NOT NULL
+                          AND refine_wgs84_lat::TEXT <> 'NaN'
+                          AND refine_wgs84_logt::TEXT <> 'NaN'
+                          AND COALESCE(TRIM(sigun_nm), '') <> ''
+                          AND bsn_state_nm = '영업'
+                        GROUP BY COALESCE(sigun_nm, '')
+                    ),
+                    normalized_events AS (
+                        SELECT
+                            MD5(COALESCE(title, '') || '|' || COALESCE(url, '') || '|' || COALESCE(city, '')) AS id,
+                            COALESCE(title, '') AS name,
+                            COALESCE(NULLIF(TRIM(title_en), ''), COALESCE(title, '')) AS name_en,
+                            COALESCE(inst_nm, '') AS address,
+                            COALESCE(inst_nm, '') AS address_en,
+                            COALESCE(city, '') AS region,
+                            COALESCE(city, '') AS region_en,
+                            COALESCE(url, '') AS event_url,
+                            COALESCE(NULLIF(TRIM(image_url), ''), NULL) AS image_url,
+                            CASE
+                                WHEN begin_de ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$' THEN begin_de::DATE
+                                ELSE NULL
+                            END AS event_start_date,
+                            CASE
+                                WHEN end_de ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$' THEN end_de::DATE
+                                ELSE NULL
+                            END AS event_end_date
+                        FROM locallink.gyeonggi_events
+                        WHERE COALESCE(TRIM(title), '') <> ''
+                          AND COALESCE(TRIM(city), '') <> ''
+                          AND {normalized_event_city_expr} = ANY(%s)
+                    )
+                    SELECT
+                        ne.id,
+                        ne.name,
+                        ne.name_en,
+                        COALESCE(cc.center_lat, %s) AS lat,
+                        COALESCE(cc.center_lng, %s) AS lng,
+                        'event' AS category,
+                        ne.address,
+                        ne.address_en,
+                        ne.region,
+                        ne.region_en,
+                        ROUND(
+                            ST_Distance(
+                                ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                                ST_SetSRID(
+                                    ST_MakePoint(COALESCE(cc.center_lng, %s), COALESCE(cc.center_lat, %s)),
+                                    4326
+                                )::geography
+                            )::NUMERIC,
+                            0
+                        )::INT AS distance_m,
+                        ne.image_url AS image_url,
+                        TRUE AS is_approximate_location,
+                        ne.event_start_date::TEXT AS event_start_date,
+                        ne.event_end_date::TEXT AS event_end_date,
+                        ne.event_url
+                    FROM normalized_events ne
+                    LEFT JOIN city_centers cc
+                      ON REPLACE(COALESCE(TRIM(cc.city_name), ''), ' ', '') = REPLACE(COALESCE(TRIM(ne.region), ''), ' ', '')
+                    WHERE (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE)
+                    ORDER BY distance_m, ne.event_start_date NULLS LAST
+                    LIMIT %s
+                    """,
+                    (
+                        city_aliases,
+                        _DEFAULT_LAT,
+                        _DEFAULT_LNG,
+                        lng,
+                        lat,
+                        _DEFAULT_LNG,
+                        _DEFAULT_LAT,
+                        limit,
+                    ),
+                )
+                results.extend(_normalize_place_row(dict(row)) for row in cursor.fetchall())
+
+    results.sort(key=lambda row: row.get("distance_m") or 0)
+    if category == "all":
+        return results
+    return results[: max(limit, 1)]
 
 
 def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int) -> list[dict]:
@@ -503,38 +806,72 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                           AND COALESCE(TRIM(sigun_nm), '') <> ''
                           AND bsn_state_nm = '영업'
                         GROUP BY COALESCE(sigun_nm, '')
+                    ),
+                    attraction_source AS (
+                        SELECT
+                            ad.attraction_name,
+                            ad.sigun_nm,
+                            ad.image_urls,
+                            tsp.tourist_nm_en,
+                            tsp.road_addr,
+                            tsp.road_addr_en,
+                            tsp.spot_lat,
+                            tsp.spot_lng
+                        FROM locallink.attraction_descriptions ad
+                        LEFT JOIN LATERAL (
+                            SELECT
+                                NULLIF(TRIM(tourist_nm_en), '') AS tourist_nm_en,
+                                NULLIF(TRIM(road_addr), '') AS road_addr,
+                                NULLIF(TRIM(road_addr_en), '') AS road_addr_en,
+                                CASE
+                                    WHEN lat IS NOT NULL AND lng IS NOT NULL THEN lat::FLOAT
+                                    ELSE NULL
+                                END AS spot_lat,
+                                CASE
+                                    WHEN lat IS NOT NULL AND lng IS NOT NULL THEN lng::FLOAT
+                                    ELSE NULL
+                                END AS spot_lng
+                            FROM locallink.tourist_spot_info tsp
+                            WHERE COALESCE(TRIM(tsp.tourist_nm), '') = COALESCE(TRIM(ad.attraction_name), '')
+                              AND REPLACE(COALESCE(TRIM(tsp.sigun_nm), ''), ' ', '') = REPLACE(COALESCE(TRIM(ad.sigun_nm), ''), ' ', '')
+                            ORDER BY CASE WHEN tsp.lat IS NOT NULL AND tsp.lng IS NOT NULL THEN 0 ELSE 1 END
+                            LIMIT 1
+                        ) tsp ON TRUE
                     )
                     SELECT
-                        MD5(COALESCE(ad.attraction_name, '') || '|' || COALESCE(ad.sigun_nm, '')) AS id,
-                        COALESCE(ad.attraction_name, '관광지') AS name,
-                        COALESCE(cc.center_lat, %s) AS lat,
-                        COALESCE(cc.center_lng, %s) AS lng,
+                        MD5(COALESCE(src.attraction_name, '') || '|' || COALESCE(src.sigun_nm, '')) AS id,
+                        COALESCE(src.attraction_name, '관광지') AS name,
+                        COALESCE(src.tourist_nm_en, src.attraction_name, 'Attraction') AS name_en,
+                        COALESCE(src.spot_lat, cc.center_lat, %s) AS lat,
+                        COALESCE(src.spot_lng, cc.center_lng, %s) AS lng,
                         'attraction' AS category,
-                        '' AS address,
-                        COALESCE(ad.sigun_nm, '') AS region,
+                        COALESCE(src.road_addr, '') AS address,
+                        COALESCE(src.road_addr_en, src.road_addr, '') AS address_en,
+                        COALESCE(src.sigun_nm, '') AS region,
+                        COALESCE(src.sigun_nm, '') AS region_en,
                         ROUND(
                             ST_Distance(
                                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
                                 ST_SetSRID(
-                                    ST_MakePoint(COALESCE(cc.center_lng, %s), COALESCE(cc.center_lat, %s)),
+                                    ST_MakePoint(COALESCE(src.spot_lng, cc.center_lng, %s), COALESCE(src.spot_lat, cc.center_lat, %s)),
                                     4326
                                 )::geography
                             )::NUMERIC,
                             0
                         )::INT AS distance_m,
-                        COALESCE(NULLIF(TRIM(ad.image_urls), ''), NULL) AS image_url,
-                        TRUE AS is_approximate_location,
+                        COALESCE(NULLIF(TRIM(src.image_urls), ''), NULL) AS image_url,
+                        (src.spot_lat IS NULL OR src.spot_lng IS NULL) AS is_approximate_location,
                         NULL::TEXT AS event_start_date,
                         NULL::TEXT AS event_end_date,
                         NULL::TEXT AS event_url
-                    FROM locallink.attraction_descriptions ad
+                    FROM attraction_source src
                     LEFT JOIN city_centers cc
-                      ON cc.city_name = COALESCE(ad.sigun_nm, '')
-                    WHERE COALESCE(TRIM(ad.attraction_name), '') <> ''
+                      ON cc.city_name = COALESCE(src.sigun_nm, '')
+                    WHERE COALESCE(TRIM(src.attraction_name), '') <> ''
                       AND ST_DWithin(
                         ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
                         ST_SetSRID(
-                            ST_MakePoint(COALESCE(cc.center_lng, %s), COALESCE(cc.center_lat, %s)),
+                            ST_MakePoint(COALESCE(src.spot_lng, cc.center_lng, %s), COALESCE(src.spot_lat, cc.center_lat, %s)),
                             4326
                         )::geography,
                         %s
@@ -566,11 +903,14 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                     SELECT
                         MD5(bizplc_nm || COALESCE(refine_roadnm_addr, '')) AS id,
                         bizplc_nm AS name,
+                        COALESCE(NULLIF(TRIM(bizplc_nm_en), ''), bizplc_nm) AS name_en,
                         refine_wgs84_lat::FLOAT AS lat,
                         refine_wgs84_logt::FLOAT AS lng,
                         'restaurant' AS category,
                         COALESCE(refine_roadnm_addr, refine_lotno_addr, '') AS address,
+                        COALESCE(NULLIF(TRIM(refine_roadnm_addr_en), ''), COALESCE(refine_roadnm_addr, refine_lotno_addr, '')) AS address_en,
                         COALESCE(sigun_nm, '') AS region,
+                        COALESCE(sigun_nm, '') AS region_en,
                         ROUND(
                             ST_Distance(
                                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
@@ -628,8 +968,11 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                         SELECT
                             MD5(COALESCE(title, '') || '|' || COALESCE(url, '') || '|' || COALESCE(city, '')) AS id,
                             COALESCE(title, '') AS name,
+                            COALESCE(NULLIF(TRIM(title_en), ''), COALESCE(title, '')) AS name_en,
                             COALESCE(inst_nm, '') AS address,
+                            COALESCE(inst_nm, '') AS address_en,
                             COALESCE(city, '') AS region,
+                            COALESCE(city, '') AS region_en,
                             COALESCE(url, '') AS event_url,
                             COALESCE(NULLIF(TRIM(image_url), ''), NULL) AS image_url,
                             CASE
@@ -647,11 +990,14 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                     SELECT
                         ne.id,
                         ne.name,
+                        ne.name_en,
                         COALESCE(cc.center_lat, %s) AS lat,
                         COALESCE(cc.center_lng, %s) AS lng,
                         'event' AS category,
                         ne.address,
+                        ne.address_en,
                         ne.region,
+                        ne.region_en,
                         ROUND(
                             ST_Distance(
                                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
@@ -700,6 +1046,8 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                 results.extend(_normalize_place_row(dict(row)) for row in cursor.fetchall())
 
     results.sort(key=lambda row: row.get("distance_m") or 0)
+    if category == "all":
+        return results
     return results[: max(limit, 1)]
 
 
@@ -718,14 +1066,39 @@ def api_ios_places():
     if category not in _VALID_PLACE_CATEGORIES:
         return jsonify({"error": "category must be all|attraction|restaurant|event"}), 400
 
+    scope = (request.args.get("scope", "radius") or "radius").strip().lower()
+    if scope not in _VALID_PLACE_SCOPES:
+        return jsonify({"error": "scope must be radius|city"}), 400
+
+    city_hint = str(request.args.get("city") or "").strip()
+
     if radius <= 0:
         return jsonify({"error": "radius must be positive"}), 400
 
     limit = min(max(limit, 1), _MAX_LIMIT)
 
     try:
+        if scope == "city":
+            resolved_city = city_hint
+            if not resolved_city:
+                with get_db_connection() as conn:
+                    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                        resolved_city = _resolve_city_from_coordinate(cursor=cursor, lat=lat, lng=lng) or ""
+
+            if not resolved_city:
+                return jsonify({"count": 0, "places": [], "scope": "city", "city": None})
+
+            places = _fetch_places_by_city(
+                lat=lat,
+                lng=lng,
+                city=resolved_city,
+                category=category,
+                limit=limit,
+            )
+            return jsonify({"count": len(places), "places": places, "scope": "city", "city": resolved_city})
+
         places = _fetch_places(lat=lat, lng=lng, radius=radius, category=category, limit=limit)
-        return jsonify({"count": len(places), "places": places})
+        return jsonify({"count": len(places), "places": places, "scope": "radius", "city": None})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

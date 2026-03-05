@@ -205,6 +205,12 @@ final class MapRemoteService: MapDataProviding {
     }
 
     private static func mapPlace(from item: RemotePlaceItem) -> PlaceRecommendation {
+        func normalized(_ value: String?) -> String? {
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
         let kind = PlaceCategoryKind.fromRemoteCategory(item.category)
         let categoryKo: String
         let categoryEn: String
@@ -219,8 +225,12 @@ final class MapRemoteService: MapDataProviding {
             categoryKo = "로컬 행사"
             categoryEn = "Event"
         }
-        let region = item.region ?? ""
-        let address = item.address ?? ""
+        let nameKo = item.name
+        let nameEn = normalized(item.nameEn) ?? nameKo
+        let regionKo = normalized(item.region) ?? ""
+        let regionEn = normalized(item.regionEn) ?? regionKo
+        let addressKo = normalized(item.address) ?? ""
+        let addressEn = normalized(item.addressEn) ?? addressKo
 
         let distanceGuideKo: String
         let distanceGuideEn: String
@@ -232,24 +242,24 @@ final class MapRemoteService: MapDataProviding {
             distanceGuideEn = "This is a recommended place near your location."
         }
 
-        let guideKo = "\(item.name) \(distanceGuideKo) \(region) \(address)"
-        let guideEn = "\(item.name). \(distanceGuideEn)"
+        let guideKo = "\(nameKo) \(distanceGuideKo) \(regionKo) \(addressKo)"
+        let guideEn = "\(nameEn). \(distanceGuideEn) \(regionEn) \(addressEn)"
 
         return PlaceRecommendation(
             id: item.id,
-            nameKo: item.name,
-            nameEn: item.name,
+            nameKo: nameKo,
+            nameEn: nameEn,
             categoryKind: kind,
             categoryKo: categoryKo,
             categoryEn: categoryEn,
-            districtKo: region,
-            districtEn: region,
+            districtKo: regionKo,
+            districtEn: regionEn,
             guideKo: guideKo,
             guideEn: guideEn,
             coordinate: CLLocationCoordinate2D(latitude: item.lat, longitude: item.lng),
             distanceMeters: item.distanceM,
-            addressKo: address,
-            addressEn: address,
+            addressKo: addressKo,
+            addressEn: addressEn,
             imageURL: Self.makeImageURL(from: item.imageURL)
         )
     }
@@ -567,22 +577,28 @@ private struct RemotePlacesResponse: Decodable {
 private struct RemotePlaceItem: Decodable {
     let id: String
     let name: String
+    let nameEn: String?
     let lat: Double
     let lng: Double
     let category: String
     let address: String?
+    let addressEn: String?
     let region: String?
+    let regionEn: String?
     let distanceM: Int?
     let imageURL: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case name
+        case nameEn = "name_en"
         case lat
         case lng
         case category
         case address
+        case addressEn = "address_en"
         case region
+        case regionEn = "region_en"
         case distanceM = "distance_m"
         case imageURL = "image_url"
     }
