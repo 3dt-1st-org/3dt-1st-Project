@@ -1,0 +1,467 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="lala-xcode-compatible" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>Suwon Docent Route (Compatible)</name>
+    <desc>Xcode Simulator-compatible waypoint GPX for docent movement test.</desc>
+  </metadata>
+  <wpt lat="37.266090" lon="127.000190">
+    <name>WP-001</name>
+    <time>2026-03-05T00:00:00Z</time>
+  </wpt>
+  <wpt lat="37.266258" lon="127.000712">
+    <name>WP-002</name>
+    <time>2026-03-05T00:00:05Z</time>
+  </wpt>
+  <wpt lat="37.266425" lon="127.001234">
+    <name>WP-003</name>
+    <time>2026-03-05T00:00:10Z</time>
+  </wpt>
+  <wpt lat="37.266593" lon="127.001756">
+    <name>WP-004</name>
+    <time>2026-03-05T00:00:15Z</time>
+  </wpt>
+  <wpt lat="37.266761" lon="127.002278">
+    <name>WP-005</name>
+    <time>2026-03-05T00:00:20Z</time>
+  </wpt>
+  <wpt lat="37.266929" lon="127.002799">
+    <name>WP-006</name>
+    <time>2026-03-05T00:00:25Z</time>
+  </wpt>
+  <wpt lat="37.267096" lon="127.003321">
+    <name>WP-007</name>
+    <time>2026-03-05T00:00:30Z</time>
+  </wpt>
+  <wpt lat="37.267264" lon="127.003843">
+    <name>WP-008</name>
+    <time>2026-03-05T00:00:35Z</time>
+  </wpt>
+  <wpt lat="37.267432" lon="127.004365">
+    <name>WP-009</name>
+    <time>2026-03-05T00:00:40Z</time>
+  </wpt>
+  <wpt lat="37.267599" lon="127.004887">
+    <name>WP-010</name>
+    <time>2026-03-05T00:00:45Z</time>
+  </wpt>
+  <wpt lat="37.267790" lon="127.005397">
+    <name>WP-011</name>
+    <time>2026-03-05T00:00:50Z</time>
+  </wpt>
+  <wpt lat="37.268014" lon="127.005888">
+    <name>WP-012</name>
+    <time>2026-03-05T00:00:55Z</time>
+  </wpt>
+  <wpt lat="37.268238" lon="127.006379">
+    <name>WP-013</name>
+    <time>2026-03-05T00:01:00Z</time>
+  </wpt>
+  <wpt lat="37.268462" lon="127.006871">
+    <name>WP-014</name>
+    <time>2026-03-05T00:01:05Z</time>
+  </wpt>
+  <wpt lat="37.268686" lon="127.007362">
+    <name>WP-015</name>
+    <time>2026-03-05T00:01:10Z</time>
+  </wpt>
+  <wpt lat="37.268910" lon="127.007853">
+    <name>WP-016</name>
+    <time>2026-03-05T00:01:15Z</time>
+  </wpt>
+  <wpt lat="37.269134" lon="127.008345">
+    <name>WP-017</name>
+    <time>2026-03-05T00:01:20Z</time>
+  </wpt>
+  <wpt lat="37.269359" lon="127.008836">
+    <name>WP-018</name>
+    <time>2026-03-05T00:01:25Z</time>
+  </wpt>
+  <wpt lat="37.269583" lon="127.009328">
+    <name>WP-019</name>
+    <time>2026-03-05T00:01:30Z</time>
+  </wpt>
+  <wpt lat="37.269807" lon="127.009819">
+    <name>WP-020</name>
+    <time>2026-03-05T00:01:35Z</time>
+  </wpt>
+  <wpt lat="37.270031" lon="127.010310">
+    <name>WP-021</name>
+    <time>2026-03-05T00:01:40Z</time>
+  </wpt>
+  <wpt lat="37.270255" lon="127.010802">
+    <name>WP-022</name>
+    <time>2026-03-05T00:01:45Z</time>
+  </wpt>
+  <wpt lat="37.270597" lon="127.011155">
+    <name>WP-023</name>
+    <time>2026-03-05T00:01:50Z</time>
+  </wpt>
+  <wpt lat="37.270967" lon="127.011474">
+    <name>WP-024</name>
+    <time>2026-03-05T00:01:55Z</time>
+  </wpt>
+  <wpt lat="37.271338" lon="127.011793">
+    <name>WP-025</name>
+    <time>2026-03-05T00:02:00Z</time>
+  </wpt>
+  <wpt lat="37.271709" lon="127.012112">
+    <name>WP-026</name>
+    <time>2026-03-05T00:02:05Z</time>
+  </wpt>
+  <wpt lat="37.272079" lon="127.012431">
+    <name>WP-027</name>
+    <time>2026-03-05T00:02:10Z</time>
+  </wpt>
+  <wpt lat="37.272450" lon="127.012750">
+    <name>WP-028</name>
+    <time>2026-03-05T00:02:15Z</time>
+  </wpt>
+  <wpt lat="37.272821" lon="127.013069">
+    <name>WP-029</name>
+    <time>2026-03-05T00:02:20Z</time>
+  </wpt>
+  <wpt lat="37.273191" lon="127.013388">
+    <name>WP-030</name>
+    <time>2026-03-05T00:02:25Z</time>
+  </wpt>
+  <wpt lat="37.273562" lon="127.013707">
+    <name>WP-031</name>
+    <time>2026-03-05T00:02:30Z</time>
+  </wpt>
+  <wpt lat="37.273933" lon="127.014026">
+    <name>WP-032</name>
+    <time>2026-03-05T00:02:35Z</time>
+  </wpt>
+  <wpt lat="37.274303" lon="127.014345">
+    <name>WP-033</name>
+    <time>2026-03-05T00:02:40Z</time>
+  </wpt>
+  <wpt lat="37.274687" lon="127.014625">
+    <name>WP-034</name>
+    <time>2026-03-05T00:02:45Z</time>
+  </wpt>
+  <wpt lat="37.275124" lon="127.014753">
+    <name>WP-035</name>
+    <time>2026-03-05T00:02:50Z</time>
+  </wpt>
+  <wpt lat="37.275560" lon="127.014880">
+    <name>WP-036</name>
+    <time>2026-03-05T00:02:55Z</time>
+  </wpt>
+  <wpt lat="37.275996" lon="127.015007">
+    <name>WP-037</name>
+    <time>2026-03-05T00:03:00Z</time>
+  </wpt>
+  <wpt lat="37.276433" lon="127.015135">
+    <name>WP-038</name>
+    <time>2026-03-05T00:03:05Z</time>
+  </wpt>
+  <wpt lat="37.276869" lon="127.015262">
+    <name>WP-039</name>
+    <time>2026-03-05T00:03:10Z</time>
+  </wpt>
+  <wpt lat="37.277305" lon="127.015389">
+    <name>WP-040</name>
+    <time>2026-03-05T00:03:15Z</time>
+  </wpt>
+  <wpt lat="37.277742" lon="127.015516">
+    <name>WP-041</name>
+    <time>2026-03-05T00:03:20Z</time>
+  </wpt>
+  <wpt lat="37.278178" lon="127.015644">
+    <name>WP-042</name>
+    <time>2026-03-05T00:03:25Z</time>
+  </wpt>
+  <wpt lat="37.278615" lon="127.015771">
+    <name>WP-043</name>
+    <time>2026-03-05T00:03:30Z</time>
+  </wpt>
+  <wpt lat="37.279051" lon="127.015898">
+    <name>WP-044</name>
+    <time>2026-03-05T00:03:35Z</time>
+  </wpt>
+  <wpt lat="37.279488" lon="127.016024">
+    <name>WP-045</name>
+    <time>2026-03-05T00:03:40Z</time>
+  </wpt>
+  <wpt lat="37.279927" lon="127.016146">
+    <name>WP-046</name>
+    <time>2026-03-05T00:03:45Z</time>
+  </wpt>
+  <wpt lat="37.280366" lon="127.016268">
+    <name>WP-047</name>
+    <time>2026-03-05T00:03:50Z</time>
+  </wpt>
+  <wpt lat="37.280805" lon="127.016390">
+    <name>WP-048</name>
+    <time>2026-03-05T00:03:55Z</time>
+  </wpt>
+  <wpt lat="37.281244" lon="127.016512">
+    <name>WP-049</name>
+    <time>2026-03-05T00:04:00Z</time>
+  </wpt>
+  <wpt lat="37.281683" lon="127.016634">
+    <name>WP-050</name>
+    <time>2026-03-05T00:04:05Z</time>
+  </wpt>
+  <wpt lat="37.282122" lon="127.016756">
+    <name>WP-051</name>
+    <time>2026-03-05T00:04:10Z</time>
+  </wpt>
+  <wpt lat="37.282561" lon="127.016878">
+    <name>WP-052</name>
+    <time>2026-03-05T00:04:15Z</time>
+  </wpt>
+  <wpt lat="37.283000" lon="127.017000">
+    <name>WP-053</name>
+    <time>2026-03-05T00:04:20Z</time>
+  </wpt>
+  <wpt lat="37.283269" lon="127.016538">
+    <name>WP-054</name>
+    <time>2026-03-05T00:04:25Z</time>
+  </wpt>
+  <wpt lat="37.283538" lon="127.016077">
+    <name>WP-055</name>
+    <time>2026-03-05T00:04:30Z</time>
+  </wpt>
+  <wpt lat="37.283808" lon="127.015615">
+    <name>WP-056</name>
+    <time>2026-03-05T00:04:35Z</time>
+  </wpt>
+  <wpt lat="37.284077" lon="127.015154">
+    <name>WP-057</name>
+    <time>2026-03-05T00:04:40Z</time>
+  </wpt>
+  <wpt lat="37.284346" lon="127.014692">
+    <name>WP-058</name>
+    <time>2026-03-05T00:04:45Z</time>
+  </wpt>
+  <wpt lat="37.284615" lon="127.014231">
+    <name>WP-059</name>
+    <time>2026-03-05T00:04:50Z</time>
+  </wpt>
+  <wpt lat="37.284885" lon="127.013769">
+    <name>WP-060</name>
+    <time>2026-03-05T00:04:55Z</time>
+  </wpt>
+  <wpt lat="37.285084" lon="127.013289">
+    <name>WP-061</name>
+    <time>2026-03-05T00:05:00Z</time>
+  </wpt>
+  <wpt lat="37.285005" lon="127.012732">
+    <name>WP-062</name>
+    <time>2026-03-05T00:05:05Z</time>
+  </wpt>
+  <wpt lat="37.284925" lon="127.012175">
+    <name>WP-063</name>
+    <time>2026-03-05T00:05:10Z</time>
+  </wpt>
+  <wpt lat="37.284845" lon="127.011618">
+    <name>WP-064</name>
+    <time>2026-03-05T00:05:15Z</time>
+  </wpt>
+  <wpt lat="37.284766" lon="127.011061">
+    <name>WP-065</name>
+    <time>2026-03-05T00:05:20Z</time>
+  </wpt>
+  <wpt lat="37.284686" lon="127.010505">
+    <name>WP-066</name>
+    <time>2026-03-05T00:05:25Z</time>
+  </wpt>
+  <wpt lat="37.284607" lon="127.009948">
+    <name>WP-067</name>
+    <time>2026-03-05T00:05:30Z</time>
+  </wpt>
+  <wpt lat="37.284527" lon="127.009391">
+    <name>WP-068</name>
+    <time>2026-03-05T00:05:35Z</time>
+  </wpt>
+  <wpt lat="37.284448" lon="127.008834">
+    <name>WP-069</name>
+    <time>2026-03-05T00:05:40Z</time>
+  </wpt>
+  <wpt lat="37.284269" lon="127.008342">
+    <name>WP-070</name>
+    <time>2026-03-05T00:05:45Z</time>
+  </wpt>
+  <wpt lat="37.283942" lon="127.007948">
+    <name>WP-071</name>
+    <time>2026-03-05T00:05:50Z</time>
+  </wpt>
+  <wpt lat="37.283615" lon="127.007554">
+    <name>WP-072</name>
+    <time>2026-03-05T00:05:55Z</time>
+  </wpt>
+  <wpt lat="37.283288" lon="127.007160">
+    <name>WP-073</name>
+    <time>2026-03-05T00:06:00Z</time>
+  </wpt>
+  <wpt lat="37.282962" lon="127.006765">
+    <name>WP-074</name>
+    <time>2026-03-05T00:06:05Z</time>
+  </wpt>
+  <wpt lat="37.282635" lon="127.006371">
+    <name>WP-075</name>
+    <time>2026-03-05T00:06:10Z</time>
+  </wpt>
+  <wpt lat="37.282308" lon="127.005977">
+    <name>WP-076</name>
+    <time>2026-03-05T00:06:15Z</time>
+  </wpt>
+  <wpt lat="37.281981" lon="127.005583">
+    <name>WP-077</name>
+    <time>2026-03-05T00:06:20Z</time>
+  </wpt>
+  <wpt lat="37.281654" lon="127.005188">
+    <name>WP-078</name>
+    <time>2026-03-05T00:06:25Z</time>
+  </wpt>
+  <wpt lat="37.281327" lon="127.004794">
+    <name>WP-079</name>
+    <time>2026-03-05T00:06:30Z</time>
+  </wpt>
+  <wpt lat="37.281000" lon="127.004400">
+    <name>WP-080</name>
+    <time>2026-03-05T00:06:35Z</time>
+  </wpt>
+  <wpt lat="37.280588" lon="127.004172">
+    <name>WP-081</name>
+    <time>2026-03-05T00:06:40Z</time>
+  </wpt>
+  <wpt lat="37.280175" lon="127.003944">
+    <name>WP-082</name>
+    <time>2026-03-05T00:06:45Z</time>
+  </wpt>
+  <wpt lat="37.279763" lon="127.003716">
+    <name>WP-083</name>
+    <time>2026-03-05T00:06:50Z</time>
+  </wpt>
+  <wpt lat="37.279351" lon="127.003488">
+    <name>WP-084</name>
+    <time>2026-03-05T00:06:55Z</time>
+  </wpt>
+  <wpt lat="37.278939" lon="127.003260">
+    <name>WP-085</name>
+    <time>2026-03-05T00:07:00Z</time>
+  </wpt>
+  <wpt lat="37.278526" lon="127.003032">
+    <name>WP-086</name>
+    <time>2026-03-05T00:07:05Z</time>
+  </wpt>
+  <wpt lat="37.278114" lon="127.002804">
+    <name>WP-087</name>
+    <time>2026-03-05T00:07:10Z</time>
+  </wpt>
+  <wpt lat="37.277702" lon="127.002575">
+    <name>WP-088</name>
+    <time>2026-03-05T00:07:15Z</time>
+  </wpt>
+  <wpt lat="37.277289" lon="127.002347">
+    <name>WP-089</name>
+    <time>2026-03-05T00:07:20Z</time>
+  </wpt>
+  <wpt lat="37.276877" lon="127.002119">
+    <name>WP-090</name>
+    <time>2026-03-05T00:07:25Z</time>
+  </wpt>
+  <wpt lat="37.276465" lon="127.001891">
+    <name>WP-091</name>
+    <time>2026-03-05T00:07:30Z</time>
+  </wpt>
+  <wpt lat="37.276032" lon="127.001759">
+    <name>WP-092</name>
+    <time>2026-03-05T00:07:35Z</time>
+  </wpt>
+  <wpt lat="37.275585" lon="127.001691">
+    <name>WP-093</name>
+    <time>2026-03-05T00:07:40Z</time>
+  </wpt>
+  <wpt lat="37.275138" lon="127.001623">
+    <name>WP-094</name>
+    <time>2026-03-05T00:07:45Z</time>
+  </wpt>
+  <wpt lat="37.274691" lon="127.001555">
+    <name>WP-095</name>
+    <time>2026-03-05T00:07:50Z</time>
+  </wpt>
+  <wpt lat="37.274244" lon="127.001486">
+    <name>WP-096</name>
+    <time>2026-03-05T00:07:55Z</time>
+  </wpt>
+  <wpt lat="37.273797" lon="127.001418">
+    <name>WP-097</name>
+    <time>2026-03-05T00:08:00Z</time>
+  </wpt>
+  <wpt lat="37.273350" lon="127.001350">
+    <name>WP-098</name>
+    <time>2026-03-05T00:08:05Z</time>
+  </wpt>
+  <wpt lat="37.272903" lon="127.001282">
+    <name>WP-099</name>
+    <time>2026-03-05T00:08:10Z</time>
+  </wpt>
+  <wpt lat="37.272456" lon="127.001214">
+    <name>WP-100</name>
+    <time>2026-03-05T00:08:15Z</time>
+  </wpt>
+  <wpt lat="37.272009" lon="127.001145">
+    <name>WP-101</name>
+    <time>2026-03-05T00:08:20Z</time>
+  </wpt>
+  <wpt lat="37.271562" lon="127.001077">
+    <name>WP-102</name>
+    <time>2026-03-05T00:08:25Z</time>
+  </wpt>
+  <wpt lat="37.271115" lon="127.001009">
+    <name>WP-103</name>
+    <time>2026-03-05T00:08:30Z</time>
+  </wpt>
+  <wpt lat="37.270668" lon="127.000941">
+    <name>WP-104</name>
+    <time>2026-03-05T00:08:35Z</time>
+  </wpt>
+  <wpt lat="37.270220" lon="127.000870">
+    <name>WP-105</name>
+    <time>2026-03-05T00:08:40Z</time>
+  </wpt>
+  <wpt lat="37.269771" lon="127.000796">
+    <name>WP-106</name>
+    <time>2026-03-05T00:08:45Z</time>
+  </wpt>
+  <wpt lat="37.269323" lon="127.000722">
+    <name>WP-107</name>
+    <time>2026-03-05T00:08:50Z</time>
+  </wpt>
+  <wpt lat="37.268874" lon="127.000649">
+    <name>WP-108</name>
+    <time>2026-03-05T00:08:55Z</time>
+  </wpt>
+  <wpt lat="37.268425" lon="127.000575">
+    <name>WP-109</name>
+    <time>2026-03-05T00:09:00Z</time>
+  </wpt>
+  <wpt lat="37.267976" lon="127.000501">
+    <name>WP-110</name>
+    <time>2026-03-05T00:09:05Z</time>
+  </wpt>
+  <wpt lat="37.267527" lon="127.000427">
+    <name>WP-111</name>
+    <time>2026-03-05T00:09:10Z</time>
+  </wpt>
+  <wpt lat="37.267078" lon="127.000353">
+    <name>WP-112</name>
+    <time>2026-03-05T00:09:15Z</time>
+  </wpt>
+  <wpt lat="37.266629" lon="127.000279">
+    <name>WP-113</name>
+    <time>2026-03-05T00:09:20Z</time>
+  </wpt>
+  <wpt lat="37.266180" lon="127.000205">
+    <name>WP-114</name>
+    <time>2026-03-05T00:09:25Z</time>
+  </wpt>
+  <wpt lat="37.266090" lon="127.000190">
+    <name>WP-115</name>
+    <time>2026-03-05T00:09:30Z</time>
+  </wpt>
+</gpx>

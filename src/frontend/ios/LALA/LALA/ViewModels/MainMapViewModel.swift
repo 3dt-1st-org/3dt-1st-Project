@@ -39,6 +39,8 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private let autoDocentTriggerRadiusMeters: CLLocationDistance = 100
     private let placesReloadThresholdMeters: CLLocationDistance = 250
     private let weatherReloadThresholdMeters: CLLocationDistance = 600
+    private let placesLoadingMaxSeconds: Double = 20
+    private let placesFailureRetryCooldownSeconds: Double = 8
     private let defaultMapSpan = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
     private var hasAppliedInitialUserFocus = false
     private var isAppLocationConsentEnabled = false
@@ -51,6 +53,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private var allPlaces: [PlaceRecommendation] = []
     private var lastPlacesFetchCoordinate: CLLocationCoordinate2D?
     private var lastWeatherFetchCoordinate: CLLocationCoordinate2D?
+    private var placesReloadToken = 0
+    private var placesLoadingStartedAt: Date?
+    private var lastPlacesFailureAt: Date?
+    private var lastPlacesFailureCoordinate: CLLocationCoordinate2D?
+    private var placesFailureRetryTask: Task<Void, Never>?
 
     private let initialRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 36.35, longitude: 127.9),
@@ -405,9 +412,15 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     func clampRegion(_ candidate: MKCoordinateRegion) -> MKCoordinateRegion {
         var next = candidate
 
-        // Keep the visible center inside Korea bounds.
+        #if targetEnvironment(simulator)
+        // In simulator tests, allow global coordinates (custom GPX routes can be outside Korea).
+        next.center.latitude = min(max(next.center.latitude, -85.0), 85.0)
+        next.center.longitude = min(max(next.center.longitude, -180.0), 180.0)
+        #else
+        // On device, keep the visible center inside Korea bounds.
         next.center.latitude = min(max(next.center.latitude, 33.0), 38.8)
         next.center.longitude = min(max(next.center.longitude, 124.0), 132.2)
+        #endif
 
         // Limit zoom-out and zoom-in ranges.
         next.span.latitudeDelta = min(max(next.span.latitudeDelta, 0.002), 8.0)
@@ -435,16 +448,46 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private func reloadPlaces(force: Bool) {
         guard isAppLocationConsentEnabled else { return }
         guard let anchor = userCoordinate else { return }
+        if !force, let failedAt = lastPlacesFailureAt {
+            let elapsed = Date().timeIntervalSince(failedAt)
+            if elapsed < placesFailureRetryCooldownSeconds {
+                if let failedCoordinate = lastPlacesFailureCoordinate,
+                   distance(from: failedCoordinate, to: anchor) >= placesReloadThresholdMeters {
+                    // User has moved enough from failed point: allow immediate retry.
+                } else {
+                    schedulePlacesRetryAfterCooldown(failedAt: failedAt)
+                    return
+                }
+            }
+        }
+        if isLoadingPlaces && !force {
+            return
+        }
         guard force || shouldReloadPlaces(for: anchor) else {
             applyFilteredPlaces()
             return
         }
 
-        reloadTask?.cancel()
+        placesFailureRetryTask?.cancel()
+        placesFailureRetryTask = nil
+        if force {
+            reloadTask?.cancel()
+        }
+        placesReloadToken += 1
+        let token = placesReloadToken
         reloadTask = Task { [weak self] in
             guard let self else { return }
             isLoadingPlaces = true
+            placesLoadingStartedAt = Date()
             mapStatus = .none
+            startPlacesLoadingWatchdog(for: token)
+            defer {
+                if placesReloadToken == token {
+                    isLoadingPlaces = false
+                    placesLoadingStartedAt = nil
+                    reloadTask = nil
+                }
+            }
 
             do {
                 let loadedPlaces = try await mapDataProvider.fetchPlaces(
@@ -453,16 +496,52 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                     category: .all
                 )
                 guard !Task.isCancelled else { return }
+                guard placesReloadToken == token else { return }
 
                 allPlaces = loadedPlaces
                 lastPlacesFetchCoordinate = anchor
+                lastPlacesFailureAt = nil
+                lastPlacesFailureCoordinate = nil
                 applyFilteredPlaces()
-                isLoadingPlaces = false
             } catch {
                 guard !Task.isCancelled else { return }
-                isLoadingPlaces = false
+                guard placesReloadToken == token else { return }
+                lastPlacesFailureAt = Date()
+                lastPlacesFailureCoordinate = anchor
                 mapStatus = .networkError
             }
+        }
+    }
+
+    private func schedulePlacesRetryAfterCooldown(failedAt: Date) {
+        let elapsed = Date().timeIntervalSince(failedAt)
+        let remaining = max(0.2, placesFailureRetryCooldownSeconds - elapsed)
+
+        placesFailureRetryTask?.cancel()
+        placesFailureRetryTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            guard mapStatus == .networkError else { return }
+            reloadPlaces(force: true)
+        }
+    }
+
+    private func startPlacesLoadingWatchdog(for token: Int) {
+        Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: UInt64(placesLoadingMaxSeconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            guard placesReloadToken == token else { return }
+            guard isLoadingPlaces else { return }
+            guard let started = placesLoadingStartedAt else { return }
+            guard Date().timeIntervalSince(started) >= placesLoadingMaxSeconds else { return }
+
+            reloadTask?.cancel()
+            reloadTask = nil
+            isLoadingPlaces = false
+            placesLoadingStartedAt = nil
+            mapStatus = .networkError
         }
     }
 
@@ -526,7 +605,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     private func shouldReloadPlaces(for coordinate: CLLocationCoordinate2D) -> Bool {
-        if allPlaces.isEmpty || lastPlacesFetchCoordinate == nil {
+        if lastPlacesFetchCoordinate == nil {
             return true
         }
         guard let last = lastPlacesFetchCoordinate else { return true }
@@ -551,6 +630,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         isAppLocationConsentEnabled = consentEnabled
         guard consentEnabled else {
             locationManager.stopUpdatingLocation()
+            reloadTask?.cancel()
+            weatherTask?.cancel()
+            placesFailureRetryTask?.cancel()
+            isLoadingPlaces = false
             return
         }
 
@@ -635,6 +718,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // Keep UI responsive even if a one-shot location request fails.
+        isLoadingPlaces = false
     }
 
     private func runAutoDocentIfNeeded(language: AppLanguage, forceAnnounce: Bool) {

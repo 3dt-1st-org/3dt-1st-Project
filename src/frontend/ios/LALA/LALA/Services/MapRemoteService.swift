@@ -155,6 +155,7 @@ final class MapRemoteService: MapDataProviding {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        request.timeoutInterval = 12
         request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
         return try await session.data(for: request)
     }
