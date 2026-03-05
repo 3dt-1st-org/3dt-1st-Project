@@ -18,6 +18,26 @@ _ATTRACTION_ID_EXPR = "MD5(COALESCE(attraction_name, '') || '|' || COALESCE(sigu
 _EVENT_ID_EXPR = "MD5(COALESCE(title, '') || '|' || COALESCE(url, '') || '|' || COALESCE(city, ''))"
 
 
+def _int_env(name: str, default: int) -> int:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
+def _float_env(name: str, default: float) -> float:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except Exception:
+        return default
+
+
 @dataclass(frozen=True)
 class DocentScriptResult:
     place_id: str
@@ -54,7 +74,8 @@ def generate_docent_script(cursor, place_id: str, category: str, language: str, 
     script = ""
     source = "fallback"
     llm_error: Exception | None = None
-    for _ in range(2):
+    llm_attempts = max(1, min(_int_env("DOCENT_LLM_MAX_ATTEMPTS", 1), 2))
+    for _ in range(llm_attempts):
         try:
             script = _generate_with_llm(context=context, category=category, language=language, mode=mode)
             source = "llm"
@@ -339,10 +360,14 @@ def _generate_with_llm(context: dict[str, Any], category: str, language: str, mo
     if not endpoint or not api_key or not api_version or not deployment:
         raise RuntimeError("azure openai config is missing")
 
+    llm_timeout = max(3.0, min(_float_env("DOCENT_LLM_TIMEOUT_SEC", 6.0), 20.0))
+
     client = AzureOpenAI(
         azure_endpoint=endpoint,
         api_key=api_key,
         api_version=api_version,
+        max_retries=0,
+        timeout=llm_timeout,
     )
 
     language_name = "Korean" if language == "ko" else "English"
@@ -368,7 +393,7 @@ def _generate_with_llm(context: dict[str, Any], category: str, language: str, mo
     response = client.chat.completions.create(
         model=deployment,
         temperature=0.5,
-        max_tokens=450,
+        max_tokens=320,
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},

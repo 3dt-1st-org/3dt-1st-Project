@@ -46,6 +46,8 @@ _WEATHER_API_URL = (
 )
 _OPEN_METEO_WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 _OPEN_METEO_AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
+_OPEN_METEO_TIMEOUT_SEC = 3.5
+_LEGACY_WEATHER_TIMEOUT_SEC = 2.5
 _DUST_GRADE_LABELS = {
     "good": "좋음",
     "normal": "보통",
@@ -68,6 +70,20 @@ _RESTAURANT_IMAGE_COLUMN_CANDIDATES = (
     "photo_url",
     "photo_urls",
 )
+
+
+def _safe_float_env(name: str, default: float) -> float:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+_OPEN_METEO_TIMEOUT_SEC = max(1.0, min(_safe_float_env("OPEN_METEO_TIMEOUT_SEC", _OPEN_METEO_TIMEOUT_SEC), 8.0))
+_LEGACY_WEATHER_TIMEOUT_SEC = max(1.0, min(_safe_float_env("LEGACY_WEATHER_TIMEOUT_SEC", _LEGACY_WEATHER_TIMEOUT_SEC), 8.0))
 
 
 def _latlon_to_grid(lat: float, lon: float) -> tuple[int, int]:
@@ -123,18 +139,7 @@ def _parse_int_arg(name: str, default: int) -> int:
 
 def _weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
     try:
-        weather_payload = None
-        last_weather_exc: Exception | None = None
-        for _ in range(2):
-            try:
-                weather_payload = _fetch_open_meteo_weather(lat=lat, lng=lng)
-                break
-            except Exception as exc:
-                last_weather_exc = exc
-        if weather_payload is None:
-            if last_weather_exc is not None:
-                raise last_weather_exc
-            raise RuntimeError("open-meteo weather fetch failed")
+        weather_payload = _fetch_open_meteo_weather(lat=lat, lng=lng)
 
         current = weather_payload.get("current") or {}
 
@@ -195,7 +200,7 @@ def _fetch_open_meteo_weather(lat: float, lng: float) -> dict:
             "forecast_days": 3,
             "timezone": "Asia/Seoul",
         },
-        timeout=6,
+        timeout=_OPEN_METEO_TIMEOUT_SEC,
     )
     response.raise_for_status()
     return response.json()
@@ -210,7 +215,7 @@ def _fetch_open_meteo_air_quality(lat: float, lng: float) -> dict:
             "current": "pm10,pm2_5",
             "timezone": "Asia/Seoul",
         },
-        timeout=6,
+        timeout=_OPEN_METEO_TIMEOUT_SEC,
     )
     response.raise_for_status()
     return response.json()
@@ -239,7 +244,7 @@ def _legacy_weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
                 "ny": ny,
                 "serviceKey": weather_api_key,
             },
-            timeout=5,
+            timeout=_LEGACY_WEATHER_TIMEOUT_SEC,
         )
         response.raise_for_status()
         payload = response.json()
