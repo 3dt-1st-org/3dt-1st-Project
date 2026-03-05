@@ -69,6 +69,11 @@ struct MainMapView: View {
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $viewModel.isWeatherDetailPresented) {
+            weatherForecastSheet
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     private var boundedRegionBinding: Binding<MKCoordinateRegion> {
@@ -228,21 +233,101 @@ struct MainMapView: View {
     }
 
     private var weatherView: some View {
-        HStack(spacing: 8) {
-            Image(systemName: viewModel.weatherSymbol)
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.yellow, .orange)
-            Text(viewModel.weatherValue)
-                .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
-                .foregroundStyle(Color(AppThemeColor.north.rawValue))
+        Button {
+            viewModel.presentWeatherDetail()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: viewModel.weatherSymbol)
+                    .foregroundStyle(weatherIconColor(for: viewModel.weatherSymbol))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(viewModel.weatherValue)
+                        .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
+                        .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                    Text(viewModel.weatherDust)
+                        .font(.system(size: 10 * appViewModel.fontScale, weight: .medium))
+                        .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.8))
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.92))
+            )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.92))
-        )
+        .buttonStyle(.plain)
         .accessibilityLabel(viewModel.weatherA11yText(for: appViewModel.selectedLanguage))
+    }
+
+    private var weatherForecastSheet: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(viewModel.weatherDetailTitle(for: appViewModel.selectedLanguage))
+                .font(.system(size: 20 * appViewModel.fontScale, weight: .bold))
+                .foregroundStyle(Color(AppThemeColor.north.rawValue))
+            Text(viewModel.weatherDetailSubtitle(for: appViewModel.selectedLanguage))
+                .font(.system(size: 13 * appViewModel.fontScale, weight: .medium))
+                .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.78))
+
+            if viewModel.weatherForecast.isEmpty {
+                Text(viewModel.weatherForecastEmptyText(for: appViewModel.selectedLanguage))
+                    .font(.system(size: 13 * appViewModel.fontScale, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 6)
+            } else {
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(viewModel.weatherForecast) { item in
+                            HStack(spacing: 12) {
+                                Text(item.timeText)
+                                    .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
+                                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                                    .frame(width: 78, alignment: .leading)
+
+                                Image(systemName: item.symbolName)
+                                    .foregroundStyle(weatherIconColor(for: item.symbolName))
+                                    .frame(width: 24, alignment: .center)
+
+                                Text(item.temperatureText)
+                                    .font(.system(size: 14 * appViewModel.fontScale, weight: .bold))
+                                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color.white.opacity(0.95))
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 20)
+        .background(
+            Color(UIColor.systemGroupedBackground)
+                .ignoresSafeArea()
+        )
+    }
+
+    private func weatherIconColor(for symbolName: String) -> Color {
+        switch symbolName {
+        case "sun.max.fill":
+            return .yellow
+        case "cloud.rain.fill",
+            "cloud.sleet.fill",
+            "snowflake",
+            "cloud.sun.rain.fill",
+            "cloud.bolt.rain.fill":
+            return .blue
+        default:
+            return .gray
+        }
     }
 
     private var loadingBadge: some View {

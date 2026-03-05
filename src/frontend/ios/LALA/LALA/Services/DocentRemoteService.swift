@@ -44,6 +44,10 @@ final class DocentRemoteService: DocentRemoteProviding {
     private let session: URLSession
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
+    private var scriptCache: [String: DocentScriptResponse] = [:]
+    private var audioCache: [String: Data] = [:]
+    private var scriptTasks: [String: Task<DocentScriptResponse, Error>] = [:]
+    private var audioTasks: [String: Task<Data, Error>] = [:]
 
     init(
         baseURL: URL? = AppRuntime.apiBaseURL,
@@ -56,6 +60,81 @@ final class DocentRemoteService: DocentRemoteProviding {
     }
 
     func fetchDocentScript(
+        placeID: String,
+        category: PlaceCategoryKind,
+        language: AppLanguage,
+        mode: DocentScriptMode
+    ) async throws -> DocentScriptResponse {
+        let cacheKey = scriptCacheKey(
+            placeID: placeID,
+            category: category,
+            language: language,
+            mode: mode
+        )
+        if let cached = scriptCache[cacheKey] {
+            return cached
+        }
+        if let existingTask = scriptTasks[cacheKey] {
+            return try await existingTask.value
+        }
+
+        let task = Task { [weak self] in
+            guard let self else { throw DocentRemoteError.invalidResponse }
+            let first = try await requestDocentScript(
+                placeID: placeID,
+                category: category,
+                language: language,
+                mode: mode
+            )
+
+            if first.source == "fallback" {
+                if let second = try? await requestDocentScript(
+                    placeID: placeID,
+                    category: category,
+                    language: language,
+                    mode: mode
+                ) {
+                    if second.source != "fallback" {
+                        return second
+                    }
+                }
+            }
+
+            return first
+        }
+        scriptTasks[cacheKey] = task
+        defer { scriptTasks[cacheKey] = nil }
+
+        let result = try await task.value
+        if result.source != "fallback" {
+            scriptCache[cacheKey] = result
+        }
+        return result
+    }
+
+    func fetchDocentAudio(script: String, language: AppLanguage) async throws -> Data {
+        let trimmedScript = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cacheKey = audioCacheKey(script: trimmedScript, language: language)
+        if let cached = audioCache[cacheKey] {
+            return cached
+        }
+        if let existingTask = audioTasks[cacheKey] {
+            return try await existingTask.value
+        }
+
+        let task = Task { [weak self] in
+            guard let self else { throw DocentRemoteError.invalidResponse }
+            return try await requestDocentAudio(script: trimmedScript, language: language)
+        }
+        audioTasks[cacheKey] = task
+        defer { audioTasks[cacheKey] = nil }
+
+        let data = try await task.value
+        audioCache[cacheKey] = data
+        return data
+    }
+
+    private func requestDocentScript(
         placeID: String,
         category: PlaceCategoryKind,
         language: AppLanguage,
@@ -77,7 +156,7 @@ final class DocentRemoteService: DocentRemoteProviding {
         return try decoder.decode(DocentScriptResponse.self, from: data)
     }
 
-    func fetchDocentAudio(script: String, language: AppLanguage) async throws -> Data {
+    private func requestDocentAudio(script: String, language: AppLanguage) async throws -> Data {
         let url = try makeURL(path: "/api/ios/v1/docent/audio")
         let payload = DocentAudioRequest(script: script, language: language.rawValue)
 
@@ -87,6 +166,19 @@ final class DocentRemoteService: DocentRemoteProviding {
         let (data, response) = try await session.data(for: request)
         try validate(response: response)
         return data
+    }
+
+    private func scriptCacheKey(
+        placeID: String,
+        category: PlaceCategoryKind,
+        language: AppLanguage,
+        mode: DocentScriptMode
+    ) -> String {
+        "\(placeID)|\(category.rawValue)|\(language.rawValue)|\(mode.rawValue)"
+    }
+
+    private func audioCacheKey(script: String, language: AppLanguage) -> String {
+        "\(language.rawValue)|\(script)"
     }
 
     private func makeRequest(url: URL, method: String) throws -> URLRequest {

@@ -35,8 +35,22 @@ enum MapPlaceFilter: String, CaseIterable, Identifiable {
 struct WeatherSnapshot {
     let symbolName: String
     let temperatureText: String
+    let dustText: String
+    let forecast: [WeatherForecastItem]
 
-    static let placeholder = WeatherSnapshot(symbolName: "cloud.sun.fill", temperatureText: "--°C")
+    static let placeholder = WeatherSnapshot(
+        symbolName: "cloud.sun.fill",
+        temperatureText: "--°C",
+        dustText: "--",
+        forecast: []
+    )
+}
+
+struct WeatherForecastItem: Identifiable {
+    let id: String
+    let timeText: String
+    let symbolName: String
+    let temperatureText: String
 }
 
 protocol MapDataProviding {
@@ -70,8 +84,11 @@ final class MapRemoteService: MapDataProviding {
         radiusMeters: Int,
         category: MapPlaceFilter
     ) async throws -> [PlaceRecommendation] {
-        guard baseURL != nil, apiKey != nil else {
-            return Self.fallbackPlaces(around: center, category: category)
+        guard baseURL != nil else {
+            throw MapServiceError.missingBaseURL
+        }
+        guard apiKey != nil else {
+            throw MapServiceError.missingAPIKey
         }
 
         let requestURL = try makeURL(
@@ -89,16 +106,18 @@ final class MapRemoteService: MapDataProviding {
             try validate(response: response)
 
             let decoded = try decoder.decode(RemotePlacesResponse.self, from: data)
-            let mapped = decoded.places.map(Self.mapPlace(from:))
-            return mapped.isEmpty ? Self.fallbackPlaces(around: center, category: category) : mapped
+            return decoded.places.map(Self.mapPlace(from:))
         } catch {
-            return Self.fallbackPlaces(around: center, category: category)
+            throw error
         }
     }
 
     func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot {
-        guard baseURL != nil, apiKey != nil else {
-            return WeatherSnapshot(symbolName: "cloud.sun.fill", temperatureText: "13°C")
+        guard baseURL != nil else {
+            throw MapServiceError.missingBaseURL
+        }
+        guard apiKey != nil else {
+            throw MapServiceError.missingAPIKey
         }
 
         let requestURL = try makeURL(
@@ -109,18 +128,25 @@ final class MapRemoteService: MapDataProviding {
             ]
         )
 
-        do {
-            let (data, response) = try await performRequest(url: requestURL)
-            try validate(response: response)
+        let (data, response) = try await performRequest(url: requestURL)
+        try validate(response: response)
 
-            let decoded = try decoder.decode(RemoteWeatherResponse.self, from: data)
-            return WeatherSnapshot(
-                symbolName: Self.weatherSymbolName(from: decoded.icon),
-                temperatureText: Self.temperatureText(from: decoded.temp)
+        let decoded = try decoder.decode(RemoteWeatherResponse.self, from: data)
+        let filteredForecast = Self.filterFutureForecast(decoded.forecast)
+        let forecast = filteredForecast.map {
+            WeatherForecastItem(
+                id: $0.time,
+                timeText: Self.weatherTimeText(from: $0.time),
+                symbolName: Self.weatherSymbolName(from: $0.icon),
+                temperatureText: Self.temperatureText(from: $0.temp)
             )
-        } catch {
-            return WeatherSnapshot(symbolName: "cloud.sun.fill", temperatureText: "13°C")
         }
+        return WeatherSnapshot(
+            symbolName: Self.weatherSymbolName(from: decoded.icon),
+            temperatureText: Self.temperatureText(from: decoded.temp),
+            dustText: Self.dustText(from: decoded.dust),
+            forecast: forecast
+        )
     }
 
     private func performRequest(url: URL) async throws -> (Data, URLResponse) {
@@ -223,27 +249,120 @@ final class MapRemoteService: MapDataProviding {
             distanceMeters: item.distanceM,
             addressKo: address,
             addressEn: address,
-            imageURL: item.imageURL.flatMap(URL.init(string:))
+            imageURL: Self.makeImageURL(from: item.imageURL)
         )
     }
 
     private static func weatherSymbolName(from icon: String) -> String {
         switch icon {
         case "☀️": return "sun.max.fill"
+        case "⛅": return "cloud.sun.fill"
+        case "☁️": return "cloud.fill"
+        case "🌫️": return "cloud.fog.fill"
         case "🌧️": return "cloud.rain.fill"
         case "🌨️": return "cloud.sleet.fill"
         case "❄️": return "snowflake"
         case "🌦️": return "cloud.sun.rain.fill"
+        case "⛈️": return "cloud.bolt.rain.fill"
         default: return "cloud.sun.fill"
         }
     }
 
     private static func temperatureText(from raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "--°C"
+        }
         if trimmed.hasSuffix("°C") {
             return trimmed
         }
         return "\(trimmed)°C"
+    }
+
+    private static func dustText(from dust: RemoteWeatherDust?) -> String {
+        guard let dust else { return "--" }
+
+        let grade: String
+        switch dust.grade {
+        case "good":
+            grade = "좋음"
+        case "normal":
+            grade = "보통"
+        case "bad":
+            grade = "나쁨"
+        case "very_bad":
+            grade = "매우나쁨"
+        default:
+            grade = "정보없음"
+        }
+
+        if let pm10 = dust.pm10, let pm25 = dust.pm25 {
+            return "미세먼지 \(grade) (PM10 \(pm10) / PM2.5 \(pm25))"
+        }
+        if let pm10 = dust.pm10 {
+            return "미세먼지 \(grade) (PM10 \(pm10))"
+        }
+        if let pm25 = dust.pm25 {
+            return "미세먼지 \(grade) (PM2.5 \(pm25))"
+        }
+        return "미세먼지 \(grade)"
+    }
+
+    private static func weatherTimeText(from raw: String) -> String {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "ko_KR")
+        parser.timeZone = TimeZone(identifier: "Asia/Seoul")
+        parser.dateFormat = "yyyy-MM-dd'T'HH:mm"
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
+        formatter.dateFormat = "M/d HH:mm"
+
+        guard let date = parser.date(from: raw) else {
+            return raw
+        }
+        return formatter.string(from: date)
+    }
+
+    private static func filterFutureForecast(_ input: [RemoteWeatherForecast]) -> [RemoteWeatherForecast] {
+        let now = Date()
+        return input.filter { item in
+            guard let date = parseForecastDate(item.time) else { return false }
+            return date > now
+        }
+    }
+
+    private static func parseForecastDate(_ raw: String) -> Date? {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = TimeZone(identifier: "Asia/Seoul")
+        parser.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        if let date = parser.date(from: raw) {
+            return date
+        }
+
+        let parserWithSeconds = DateFormatter()
+        parserWithSeconds.locale = Locale(identifier: "en_US_POSIX")
+        parserWithSeconds.timeZone = TimeZone(identifier: "Asia/Seoul")
+        parserWithSeconds.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return parserWithSeconds.date(from: raw)
+    }
+
+    private static func makeImageURL(from raw: String?) -> URL? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return nil
+        }
+        if let url = URL(string: trimmed) {
+            return url
+        }
+        let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed)
+        if let encoded, let url = URL(string: encoded) {
+            return url
+        }
+        return nil
     }
 
     private static func fallbackPlaces(
@@ -469,6 +588,20 @@ private struct RemotePlaceItem: Decodable {
 }
 
 private struct RemoteWeatherResponse: Decodable {
+    let temp: String
+    let icon: String
+    let dust: RemoteWeatherDust?
+    let forecast: [RemoteWeatherForecast]
+}
+
+private struct RemoteWeatherDust: Decodable {
+    let pm10: String?
+    let pm25: String?
+    let grade: String
+}
+
+private struct RemoteWeatherForecast: Decodable {
+    let time: String
     let temp: String
     let icon: String
 }

@@ -20,6 +20,9 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     @Published var subtitle = ""
     @Published var weatherSymbol = WeatherSnapshot.placeholder.symbolName
     @Published var weatherValue = WeatherSnapshot.placeholder.temperatureText
+    @Published var weatherDust = WeatherSnapshot.placeholder.dustText
+    @Published private(set) var weatherForecast: [WeatherForecastItem] = []
+    @Published var isWeatherDetailPresented = false
     @Published var selectedPlaceID: String?
     @Published private(set) var userCoordinate: CLLocationCoordinate2D?
     @Published private(set) var places: [PlaceRecommendation]
@@ -32,16 +35,22 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private let locationManager = CLLocationManager()
     private let mapDataProvider: MapDataProviding
     private let docentDataProvider: DocentRemoteProviding
-    private let searchRadiusMeters = 3_000
+    private let searchRadiusMeters = 10_000
     private let autoDocentTriggerRadiusMeters: CLLocationDistance = 100
+    private let placesReloadThresholdMeters: CLLocationDistance = 250
+    private let weatherReloadThresholdMeters: CLLocationDistance = 600
     private let defaultMapSpan = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
     private var hasAppliedInitialUserFocus = false
     private var isAppLocationConsentEnabled = false
     private var activeLanguage: AppLanguage = .korean
     private var reloadTask: Task<Void, Never>?
+    private var weatherTask: Task<Void, Never>?
     private var narrationTask: Task<Void, Never>?
     private var lastAutoGuidedPlaceID: String?
     private var hiddenMoreInfoPlaceID: String?
+    private var allPlaces: [PlaceRecommendation] = []
+    private var lastPlacesFetchCoordinate: CLLocationCoordinate2D?
+    private var lastWeatherFetchCoordinate: CLLocationCoordinate2D?
 
     private let initialRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 36.35, longitude: 127.9),
@@ -67,8 +76,13 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     func updateLanguage(_ language: AppLanguage) {
-        refreshSubtitle(for: language)
-        reloadMapData()
+        activeLanguage = language
+        if let selectedPlace {
+            subtitle = docentLoadingText(for: language)
+            loadDocentScriptAndAudio(for: selectedPlace, language: language, mode: .brief)
+        } else {
+            subtitle = voiceOnSubtitle(for: language)
+        }
     }
 
     func toggleVoiceGuidance(for language: AppLanguage) {
@@ -98,7 +112,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     func selectFilter(_ filter: MapPlaceFilter) {
         guard selectedFilter != filter else { return }
         selectedFilter = filter
-        reloadMapData()
+        applyFilteredPlaces()
     }
 
     func handlePlaceTap(_ place: PlaceRecommendation, language: AppLanguage) {
@@ -113,25 +127,52 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         activeLanguage = language
         selectedPlaceID = place.id
         hiddenMoreInfoPlaceID = nil
-        subtitle = place.guide(in: language)
+        subtitle = docentLoadingText(for: language)
         lastAutoGuidedPlaceID = place.id
         moreInfoEligiblePlaceID = place.id
         centerOnPlace(place, animated: true)
-
-        if isVoiceGuidanceEnabled {
-            playNarrationAudio(text: subtitle, language: language)
-        } else {
-            stopNarrationPlayback()
-        }
+        loadDocentScriptAndAudio(for: place, language: language, mode: .brief)
     }
 
     func weatherA11yText(for language: AppLanguage) -> String {
         switch language {
         case .korean:
-            return "현재 날씨 \(weatherValue)"
+            return "현재 날씨 \(weatherValue), \(weatherDust). 탭하면 예보를 볼 수 있습니다."
         case .english:
-            return "Current weather \(weatherValue)"
+            return "Current weather \(weatherValue), \(weatherDust). Tap to see forecast."
         }
+    }
+
+    func weatherDetailTitle(for language: AppLanguage) -> String {
+        switch language {
+        case .korean:
+            return "날씨 예보"
+        case .english:
+            return "Weather Forecast"
+        }
+    }
+
+    func weatherDetailSubtitle(for language: AppLanguage) -> String {
+        switch language {
+        case .korean:
+            return "현재 \(weatherValue) · \(weatherDust)"
+        case .english:
+            return "Now \(weatherValue) · \(weatherDust)"
+        }
+    }
+
+    func weatherForecastEmptyText(for language: AppLanguage) -> String {
+        switch language {
+        case .korean:
+            return "예보 정보를 불러오지 못했습니다."
+        case .english:
+            return "Forecast data is unavailable."
+        }
+    }
+
+    func presentWeatherDetail() {
+        isWeatherDetailPresented = true
+        reloadWeather(force: true)
     }
 
     func statusMessage(for language: AppLanguage) -> String? {
@@ -209,33 +250,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         hiddenMoreInfoPlaceID = place.id
         moreInfoEligiblePlaceID = nil
         subtitle = docentLoadingText(for: language)
-
-        stopNarrationPlayback()
-        narrationTask = Task { [weak self] in
-            guard let self else { return }
-
-            do {
-                let response = try await docentDataProvider.fetchDocentScript(
-                    placeID: place.id,
-                    category: place.categoryKind,
-                    language: language,
-                    mode: .detail
-                )
-                guard !Task.isCancelled else { return }
-                subtitle = response.script
-
-                guard isVoiceGuidanceEnabled else { return }
-                let audioData = try await docentDataProvider.fetchDocentAudio(
-                    script: response.script,
-                    language: language
-                )
-                guard !Task.isCancelled else { return }
-                playAudio(data: audioData)
-            } catch {
-                guard !Task.isCancelled else { return }
-                subtitle = buildMoreInfoNarration(for: place, language: language)
-            }
-        }
+        loadDocentScriptAndAudio(for: place, language: language, mode: .detail)
     }
 
     private func voiceOnSubtitle(for language: AppLanguage) -> String {
@@ -253,6 +268,58 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             return "도슨트 정보를 생성하고 있어요. 잠시만 기다려 주세요."
         case .english:
             return "Generating docent guidance. Please wait a moment."
+        }
+    }
+
+    private func docentUnavailableText(for language: AppLanguage) -> String {
+        switch language {
+        case .korean:
+            return "도슨트 응답을 받아오지 못했습니다. 잠시 후 다시 시도해 주세요."
+        case .english:
+            return "Unable to load docent response. Please try again shortly."
+        }
+    }
+
+    private func loadDocentScriptAndAudio(
+        for place: PlaceRecommendation,
+        language: AppLanguage,
+        mode: DocentScriptMode
+    ) {
+        stopNarrationPlayback()
+        narrationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let response = try await docentDataProvider.fetchDocentScript(
+                    placeID: place.id,
+                    category: place.categoryKind,
+                    language: language,
+                    mode: mode
+                )
+                guard !Task.isCancelled else { return }
+
+                // Avoid showing server-side fallback template text in UI.
+                guard response.source != "fallback" else {
+                    subtitle = docentUnavailableText(for: language)
+                    return
+                }
+
+                subtitle = response.script
+
+                guard isVoiceGuidanceEnabled else { return }
+                do {
+                    let audioData = try await docentDataProvider.fetchDocentAudio(
+                        script: response.script,
+                        language: language
+                    )
+                    guard !Task.isCancelled else { return }
+                    playAudio(data: audioData)
+                } catch {
+                    // Keep LLM script visible even when TTS fails.
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                subtitle = docentUnavailableText(for: language)
+            }
         }
     }
 
@@ -319,10 +386,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         if result.shouldCenterMap {
             centerOnPlace(place, animated: true)
         }
-        if result.shouldSpeak {
+        if result.selectedPlaceID == place.id {
             moreInfoEligiblePlaceID = place.id
-            playNarrationAudio(text: result.subtitle, language: language)
-        } else if result.selectedPlaceID != place.id {
+            subtitle = docentLoadingText(for: language)
+            loadDocentScriptAndAudio(for: place, language: language, mode: .brief)
+        } else {
             moreInfoEligiblePlaceID = nil
         }
         if let selected = result.selectedPlaceID {
@@ -359,9 +427,18 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
-    private func reloadMapData() {
+    private func refreshData(forcePlaces: Bool = false, forceWeather: Bool = false) {
+        reloadPlaces(force: forcePlaces)
+        reloadWeather(force: forceWeather)
+    }
+
+    private func reloadPlaces(force: Bool) {
         guard isAppLocationConsentEnabled else { return }
-        let anchor = userCoordinate ?? region.center
+        guard let anchor = userCoordinate else { return }
+        guard force || shouldReloadPlaces(for: anchor) else {
+            applyFilteredPlaces()
+            return
+        }
 
         reloadTask?.cancel()
         reloadTask = Task { [weak self] in
@@ -370,19 +447,16 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             mapStatus = .none
 
             do {
-                async let loadedPlaces = mapDataProvider.fetchPlaces(
+                let loadedPlaces = try await mapDataProvider.fetchPlaces(
                     center: anchor,
                     radiusMeters: searchRadiusMeters,
-                    category: selectedFilter
+                    category: .all
                 )
-                async let weather = mapDataProvider.fetchWeather(at: anchor)
-
-                let (placesResult, weatherResult) = try await (loadedPlaces, weather)
                 guard !Task.isCancelled else { return }
 
-                applyPlaces(placesResult)
-                weatherSymbol = weatherResult.symbolName
-                weatherValue = weatherResult.temperatureText
+                allPlaces = loadedPlaces
+                lastPlacesFetchCoordinate = anchor
+                applyFilteredPlaces()
                 isLoadingPlaces = false
             } catch {
                 guard !Task.isCancelled else { return }
@@ -392,12 +466,55 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
-    private func applyPlaces(_ loadedPlaces: [PlaceRecommendation]) {
-        places = loadedPlaces
-        mapStatus = loadedPlaces.isEmpty ? .noResults : .none
+    private func reloadWeather(force: Bool) {
+        guard isAppLocationConsentEnabled, let coordinate = userCoordinate else { return }
+        guard force || shouldReloadWeather(for: coordinate) else { return }
+
+        weatherTask?.cancel()
+        weatherTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                var weatherResult = try await mapDataProvider.fetchWeather(at: coordinate)
+                if weatherResult.forecast.isEmpty,
+                   let retried = try? await mapDataProvider.fetchWeather(at: coordinate),
+                   !retried.forecast.isEmpty {
+                    weatherResult = retried
+                }
+                guard !Task.isCancelled else { return }
+
+                weatherSymbol = weatherResult.symbolName
+                weatherValue = weatherResult.temperatureText
+                weatherDust = weatherResult.dustText
+                weatherForecast = weatherResult.forecast
+                lastWeatherFetchCoordinate = coordinate
+            } catch {
+                guard !Task.isCancelled else { return }
+                weatherSymbol = WeatherSnapshot.placeholder.symbolName
+                weatherValue = WeatherSnapshot.placeholder.temperatureText
+                weatherDust = WeatherSnapshot.placeholder.dustText
+                weatherForecast = []
+            }
+        }
+    }
+
+    private func applyFilteredPlaces() {
+        let filteredPlaces: [PlaceRecommendation]
+        switch selectedFilter {
+        case .all:
+            filteredPlaces = allPlaces
+        case .attraction:
+            filteredPlaces = allPlaces.filter { $0.categoryKind == .attraction }
+        case .restaurant:
+            filteredPlaces = allPlaces.filter { $0.categoryKind == .restaurant }
+        case .event:
+            filteredPlaces = allPlaces.filter { $0.categoryKind == .event }
+        }
+
+        places = filteredPlaces
+        mapStatus = filteredPlaces.isEmpty ? .noResults : .none
 
         guard let selectedPlaceID else { return }
-        if !loadedPlaces.contains(where: { $0.id == selectedPlaceID }) {
+        if !filteredPlaces.contains(where: { $0.id == selectedPlaceID }) {
             self.selectedPlaceID = nil
             hiddenMoreInfoPlaceID = nil
             moreInfoEligiblePlaceID = nil
@@ -408,8 +525,26 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         runAutoDocentIfNeeded(language: activeLanguage, forceAnnounce: false)
     }
 
+    private func shouldReloadPlaces(for coordinate: CLLocationCoordinate2D) -> Bool {
+        if allPlaces.isEmpty || lastPlacesFetchCoordinate == nil {
+            return true
+        }
+        guard let last = lastPlacesFetchCoordinate else { return true }
+        return distance(from: last, to: coordinate) >= placesReloadThresholdMeters
+    }
+
+    private func shouldReloadWeather(for coordinate: CLLocationCoordinate2D) -> Bool {
+        if lastWeatherFetchCoordinate == nil {
+            return true
+        }
+        guard let last = lastWeatherFetchCoordinate else { return true }
+        return distance(from: last, to: coordinate) >= weatherReloadThresholdMeters
+    }
+
     func retryLoadingPlaces() {
-        reloadMapData()
+        // Retry should only refresh place data.
+        // Weather must change only when user location meaningfully changes.
+        reloadPlaces(force: true)
     }
 
     func configureLocationUpdates(consentEnabled: Bool) {
@@ -426,7 +561,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         case .authorizedWhenInUse, .authorizedAlways:
             locationManager.startUpdatingLocation()
             locationManager.requestLocation()
-            reloadMapData()
+            refreshData(forcePlaces: allPlaces.isEmpty, forceWeather: false)
         case .denied, .restricted:
             locationManager.stopUpdatingLocation()
         @unknown default:
@@ -452,7 +587,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         } else {
             region = clamped
         }
-        reloadMapData()
+        refreshData(forcePlaces: true, forceWeather: false)
     }
 
     func centerOnPlace(_ place: PlaceRecommendation, animated: Bool) {
@@ -487,11 +622,14 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
         if !hasAppliedInitialUserFocus {
             hasAppliedInitialUserFocus = true
-            centerOnUserLocation(animated: false)
-            return
+            let focused = MKCoordinateRegion(
+                center: latest.coordinate,
+                span: defaultMapSpan
+            )
+            region = clampRegion(focused)
         }
 
-        reloadMapData()
+        refreshData(forcePlaces: false, forceWeather: false)
         runAutoDocentIfNeeded(language: activeLanguage, forceAnnounce: false)
     }
 
@@ -511,28 +649,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
         selectedPlaceID = nearest.place.id
         hiddenMoreInfoPlaceID = nil
-        subtitle = nearest.place.guide(in: language)
+        subtitle = docentLoadingText(for: language)
         lastAutoGuidedPlaceID = nearest.place.id
         moreInfoEligiblePlaceID = nearest.place.id
 
-        if isVoiceGuidanceEnabled {
-            playNarrationAudio(text: subtitle, language: language)
-        }
-    }
-
-    private func buildMoreInfoNarration(for place: PlaceRecommendation, language: AppLanguage) -> String {
-        let name = place.name(in: language)
-        let category = place.category(in: language)
-        let district = place.district(in: language)
-        let address = place.address(in: language)
-        let reason = recommendationReason(for: place, language: language)
-
-        switch language {
-        case .korean:
-            return "\(name)은(는) \(district) 지역의 \(category) 추천 장소입니다. 주소는 \(address)입니다. \(reason) 방문 전 운영 시간과 현장 상황을 함께 확인해 주세요."
-        case .english:
-            return "\(name) is a recommended \(category.lowercased()) spot in \(district). The address is \(address). \(reason) Please also check opening hours and local conditions before you visit."
-        }
+        loadDocentScriptAndAudio(for: nearest.place, language: language, mode: .brief)
     }
 
     private func nearestPlace(to userCoordinate: CLLocationCoordinate2D) -> (place: PlaceRecommendation, distance: CLLocationDistance)? {
