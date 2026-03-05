@@ -78,7 +78,7 @@ final class MapRemoteService: MapDataProviding {
     init(
         baseURL: URL? = AppRuntime.apiBaseURL,
         apiKey: String? = AppRuntime.iosAPIKey,
-        session: URLSession = .shared
+        session: URLSession = MapRemoteService.makeDefaultSession()
     ) {
         self.baseURL = baseURL
         self.apiKey = apiKey
@@ -175,7 +175,7 @@ final class MapRemoteService: MapDataProviding {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.timeoutInterval = 25
+        request.timeoutInterval = 15
         request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
         return try await session.data(for: request)
     }
@@ -222,6 +222,15 @@ final class MapRemoteService: MapDataProviding {
         guard (200 ... 299).contains(http.statusCode) else {
             throw MapServiceError.httpStatus(http.statusCode)
         }
+    }
+
+    private static func makeDefaultSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = false
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 25
+        config.httpMaximumConnectionsPerHost = 4
+        return URLSession(configuration: config)
     }
 
     private static func mapPlace(from item: RemotePlaceItem) -> PlaceRecommendation {

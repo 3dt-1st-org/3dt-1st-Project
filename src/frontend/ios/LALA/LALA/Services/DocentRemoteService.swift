@@ -46,13 +46,11 @@ final class DocentRemoteService: DocentRemoteProviding {
     private let encoder = JSONEncoder()
     private var scriptCache: [String: DocentScriptResponse] = [:]
     private var audioCache: [String: Data] = [:]
-    private var scriptTasks: [String: Task<DocentScriptResponse, Error>] = [:]
-    private var audioTasks: [String: Task<Data, Error>] = [:]
 
     init(
         baseURL: URL? = AppRuntime.apiBaseURL,
         apiKey: String? = AppRuntime.iosAPIKey,
-        session: URLSession = .shared
+        session: URLSession = DocentRemoteService.makeDefaultSession()
     ) {
         self.baseURL = baseURL
         self.apiKey = apiKey
@@ -74,38 +72,13 @@ final class DocentRemoteService: DocentRemoteProviding {
         if let cached = scriptCache[cacheKey] {
             return cached
         }
-        if let existingTask = scriptTasks[cacheKey] {
-            return try await existingTask.value
-        }
 
-        let task = Task { [weak self] in
-            guard let self else { throw DocentRemoteError.invalidResponse }
-            let first = try await requestDocentScript(
-                placeID: placeID,
-                category: category,
-                language: language,
-                mode: mode
-            )
-
-            if first.source == "fallback" {
-                if let second = try? await requestDocentScript(
-                    placeID: placeID,
-                    category: category,
-                    language: language,
-                    mode: mode
-                ) {
-                    if second.source != "fallback" {
-                        return second
-                    }
-                }
-            }
-
-            return first
-        }
-        scriptTasks[cacheKey] = task
-        defer { scriptTasks[cacheKey] = nil }
-
-        let result = try await task.value
+        let result = try await requestDocentScript(
+            placeID: placeID,
+            category: category,
+            language: language,
+            mode: mode
+        )
         if result.source != "fallback" {
             scriptCache[cacheKey] = result
         }
@@ -118,18 +91,7 @@ final class DocentRemoteService: DocentRemoteProviding {
         if let cached = audioCache[cacheKey] {
             return cached
         }
-        if let existingTask = audioTasks[cacheKey] {
-            return try await existingTask.value
-        }
-
-        let task = Task { [weak self] in
-            guard let self else { throw DocentRemoteError.invalidResponse }
-            return try await requestDocentAudio(script: trimmedScript, language: language)
-        }
-        audioTasks[cacheKey] = task
-        defer { audioTasks[cacheKey] = nil }
-
-        let data = try await task.value
+        let data = try await requestDocentAudio(script: trimmedScript, language: language)
         audioCache[cacheKey] = data
         return data
     }
@@ -148,7 +110,7 @@ final class DocentRemoteService: DocentRemoteProviding {
             mode: mode.rawValue
         )
 
-        var request = try makeRequest(url: url, method: "POST")
+        var request = try makeRequest(url: url, method: "POST", timeout: 12)
         request.httpBody = try encoder.encode(payload)
 
         let (data, response) = try await session.data(for: request)
@@ -160,7 +122,7 @@ final class DocentRemoteService: DocentRemoteProviding {
         let url = try makeURL(path: "/api/ios/v1/docent/audio")
         let payload = DocentAudioRequest(script: script, language: language.rawValue)
 
-        var request = try makeRequest(url: url, method: "POST")
+        var request = try makeRequest(url: url, method: "POST", timeout: 20)
         request.httpBody = try encoder.encode(payload)
 
         let (data, response) = try await session.data(for: request)
@@ -181,12 +143,13 @@ final class DocentRemoteService: DocentRemoteProviding {
         "\(language.rawValue)|\(script)"
     }
 
-    private func makeRequest(url: URL, method: String) throws -> URLRequest {
+    private func makeRequest(url: URL, method: String, timeout: TimeInterval) throws -> URLRequest {
         guard let apiKey else {
             throw DocentRemoteError.missingAPIKey
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
+        request.timeoutInterval = timeout
         request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         return request
@@ -230,6 +193,15 @@ final class DocentRemoteService: DocentRemoteProviding {
         guard (200 ... 299).contains(http.statusCode) else {
             throw DocentRemoteError.httpStatus(http.statusCode)
         }
+    }
+
+    private static func makeDefaultSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = false
+        config.timeoutIntervalForRequest = 12
+        config.timeoutIntervalForResource = 25
+        config.httpMaximumConnectionsPerHost = 2
+        return URLSession(configuration: config)
     }
 }
 

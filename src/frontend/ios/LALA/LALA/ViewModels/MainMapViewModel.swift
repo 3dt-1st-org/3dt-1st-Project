@@ -37,10 +37,12 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private let docentDataProvider: DocentRemoteProviding
     private let searchRadiusMeters = 10_000
     private let autoDocentTriggerRadiusMeters: CLLocationDistance = 100
+    private let autoDocentRequestCooldownSeconds: Double = 12
     private let placesReloadThresholdMeters: CLLocationDistance = 3_000
     private let weatherReloadThresholdMeters: CLLocationDistance = 10_000
     private let placesLoadingMaxSeconds: Double = 20
     private let placesFailureRetryCooldownSeconds: Double = 8
+    private let weatherFailureRetryCooldownSeconds: Double = 8
     private let defaultMapSpan = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
     private var hasAppliedInitialUserFocus = false
     private var isAppLocationConsentEnabled = false
@@ -48,12 +50,15 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private var reloadTask: Task<Void, Never>?
     private var weatherTask: Task<Void, Never>?
     private var narrationTask: Task<Void, Never>?
+    private var isDocentRequestInFlight = false
+    private var lastAutoDocentRequestedAt: Date?
     private var lastAutoGuidedPlaceID: String?
     private var hiddenMoreInfoPlaceID: String?
     private var allPlaces: [PlaceRecommendation] = []
     private var lastPlacesFetchCoordinate: CLLocationCoordinate2D?
     private var lastPlacesFetchCity: String?
     private var lastWeatherFetchCoordinate: CLLocationCoordinate2D?
+    private var lastWeatherFailureAt: Date?
     private var placesReloadToken = 0
     private var placesLoadingStartedAt: Date?
     private var lastPlacesFailureAt: Date?
@@ -294,8 +299,14 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         mode: DocentScriptMode
     ) {
         stopNarrationPlayback()
+        isDocentRequestInFlight = true
         narrationTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                Task { @MainActor [weak self] in
+                    self?.isDocentRequestInFlight = false
+                }
+            }
             do {
                 let response = try await docentDataProvider.fetchDocentScript(
                     placeID: place.id,
@@ -334,6 +345,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private func stopNarrationPlayback() {
         narrationTask?.cancel()
         narrationTask = nil
+        isDocentRequestInFlight = false
         audioPlayer?.stop()
         audioPlayer = nil
     }
@@ -341,9 +353,15 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private func playNarrationAudio(text: String, language: AppLanguage) {
         guard isVoiceGuidanceEnabled else { return }
         stopNarrationPlayback()
+        isDocentRequestInFlight = true
 
         narrationTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                Task { @MainActor [weak self] in
+                    self?.isDocentRequestInFlight = false
+                }
+            }
             do {
                 let audioData = try await docentDataProvider.fetchDocentAudio(
                     script: text,
@@ -554,18 +572,23 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     private func reloadWeather(force: Bool) {
         guard isAppLocationConsentEnabled, let coordinate = userCoordinate else { return }
+        if !force, let failedAt = lastWeatherFailureAt {
+            let elapsed = Date().timeIntervalSince(failedAt)
+            if elapsed < weatherFailureRetryCooldownSeconds {
+                return
+            }
+        }
         guard force || shouldReloadWeather(for: coordinate) else { return }
-
-        weatherTask?.cancel()
+        if weatherTask != nil {
+            return
+        }
         weatherTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                weatherTask = nil
+            }
             do {
-                var weatherResult = try await mapDataProvider.fetchWeather(at: coordinate)
-                if weatherResult.forecast.isEmpty,
-                   let retried = try? await mapDataProvider.fetchWeather(at: coordinate),
-                   !retried.forecast.isEmpty {
-                    weatherResult = retried
-                }
+                let weatherResult = try await mapDataProvider.fetchWeather(at: coordinate)
                 guard !Task.isCancelled else { return }
 
                 weatherSymbol = weatherResult.symbolName
@@ -573,12 +596,16 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 weatherDust = weatherResult.dustText
                 weatherForecast = weatherResult.forecast
                 lastWeatherFetchCoordinate = coordinate
+                lastWeatherFailureAt = nil
             } catch {
                 guard !Task.isCancelled else { return }
-                weatherSymbol = WeatherSnapshot.placeholder.symbolName
-                weatherValue = WeatherSnapshot.placeholder.temperatureText
-                weatherDust = WeatherSnapshot.placeholder.dustText
-                weatherForecast = []
+                lastWeatherFailureAt = Date()
+                if lastWeatherFetchCoordinate == nil {
+                    weatherSymbol = WeatherSnapshot.placeholder.symbolName
+                    weatherValue = WeatherSnapshot.placeholder.temperatureText
+                    weatherDust = WeatherSnapshot.placeholder.dustText
+                    weatherForecast = []
+                }
             }
         }
     }
@@ -724,7 +751,6 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
         refreshDistancesForCurrentLocation(latest.coordinate)
         refreshData(forcePlaces: false, forceWeather: false)
-        runAutoDocentIfNeeded(language: activeLanguage, forceAnnounce: false)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
@@ -734,6 +760,13 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     private func runAutoDocentIfNeeded(language: AppLanguage, forceAnnounce: Bool) {
         guard isAutoDocentEnabled, let userCoordinate, !places.isEmpty else { return }
+        guard !isDocentRequestInFlight else { return }
+        if !forceAnnounce, let requestedAt = lastAutoDocentRequestedAt {
+            let elapsed = Date().timeIntervalSince(requestedAt)
+            if elapsed < autoDocentRequestCooldownSeconds {
+                return
+            }
+        }
         guard let nearest = nearestPlace(to: userCoordinate) else { return }
         guard nearest.distance <= autoDocentTriggerRadiusMeters else {
             // Keep silent outside trigger radius and reset so entering range can announce.
@@ -746,6 +779,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         hiddenMoreInfoPlaceID = nil
         subtitle = docentLoadingText(for: language)
         lastAutoGuidedPlaceID = nearest.place.id
+        lastAutoDocentRequestedAt = Date()
         moreInfoEligiblePlaceID = nearest.place.id
 
         loadDocentScriptAndAudio(for: nearest.place, language: language, mode: .brief)
