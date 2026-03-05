@@ -51,14 +51,17 @@ protocol MapDataProviding {
 
 final class MapRemoteService: MapDataProviding {
     private let baseURL: URL?
+    private let apiKey: String?
     private let session: URLSession
     private let decoder = JSONDecoder()
 
     init(
         baseURL: URL? = AppRuntime.apiBaseURL,
+        apiKey: String? = AppRuntime.iosAPIKey,
         session: URLSession = .shared
     ) {
         self.baseURL = baseURL
+        self.apiKey = apiKey
         self.session = session
     }
 
@@ -67,12 +70,12 @@ final class MapRemoteService: MapDataProviding {
         radiusMeters: Int,
         category: MapPlaceFilter
     ) async throws -> [PlaceRecommendation] {
-        guard baseURL != nil else {
+        guard baseURL != nil, apiKey != nil else {
             return Self.fallbackPlaces(around: center, category: category)
         }
 
         let requestURL = try makeURL(
-            path: "/api/places",
+            path: "/api/ios/v1/places",
             queryItems: [
                 URLQueryItem(name: "lat", value: String(center.latitude)),
                 URLQueryItem(name: "lng", value: String(center.longitude)),
@@ -82,7 +85,7 @@ final class MapRemoteService: MapDataProviding {
         )
 
         do {
-            let (data, response) = try await session.data(from: requestURL)
+            let (data, response) = try await performRequest(url: requestURL)
             try validate(response: response)
 
             let decoded = try decoder.decode(RemotePlacesResponse.self, from: data)
@@ -94,12 +97,12 @@ final class MapRemoteService: MapDataProviding {
     }
 
     func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot {
-        guard baseURL != nil else {
+        guard baseURL != nil, apiKey != nil else {
             return WeatherSnapshot(symbolName: "cloud.sun.fill", temperatureText: "13°C")
         }
 
         let requestURL = try makeURL(
-            path: "/api/weather",
+            path: "/api/ios/v1/weather",
             queryItems: [
                 URLQueryItem(name: "lat", value: String(coordinate.latitude)),
                 URLQueryItem(name: "lng", value: String(coordinate.longitude))
@@ -107,7 +110,7 @@ final class MapRemoteService: MapDataProviding {
         )
 
         do {
-            let (data, response) = try await session.data(from: requestURL)
+            let (data, response) = try await performRequest(url: requestURL)
             try validate(response: response)
 
             let decoded = try decoder.decode(RemoteWeatherResponse.self, from: data)
@@ -118,6 +121,16 @@ final class MapRemoteService: MapDataProviding {
         } catch {
             return WeatherSnapshot(symbolName: "cloud.sun.fill", temperatureText: "13°C")
         }
+    }
+
+    private func performRequest(url: URL) async throws -> (Data, URLResponse) {
+        guard let apiKey else {
+            throw MapServiceError.missingAPIKey
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        return try await session.data(for: request)
     }
 
     private func makeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
@@ -335,6 +348,7 @@ final class MapRemoteService: MapDataProviding {
 
 enum MapServiceError: LocalizedError {
     case missingBaseURL
+    case missingAPIKey
     case localhostNotAllowed
     case invalidBaseURL
     case invalidRequestURL
@@ -345,6 +359,8 @@ enum MapServiceError: LocalizedError {
         switch self {
         case .missingBaseURL:
             return "API base URL is missing."
+        case .missingAPIKey:
+            return "iOS API key is missing."
         case .localhostNotAllowed:
             return "localhost is not allowed for API base URL."
         case .invalidBaseURL:
@@ -361,12 +377,12 @@ enum MapServiceError: LocalizedError {
 
 enum AppRuntime {
     static var apiBaseURL: URL? {
-        if let custom = loadBaseURLFromAppConfig(named: "AppConfig.local"),
+        if let custom = loadConfigValueFromAppConfig(named: "AppConfig.local", key: "API_BASE_URL"),
            let url = URL(string: custom) {
             return url
         }
 
-        if let custom = loadBaseURLFromAppConfig(named: "AppConfig"),
+        if let custom = loadConfigValueFromAppConfig(named: "AppConfig", key: "API_BASE_URL"),
            let url = URL(string: custom) {
             return url
         }
@@ -380,7 +396,26 @@ enum AppRuntime {
         return nil
     }
 
-    private static func loadBaseURLFromAppConfig(named resourceName: String) -> String? {
+    static var iosAPIKey: String? {
+        if let custom = loadConfigValueFromAppConfig(named: "AppConfig.local", key: "IOS_API_KEY") {
+            return custom
+        }
+
+        if let custom = loadConfigValueFromAppConfig(named: "AppConfig", key: "IOS_API_KEY") {
+            return custom
+        }
+
+        if let custom = Bundle.main.object(forInfoDictionaryKey: "LALA_IOS_API_KEY") as? String {
+            let trimmed = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        return nil
+    }
+
+    private static func loadConfigValueFromAppConfig(named resourceName: String, key: String) -> String? {
         let candidates: [(String?, String)] = [
             ("Config", resourceName),
             (nil, resourceName)
@@ -393,7 +428,7 @@ enum AppRuntime {
                 subdirectory: candidate.0
             ),
             let dictionary = NSDictionary(contentsOf: url) as? [String: Any],
-            let value = dictionary["API_BASE_URL"] as? String {
+            let value = dictionary[key] as? String {
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     return trimmed

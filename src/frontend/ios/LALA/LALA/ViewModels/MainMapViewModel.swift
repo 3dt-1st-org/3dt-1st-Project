@@ -28,9 +28,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     @Published private(set) var mapStatus: MapStatus = .none
     @Published private(set) var moreInfoEligiblePlaceID: String?
 
-    private let speechSynthesizer = AVSpeechSynthesizer()
+    private var audioPlayer: AVAudioPlayer?
     private let locationManager = CLLocationManager()
     private let mapDataProvider: MapDataProviding
+    private let docentDataProvider: DocentRemoteProviding
     private let searchRadiusMeters = 3_000
     private let autoDocentTriggerRadiusMeters: CLLocationDistance = 100
     private let defaultMapSpan = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
@@ -38,6 +39,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private var isAppLocationConsentEnabled = false
     private var activeLanguage: AppLanguage = .korean
     private var reloadTask: Task<Void, Never>?
+    private var narrationTask: Task<Void, Never>?
     private var lastAutoGuidedPlaceID: String?
     private var hiddenMoreInfoPlaceID: String?
 
@@ -46,8 +48,12 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         span: MKCoordinateSpan(latitudeDelta: 7.0, longitudeDelta: 8.0)
     )
 
-    init(mapDataProvider: MapDataProviding? = nil) {
+    init(
+        mapDataProvider: MapDataProviding? = nil,
+        docentDataProvider: DocentRemoteProviding? = nil
+    ) {
         self.mapDataProvider = mapDataProvider ?? MapRemoteService()
+        self.docentDataProvider = docentDataProvider ?? DocentRemoteService()
         region = initialRegion
         places = []
         super.init()
@@ -67,8 +73,8 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     func toggleVoiceGuidance(for language: AppLanguage) {
         isVoiceGuidanceEnabled.toggle()
-        if !isVoiceGuidanceEnabled, speechSynthesizer.isSpeaking {
-            speechSynthesizer.stopSpeaking(at: .immediate)
+        if !isVoiceGuidanceEnabled {
+            stopNarrationPlayback()
         }
         // Do not replace current caption with a "voice off" notice.
         if isVoiceGuidanceEnabled, selectedPlaceID == nil {
@@ -113,9 +119,9 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         centerOnPlace(place, animated: true)
 
         if isVoiceGuidanceEnabled {
-            speak(subtitle, language: language)
-        } else if speechSynthesizer.isSpeaking {
-            speechSynthesizer.stopSpeaking(at: .immediate)
+            playNarrationAudio(text: subtitle, language: language)
+        } else {
+            stopNarrationPlayback()
         }
     }
 
@@ -200,17 +206,36 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     func playMoreInfo(for place: PlaceRecommendation, language: AppLanguage) {
         guard canPlayMoreInfo(for: place.id) else { return }
         activeLanguage = language
-        let narration = buildMoreInfoNarration(for: place, language: language)
-        subtitle = narration
         hiddenMoreInfoPlaceID = place.id
         moreInfoEligiblePlaceID = nil
-        guard isVoiceGuidanceEnabled else {
-            if speechSynthesizer.isSpeaking {
-                speechSynthesizer.stopSpeaking(at: .immediate)
+        subtitle = docentLoadingText(for: language)
+
+        stopNarrationPlayback()
+        narrationTask = Task { [weak self] in
+            guard let self else { return }
+
+            do {
+                let response = try await docentDataProvider.fetchDocentScript(
+                    placeID: place.id,
+                    category: place.categoryKind,
+                    language: language,
+                    mode: .detail
+                )
+                guard !Task.isCancelled else { return }
+                subtitle = response.script
+
+                guard isVoiceGuidanceEnabled else { return }
+                let audioData = try await docentDataProvider.fetchDocentAudio(
+                    script: response.script,
+                    language: language
+                )
+                guard !Task.isCancelled else { return }
+                playAudio(data: audioData)
+            } catch {
+                guard !Task.isCancelled else { return }
+                subtitle = buildMoreInfoNarration(for: place, language: language)
             }
-            return
         }
-        speak(narration, language: language)
     }
 
     private func voiceOnSubtitle(for language: AppLanguage) -> String {
@@ -222,22 +247,50 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
-    private func speak(_ text: String, language: AppLanguage) {
-        if speechSynthesizer.isSpeaking {
-            speechSynthesizer.stopSpeaking(at: .immediate)
-        }
-
-        let utterance = AVSpeechUtterance(string: text)
-        let voiceCode: String
+    private func docentLoadingText(for language: AppLanguage) -> String {
         switch language {
         case .korean:
-            voiceCode = "ko-KR"
+            return "도슨트 정보를 생성하고 있어요. 잠시만 기다려 주세요."
         case .english:
-            voiceCode = "en-US"
+            return "Generating docent guidance. Please wait a moment."
         }
-        utterance.voice = AVSpeechSynthesisVoice(language: voiceCode)
-        utterance.rate = 0.5
-        speechSynthesizer.speak(utterance)
+    }
+
+    private func stopNarrationPlayback() {
+        narrationTask?.cancel()
+        narrationTask = nil
+        audioPlayer?.stop()
+        audioPlayer = nil
+    }
+
+    private func playNarrationAudio(text: String, language: AppLanguage) {
+        guard isVoiceGuidanceEnabled else { return }
+        stopNarrationPlayback()
+
+        narrationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let audioData = try await docentDataProvider.fetchDocentAudio(
+                    script: text,
+                    language: language
+                )
+                guard !Task.isCancelled else { return }
+                playAudio(data: audioData)
+            } catch {
+                // Keep subtitle visible even when audio generation fails.
+            }
+        }
+    }
+
+    private func playAudio(data: Data) {
+        do {
+            let player = try AVAudioPlayer(data: data)
+            player.prepareToPlay()
+            player.play()
+            audioPlayer = player
+        } catch {
+            audioPlayer = nil
+        }
     }
 
     private func applySelection(for place: PlaceRecommendation, language: AppLanguage) {
@@ -260,15 +313,15 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             moreInfoEligiblePlaceID = result.selectedPlaceID
         }
 
-        if result.shouldStopSpeaking, speechSynthesizer.isSpeaking {
-            speechSynthesizer.stopSpeaking(at: .immediate)
+        if result.shouldStopSpeaking {
+            stopNarrationPlayback()
         }
         if result.shouldCenterMap {
             centerOnPlace(place, animated: true)
         }
         if result.shouldSpeak {
             moreInfoEligiblePlaceID = place.id
-            speak(result.subtitle, language: language)
+            playNarrationAudio(text: result.subtitle, language: language)
         } else if result.selectedPlaceID != place.id {
             moreInfoEligiblePlaceID = nil
         }
@@ -349,9 +402,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             hiddenMoreInfoPlaceID = nil
             moreInfoEligiblePlaceID = nil
             subtitle = defaultSubtitle(for: activeLanguage)
-            if speechSynthesizer.isSpeaking {
-                speechSynthesizer.stopSpeaking(at: .immediate)
-            }
+            stopNarrationPlayback()
         }
 
         runAutoDocentIfNeeded(language: activeLanguage, forceAnnounce: false)
@@ -465,7 +516,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         moreInfoEligiblePlaceID = nearest.place.id
 
         if isVoiceGuidanceEnabled {
-            speak(subtitle, language: language)
+            playNarrationAudio(text: subtitle, language: language)
         }
     }
 
