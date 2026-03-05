@@ -57,9 +57,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     func refreshSubtitle(for language: AppLanguage) {
         activeLanguage = language
-        subtitle = isVoiceGuidanceEnabled
-            ? voiceOnSubtitle(for: language)
-            : voiceOffSubtitle(for: language)
+        subtitle = voiceOnSubtitle(for: language)
     }
 
     func updateLanguage(_ language: AppLanguage) {
@@ -72,7 +70,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         if !isVoiceGuidanceEnabled, speechSynthesizer.isSpeaking {
             speechSynthesizer.stopSpeaking(at: .immediate)
         }
-        refreshSubtitle(for: language)
+        // Do not replace current caption with a "voice off" notice.
+        if isVoiceGuidanceEnabled, selectedPlaceID == nil {
+            subtitle = voiceOnSubtitle(for: language)
+        }
         if isAutoDocentEnabled {
             runAutoDocentIfNeeded(language: language, forceAnnounce: false)
         }
@@ -108,16 +109,13 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         hiddenMoreInfoPlaceID = nil
         subtitle = place.guide(in: language)
         lastAutoGuidedPlaceID = place.id
+        moreInfoEligiblePlaceID = place.id
         centerOnPlace(place, animated: true)
 
         if isVoiceGuidanceEnabled {
-            moreInfoEligiblePlaceID = place.id
             speak(subtitle, language: language)
-        } else {
-            if speechSynthesizer.isSpeaking {
-                speechSynthesizer.stopSpeaking(at: .immediate)
-            }
-            moreInfoEligiblePlaceID = nil
+        } else if speechSynthesizer.isSpeaking {
+            speechSynthesizer.stopSpeaking(at: .immediate)
         }
     }
 
@@ -195,8 +193,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     func canPlayMoreInfo(for placeID: String) -> Bool {
-        isVoiceGuidanceEnabled &&
-            moreInfoEligiblePlaceID == placeID &&
+        moreInfoEligiblePlaceID == placeID &&
             hiddenMoreInfoPlaceID != placeID
     }
 
@@ -207,6 +204,12 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         subtitle = narration
         hiddenMoreInfoPlaceID = place.id
         moreInfoEligiblePlaceID = nil
+        guard isVoiceGuidanceEnabled else {
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.stopSpeaking(at: .immediate)
+            }
+            return
+        }
         speak(narration, language: language)
     }
 
@@ -216,15 +219,6 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             return "음성 안내: 지금 위치 기준 15분 거리의 로컬 맛집과 산책 코스를 안내해드릴게요."
         case .english:
             return "Voice guide: I can guide you to local food spots and walks within 15 minutes."
-        }
-    }
-
-    private func voiceOffSubtitle(for language: AppLanguage) -> String {
-        switch language {
-        case .korean:
-            return "음성 안내가 꺼져 있습니다. 하단 버튼을 눌러 다시 시작하세요."
-        case .english:
-            return "Voice guidance is off. Tap the bottom button to resume."
         }
     }
 
@@ -259,9 +253,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         subtitle = result.subtitle
 
         if result.selectedPlaceID == nil {
+            hiddenMoreInfoPlaceID = nil
             moreInfoEligiblePlaceID = nil
         } else if result.selectedPlaceID != hiddenMoreInfoPlaceID {
             hiddenMoreInfoPlaceID = nil
+            moreInfoEligiblePlaceID = result.selectedPlaceID
         }
 
         if result.shouldStopSpeaking, speechSynthesizer.isSpeaking {
@@ -282,7 +278,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     private func defaultSubtitle(for language: AppLanguage) -> String {
-        isVoiceGuidanceEnabled ? voiceOnSubtitle(for: language) : voiceOffSubtitle(for: language)
+        voiceOnSubtitle(for: language)
     }
 
     func clampRegion(_ candidate: MKCoordinateRegion) -> MKCoordinateRegion {
@@ -466,12 +462,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         hiddenMoreInfoPlaceID = nil
         subtitle = nearest.place.guide(in: language)
         lastAutoGuidedPlaceID = nearest.place.id
+        moreInfoEligiblePlaceID = nearest.place.id
 
         if isVoiceGuidanceEnabled {
-            moreInfoEligiblePlaceID = nearest.place.id
             speak(subtitle, language: language)
-        } else {
-            moreInfoEligiblePlaceID = nil
         }
     }
 
