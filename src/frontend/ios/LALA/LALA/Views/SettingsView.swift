@@ -33,7 +33,7 @@ struct SettingsView: View {
             Text(viewModel.privacyBody(in: viewModel.selectedLanguage))
                 .font(.system(size: 14 * viewModel.fontScale, weight: .regular))
                 .foregroundStyle(.secondary)
-            Button(viewModel.selectedLanguage == .korean ? "자세히 보기" : "View Details") {
+            Button(viewModel.viewDetailsText(in: viewModel.selectedLanguage)) {
                 showPrivacyDetail = true
             }
             .font(.system(size: 13 * viewModel.fontScale, weight: .semibold))
@@ -54,7 +54,7 @@ struct SettingsView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button(viewModel.selectedLanguage == .korean ? "닫기" : "Close") {
+                        Button(viewModel.closeText(in: viewModel.selectedLanguage)) {
                             showPrivacyDetail = false
                         }
                     }
@@ -67,9 +67,7 @@ struct SettingsView: View {
     private var locationConsentCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle(
-                viewModel.selectedLanguage == .korean
-                    ? "위치기반 정보 제공 동의"
-                    : "Location-Based Data Consent",
+                viewModel.locationConsentTitle(in: viewModel.selectedLanguage),
                 isOn: Binding(
                     get: { viewModel.isLocationConsentEnabled },
                     set: { value in
@@ -86,7 +84,7 @@ struct SettingsView: View {
 
     private var languageCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(viewModel.selectedLanguage == .korean ? "언어" : "Language")
+            Text(viewModel.languageTitle(in: viewModel.selectedLanguage))
                 .font(.system(size: 16 * viewModel.fontScale, weight: .semibold))
             Picker(
                 "",
@@ -110,7 +108,7 @@ struct SettingsView: View {
 
     private var fontCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(viewModel.selectedLanguage == .korean ? "글꼴 크기" : "Font Size")
+            Text(viewModel.fontSizeTitle(in: viewModel.selectedLanguage))
                 .font(.system(size: 16 * viewModel.fontScale, weight: .semibold))
 
             Slider(

@@ -222,3 +222,5 @@ artifacts/**
 **/*.xcuserstate
 **/*.xccheckout
 **/*.xcscmblueprint
+**/.DS_Store
+src/frontend/ios/LALA/LALA/Config/AppConfig.local.plist

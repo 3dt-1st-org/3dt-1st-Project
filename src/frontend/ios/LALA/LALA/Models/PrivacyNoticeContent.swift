@@ -58,4 +58,5 @@ Article 5 (Right to Refuse and Impact)
 You may refuse consent to personal data and location data processing.
 However, because core features are location-based, refusing consent or disabling iOS location permission will restrict app usage.
 """
+
 }

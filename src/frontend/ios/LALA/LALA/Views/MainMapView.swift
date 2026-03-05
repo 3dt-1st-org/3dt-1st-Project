@@ -12,7 +12,7 @@ struct MainMapView: View {
     @ObservedObject var appViewModel: AppViewModel
     @StateObject private var viewModel = MainMapViewModel()
     @State private var showSettings = false
-    @State private var userTrackingMode: MapUserTrackingMode = .none
+    @State private var selectedDetailPlace: PlaceRecommendation?
 
     var body: some View {
         ZStack {
@@ -20,17 +20,18 @@ struct MainMapView: View {
                 coordinateRegion: boundedRegionBinding,
                 interactionModes: [.pan, .zoom],
                 showsUserLocation: true,
-                userTrackingMode: $userTrackingMode,
                 annotationItems: viewModel.places
             ) { place in
                 MapAnnotation(coordinate: place.coordinate) {
                     PlacePinView(
                         title: place.name(in: appViewModel.selectedLanguage),
                         categorySymbol: place.categoryKind.symbolName,
+                        categoryKind: place.categoryKind,
                         isSelected: viewModel.selectedPlaceID == place.id
                     )
                     .onTapGesture {
                         viewModel.handleMapPinTap(place, language: appViewModel.selectedLanguage)
+                        selectedDetailPlace = place
                     }
                 }
             }
@@ -40,11 +41,11 @@ struct MainMapView: View {
             overlayContent
         }
         .onAppear {
-            viewModel.refreshSubtitle(for: appViewModel.selectedLanguage)
+            viewModel.updateLanguage(appViewModel.selectedLanguage)
             viewModel.configureLocationUpdates(consentEnabled: appViewModel.isLocationConsentEnabled)
         }
         .onChange(of: appViewModel.selectedLanguage) { _, newValue in
-            viewModel.refreshSubtitle(for: newValue)
+            viewModel.updateLanguage(newValue)
         }
         .onChange(of: appViewModel.isLocationConsentEnabled) { _, consent in
             viewModel.configureLocationUpdates(consentEnabled: consent)
@@ -52,6 +53,21 @@ struct MainMapView: View {
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $showSettings) {
             SettingsView(viewModel: SettingsViewModel(appViewModel: appViewModel))
+        }
+        .sheet(item: $selectedDetailPlace) { place in
+            PlaceDetailBottomSheet(
+                place: place,
+                language: appViewModel.selectedLanguage,
+                fontScale: appViewModel.fontScale,
+                recommendationText: viewModel.recommendationReason(for: place, language: appViewModel.selectedLanguage),
+                moreInfoButtonTitle: viewModel.moreInfoButtonTitle(for: appViewModel.selectedLanguage),
+                showMoreInfoButton: viewModel.canPlayMoreInfo(for: place.id),
+                onPlayMoreInfo: {
+                    viewModel.playMoreInfo(for: place, language: appViewModel.selectedLanguage)
+                }
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -65,9 +81,11 @@ struct MainMapView: View {
     }
 
     private var overlayContent: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
+            placeFilterChips
+
             placeCarousel
-                .padding(.top, 4)
+                .padding(.top, 2)
 
             HStack {
                 settingsButton
@@ -76,12 +94,21 @@ struct MainMapView: View {
             }
             .padding(.horizontal, 16)
 
+            if viewModel.isLoadingPlaces {
+                loadingBadge
+            }
+
+            if let status = viewModel.statusMessage(for: appViewModel.selectedLanguage) {
+                statusBanner(status)
+            }
+
             Spacer()
 
             subtitleView
             ZStack {
-                voiceToggleButton
+                autoDocentModeButton
                 HStack {
+                    muteToggleButton
                     Spacer()
                     currentLocationButton
                 }
@@ -93,6 +120,38 @@ struct MainMapView: View {
         .safeAreaPadding(.bottom, 8)
     }
 
+    private var placeFilterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(MapPlaceFilter.allCases) { filter in
+                    Button {
+                        viewModel.selectFilter(filter)
+                    } label: {
+                        Text(filter.title(in: appViewModel.selectedLanguage))
+                            .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
+                            .foregroundStyle(
+                                viewModel.selectedFilter == filter
+                                    ? chipSelectedTextColor(for: filter)
+                                    : Color(AppThemeColor.north.rawValue)
+                            )
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(
+                                        viewModel.selectedFilter == filter
+                                            ? chipSelectedBackgroundColor(for: filter)
+                                            : Color.white.opacity(0.93)
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+        }
+    }
+
     private var placeCarousel: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
@@ -101,22 +160,43 @@ struct MainMapView: View {
                         Button {
                             viewModel.handlePlaceTap(place, language: appViewModel.selectedLanguage)
                         } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(place.name(in: appViewModel.selectedLanguage))
-                                    .font(.system(size: 16 * appViewModel.fontScale, weight: .bold))
-                                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                                    .lineLimit(1)
+                            HStack(alignment: .center, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(place.name(in: appViewModel.selectedLanguage))
+                                        .font(.system(size: 15 * appViewModel.fontScale, weight: .bold))
+                                        .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                                        .lineLimit(2)
+                                        .minimumScaleFactor(0.85)
 
-                                Text(place.category(in: appViewModel.selectedLanguage))
-                                    .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
-                                    .foregroundStyle(Color(AppThemeColor.east.rawValue))
+                                    Text(place.category(in: appViewModel.selectedLanguage))
+                                        .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
+                                        .foregroundStyle(categoryTextColor(for: place.categoryKind))
+                                        .lineLimit(1)
 
-                                Text(place.district(in: appViewModel.selectedLanguage))
-                                    .font(.system(size: 12 * appViewModel.fontScale, weight: .medium))
-                                    .foregroundStyle(.secondary)
+                                    HStack(spacing: 6) {
+                                        Text(place.district(in: appViewModel.selectedLanguage))
+                                            .font(.system(size: 11 * appViewModel.fontScale, weight: .medium))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+
+                                        if let distance = place.distanceLabel(in: appViewModel.selectedLanguage) {
+                                            Text(distance)
+                                                .font(.system(size: 11 * appViewModel.fontScale, weight: .semibold))
+                                                .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.7))
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                PlaceCardImageView(
+                                    imageURL: place.imageURL,
+                                    sideLength: 86
+                                )
                             }
-                            .frame(width: 210, alignment: .leading)
-                            .padding(14)
+                            .frame(width: 252, alignment: .leading)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
                             .background(
                                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                                     .fill(Color.white.opacity(0.92))
@@ -126,6 +206,13 @@ struct MainMapView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.45)
+                                .onEnded { _ in
+                                    viewModel.activatePlaceForDetail(place, language: appViewModel.selectedLanguage)
+                                    selectedDetailPlace = place
+                                }
+                        )
                         .id(place.id)
                     }
                 }
@@ -158,6 +245,49 @@ struct MainMapView: View {
         .accessibilityLabel(viewModel.weatherA11yText(for: appViewModel.selectedLanguage))
     }
 
+    private var loadingBadge: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .tint(Color(AppThemeColor.east.rawValue))
+            Text(loadingText)
+                .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
+                .foregroundStyle(Color(AppThemeColor.north.rawValue))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.94))
+        )
+    }
+
+    private func statusBanner(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Color.orange)
+
+            Text(text)
+                .font(.system(size: 12 * appViewModel.fontScale, weight: .medium))
+                .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 6)
+
+            Button(retryText) {
+                viewModel.retryLoadingPlaces()
+            }
+            .font(.system(size: 12 * appViewModel.fontScale, weight: .bold))
+            .foregroundStyle(Color(AppThemeColor.east.rawValue))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.95))
+        )
+        .padding(.horizontal, 16)
+    }
+
     private var settingsButton: some View {
         Button {
             showSettings = true
@@ -171,54 +301,94 @@ struct MainMapView: View {
                         .fill(Color.white.opacity(0.93))
                 )
         }
-        .accessibilityLabel(appViewModel.selectedLanguage == .korean ? "설정" : "Settings")
+        .accessibilityLabel(settingsText)
     }
 
     private var subtitleView: some View {
-        Text(viewModel.subtitle)
-            .font(.system(size: 15 * appViewModel.fontScale, weight: .medium))
-            .foregroundStyle(Color(AppThemeColor.north.rawValue))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.92))
-            )
-            .overlay {
-                AnimatedObangBorder(cornerRadius: 16, isActive: viewModel.selectedPlaceID != nil)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(viewModel.subtitle)
+                .font(.system(size: 15 * appViewModel.fontScale, weight: .medium))
+                .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let selectedPlace = viewModel.selectedPlace,
+               viewModel.canPlayMoreInfo(for: selectedPlace.id) {
+                Button {
+                    viewModel.playMoreInfo(for: selectedPlace, language: appViewModel.selectedLanguage)
+                } label: {
+                    Text(viewModel.moreInfoButtonTitle(for: appViewModel.selectedLanguage))
+                        .font(.system(size: 13 * appViewModel.fontScale, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color(AppThemeColor.east.rawValue))
+                        )
+                }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 14)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.92))
+        )
+        .overlay {
+            AnimatedObangBorder(cornerRadius: 16, isActive: viewModel.selectedPlaceID != nil)
+        }
+        .padding(.horizontal, 14)
     }
 
-    private var voiceToggleButton: some View {
+    private var muteToggleButton: some View {
         Button {
             viewModel.toggleVoiceGuidance(for: appViewModel.selectedLanguage)
+        } label: {
+            Image(systemName: viewModel.isVoiceGuidanceEnabled ? "speaker.wave.3.fill" : "speaker.slash.fill")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 46, height: 46)
+                .background(
+                    Circle()
+                        .fill(
+                            viewModel.isVoiceGuidanceEnabled
+                                ? Color(AppThemeColor.east.rawValue)
+                                : Color(AppThemeColor.north.rawValue).opacity(0.8)
+                        )
+                )
+        }
+        .accessibilityLabel(muteVoiceText)
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+    }
+
+    private var autoDocentModeButton: some View {
+        Button {
+            viewModel.toggleAutoDocentMode(for: appViewModel.selectedLanguage)
         } label: {
             ZStack {
                 Circle()
                     .fill(
-                        viewModel.isVoiceGuidanceEnabled
+                        viewModel.isAutoDocentEnabled
                             ? Color(AppThemeColor.east.rawValue)
                             : Color(AppThemeColor.north.rawValue).opacity(0.8)
                     )
                     .frame(width: 74, height: 74)
 
-                Image(systemName: viewModel.isVoiceGuidanceEnabled ? "speaker.wave.3.fill" : "speaker.slash.fill")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(.white)
+                VStack(spacing: 2) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 17, weight: .bold))
+                    Text(viewModel.isAutoDocentEnabled ? "ON" : "OFF")
+                        .font(.system(size: 10, weight: .bold))
+                }
+                .foregroundStyle(.white)
             }
         }
-        .accessibilityLabel(
-            appViewModel.selectedLanguage == .korean
-                ? "음성 안내 토글"
-                : "Toggle voice guidance"
-        )
+        .accessibilityLabel(autoDocentText)
     }
 
     private var currentLocationButton: some View {
         Button {
-            userTrackingMode = .none
             viewModel.centerOnUserLocation(animated: true)
         } label: {
             Image(systemName: "location.fill")
@@ -229,8 +399,228 @@ struct MainMapView: View {
                     Circle().fill(Color(AppThemeColor.east.rawValue))
                 )
         }
-        .accessibilityLabel(appViewModel.selectedLanguage == .korean ? "현재 위치로 이동" : "Go to current location")
+        .accessibilityLabel(currentLocationText)
         .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+    }
+
+    private var loadingText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "주변 장소 로딩 중..."
+        case .english:
+            return "Loading nearby places..."
+        }
+    }
+
+    private var retryText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "다시시도"
+        case .english:
+            return "Retry"
+        }
+    }
+
+    private var settingsText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "설정"
+        case .english:
+            return "Settings"
+        }
+    }
+
+    private var muteVoiceText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "음성 안내 음소거 토글"
+        case .english:
+            return "Toggle voice mute"
+        }
+    }
+
+    private var currentLocationText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "현재 위치로 이동"
+        case .english:
+            return "Go to current location"
+        }
+    }
+
+    private var autoDocentText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "자동 도슨트 모드 토글"
+        case .english:
+            return "Toggle auto docent mode"
+        }
+    }
+
+    private func chipSelectedBackgroundColor(for filter: MapPlaceFilter) -> Color {
+        switch filter {
+        case .all:
+            return Color(AppThemeColor.north.rawValue)
+        case .attraction:
+            return Color(AppThemeColor.south.rawValue)
+        case .restaurant:
+            return Color(AppThemeColor.center.rawValue)
+        case .event:
+            return Color(AppThemeColor.east.rawValue)
+        }
+    }
+
+    private func chipSelectedTextColor(for filter: MapPlaceFilter) -> Color {
+        switch filter {
+        case .restaurant:
+            return Color(AppThemeColor.north.rawValue)
+        default:
+            return .white
+        }
+    }
+
+    private func categoryTextColor(for kind: PlaceCategoryKind) -> Color {
+        switch kind {
+        case .attraction:
+            return Color(AppThemeColor.south.rawValue).opacity(0.95)
+        case .restaurant:
+            // Yellow needs a darker tone on white cards for readability.
+            return Color(red: 0.55, green: 0.45, blue: 0.12)
+        case .event:
+            return Color(AppThemeColor.east.rawValue).opacity(0.95)
+        }
+    }
+}
+
+private struct PlaceDetailBottomSheet: View {
+    let place: PlaceRecommendation
+    let language: AppLanguage
+    let fontScale: CGFloat
+    let recommendationText: String
+    let moreInfoButtonTitle: String
+    let showMoreInfoButton: Bool
+    let onPlayMoreInfo: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            heroImage
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(place.name(in: language))
+                    .font(.system(size: 18 * fontScale, weight: .bold))
+                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                    .lineLimit(2)
+
+                Text(place.category(in: language))
+                    .font(.system(size: 13 * fontScale, weight: .semibold))
+                    .foregroundStyle(categoryColor(for: place.categoryKind))
+
+                HStack(spacing: 6) {
+                    Text(place.district(in: language))
+                        .font(.system(size: 12 * fontScale, weight: .medium))
+                        .foregroundStyle(.secondary)
+
+                    if let distance = place.distanceLabel(in: language) {
+                        Text(distance)
+                            .font(.system(size: 12 * fontScale, weight: .semibold))
+                            .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.75))
+                    }
+                }
+
+                Text(place.address(in: language))
+                    .font(.system(size: 12 * fontScale, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Text(recommendationText)
+                .font(.system(size: 13 * fontScale, weight: .medium))
+                .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                .lineLimit(4)
+
+            if showMoreInfoButton {
+                Button(action: onPlayMoreInfo) {
+                    Text(moreInfoButtonTitle)
+                        .font(.system(size: 14 * fontScale, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color(AppThemeColor.east.rawValue))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 22)
+    }
+
+    private var heroImage: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(AppThemeColor.center.rawValue).opacity(0.6),
+                            Color(AppThemeColor.east.rawValue).opacity(0.45)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            if let imageURL = place.imageURL {
+                AsyncImage(url: imageURL) { phase in
+                    switch phase {
+                    case let .success(image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        heroPlaceholder
+                    }
+                }
+            } else {
+                heroPlaceholder
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 170)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    private var heroPlaceholder: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(AppThemeColor.west.rawValue).opacity(0.85),
+                    Color(AppThemeColor.center.rawValue).opacity(0.65)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image(systemName: "photo")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.6))
+        }
+    }
+
+    private func categoryColor(for kind: PlaceCategoryKind) -> Color {
+        switch kind {
+        case .attraction:
+            return Color(AppThemeColor.south.rawValue).opacity(0.95)
+        case .restaurant:
+            return Color(red: 0.55, green: 0.45, blue: 0.12)
+        case .event:
+            return Color(AppThemeColor.east.rawValue).opacity(0.95)
+        }
     }
 }
 
@@ -280,6 +670,7 @@ private struct AnimatedObangBorder: View {
 private struct PlacePinView: View {
     let title: String
     let categorySymbol: String
+    let categoryKind: PlaceCategoryKind
     let isSelected: Bool
 
     var body: some View {
@@ -307,8 +698,8 @@ private struct PlacePinView: View {
                 Circle()
                     .fill(
                         isSelected
-                            ? Color(AppThemeColor.south.rawValue)
-                            : Color(AppThemeColor.north.rawValue).opacity(0.88)
+                            ? pinColor
+                            : pinColor.opacity(0.9)
                     )
                     .frame(width: isSelected ? 22 : 18, height: isSelected ? 22 : 18)
 
@@ -318,5 +709,74 @@ private struct PlacePinView: View {
             }
         }
         .frame(maxWidth: 150)
+    }
+
+    private var pinColor: Color {
+        switch categoryKind {
+        case .attraction:
+            return Color(AppThemeColor.south.rawValue)
+        case .restaurant:
+            return Color(AppThemeColor.center.rawValue)
+        case .event:
+            return Color(AppThemeColor.east.rawValue)
+        }
+    }
+}
+
+private struct PlaceCardImageView: View {
+    let imageURL: URL?
+    var sideLength: CGFloat = 108
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(AppThemeColor.center.rawValue).opacity(0.65),
+                            Color(AppThemeColor.east.rawValue).opacity(0.45)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            if let imageURL {
+                AsyncImage(url: imageURL) { phase in
+                    switch phase {
+                    case let .success(image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        placeholder
+                    }
+                }
+            } else {
+                placeholder
+            }
+        }
+        .frame(width: sideLength, height: sideLength)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(AppThemeColor.west.rawValue).opacity(0.8),
+                    Color(AppThemeColor.center.rawValue).opacity(0.6)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image(systemName: "photo")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.6))
+        }
     }
 }
