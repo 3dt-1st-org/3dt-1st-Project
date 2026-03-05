@@ -4,7 +4,7 @@ import pandas as pd
 
 # 1. API 기본 세팅
 api_url = "http://www.swcf.or.kr/openAPI/"
-api_key = "ggc-event_API_KEY_HERE"
+api_key = os.environ.get("SUWON_API_KEY")
 cg_code = "29_EV"
 
 params = {
