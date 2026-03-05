@@ -11,6 +11,12 @@ iOS now calls iOS-scoped endpoints:
 
 All iOS requests must include `X-API-Key`.
 
+`/api/ios/v1/weather` response now includes:
+
+- current weather: `temp`, `icon`
+- dust info: `dust.pm10`, `dust.pm25`, `dust.grade`
+- short forecast: `forecast[]` (time, temp, icon)
+
 ## 1) Pre-deploy DB schema check (required)
 
 Run this before every deployment:

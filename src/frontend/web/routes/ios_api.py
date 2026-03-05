@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import hmac
+import json
 import math
 import os
-from datetime import datetime, timedelta
+import re
+from datetime import datetime, timedelta, timezone
 from functools import wraps
+from urllib.parse import quote, urlsplit, urlunsplit
+from zoneinfo import ZoneInfo
 
 import psycopg2.extras
 import requests as http_requests
@@ -40,12 +44,29 @@ _WEATHER_API_URL = (
     "http://apis.data.go.kr/1360000/"
     "VilageFcstInfoService_2.0/getUltraSrtNcst"
 )
+_OPEN_METEO_WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
+_OPEN_METEO_AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
+_DUST_GRADE_LABELS = {
+    "good": "좋음",
+    "normal": "보통",
+    "bad": "나쁨",
+    "very_bad": "매우나쁨",
+    "unknown": "정보없음",
+}
 
 
 _VALID_PLACE_CATEGORIES = {"all", "attraction", "restaurant", "event"}
 _VALID_DOCENT_CATEGORIES = {"attraction", "restaurant", "event"}
 _VALID_LANGUAGES = {"ko", "en"}
 _VALID_MODES = {"brief", "detail"}
+_RESTAURANT_IMAGE_COLUMN_CANDIDATES = (
+    "image_url",
+    "image_urls",
+    "thumbnail_url",
+    "thumb_url",
+    "photo_url",
+    "photo_urls",
+)
 
 
 def _latlon_to_grid(lat: float, lon: float) -> tuple[int, int]:
@@ -99,7 +120,102 @@ def _parse_int_arg(name: str, default: int) -> int:
     return int(raw)
 
 
-def _weather_snapshot(lat: float, lng: float) -> tuple[dict[str, str], int]:
+def _weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
+    try:
+        weather_payload = None
+        last_weather_exc: Exception | None = None
+        for _ in range(2):
+            try:
+                weather_payload = _fetch_open_meteo_weather(lat=lat, lng=lng)
+                break
+            except Exception as exc:
+                last_weather_exc = exc
+        if weather_payload is None:
+            if last_weather_exc is not None:
+                raise last_weather_exc
+            raise RuntimeError("open-meteo weather fetch failed")
+
+        current = weather_payload.get("current") or {}
+
+        temp = _format_temp_value(current.get("temperature_2m"))
+        icon = _wmo_weather_icon(current.get("weather_code"))
+        forecast = _build_weather_forecast_payload(weather_payload=weather_payload)
+
+        dust = {
+            "pm10": None,
+            "pm25": None,
+            "grade": "unknown",
+            "grade_ko": _DUST_GRADE_LABELS["unknown"],
+        }
+        dust_source = "none"
+        try:
+            air_payload = _fetch_open_meteo_air_quality(lat=lat, lng=lng)
+            dust = _build_current_dust_payload(air_payload=air_payload)
+            dust_source = "open-meteo"
+        except Exception:
+            dust_source = "unavailable"
+
+        return {
+            "temp": temp,
+            "icon": icon,
+            "dust": dust,
+            "forecast": forecast,
+            "source": "open-meteo",
+            "dust_source": dust_source,
+        }, 200
+    except Exception as primary_exc:
+        legacy_payload, legacy_status = _legacy_weather_snapshot(lat=lat, lng=lng)
+        if legacy_status == 200:
+            legacy_payload["dust"] = {
+                "pm10": None,
+                "pm25": None,
+                "grade": "unknown",
+                "grade_ko": _DUST_GRADE_LABELS["unknown"],
+            }
+            legacy_payload["forecast"] = []
+            legacy_payload["source"] = "kma-fallback"
+            legacy_payload["dust_source"] = "none"
+            return legacy_payload, 200
+
+        return {
+            "error": str(primary_exc),
+            "fallback_error": legacy_payload.get("error"),
+        }, 502
+
+
+def _fetch_open_meteo_weather(lat: float, lng: float) -> dict:
+    response = http_requests.get(
+        _OPEN_METEO_WEATHER_URL,
+        params={
+            "latitude": lat,
+            "longitude": lng,
+            "current": "temperature_2m,weather_code",
+            "hourly": "temperature_2m,weather_code",
+            "forecast_days": 3,
+            "timezone": "Asia/Seoul",
+        },
+        timeout=6,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def _fetch_open_meteo_air_quality(lat: float, lng: float) -> dict:
+    response = http_requests.get(
+        _OPEN_METEO_AIR_QUALITY_URL,
+        params={
+            "latitude": lat,
+            "longitude": lng,
+            "current": "pm10,pm2_5",
+            "timezone": "Asia/Seoul",
+        },
+        timeout=6,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def _legacy_weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
     weather_api_key = (os.getenv("WEATHER_API_KEY") or "").strip()
     if not weather_api_key:
         return {"error": "WEATHER_API_KEY is not configured"}, 503
@@ -139,6 +255,231 @@ def _weather_snapshot(lat: float, lng: float) -> tuple[dict[str, str], int]:
         return {"temp": str(temp), "icon": icon}, 200
     except Exception as exc:
         return {"error": str(exc)}, 500
+
+
+def _safe_float(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(number) or math.isinf(number):
+        return None
+    return number
+
+
+def _format_temp_value(value) -> str:
+    number = _safe_float(value)
+    if number is None:
+        return "--"
+    rounded = round(number)
+    if abs(number - rounded) < 0.05:
+        return str(int(rounded))
+    return f"{number:.1f}"
+
+
+def _format_pm_value(value) -> str | None:
+    number = _safe_float(value)
+    if number is None:
+        return None
+    return str(int(round(number)))
+
+
+def _wmo_weather_icon(code_value) -> str:
+    code_number = _safe_float(code_value)
+    if code_number is None:
+        return "🌡️"
+    code = int(round(code_number))
+
+    if code == 0:
+        return "☀️"
+    if code in {1, 2}:
+        return "⛅"
+    if code == 3:
+        return "☁️"
+    if code in {45, 48}:
+        return "🌫️"
+    if code in {51, 53, 55, 56, 57}:
+        return "🌦️"
+    if code in {61, 63, 65, 66, 67, 80, 81, 82}:
+        return "🌧️"
+    if code in {71, 73, 75, 77, 85, 86}:
+        return "🌨️"
+    if code in {95, 96, 99}:
+        return "⛈️"
+    return "🌡️"
+
+
+def _dust_grade_code(pm10_value, pm25_value) -> str:
+    pm10 = _safe_float(pm10_value)
+    pm25 = _safe_float(pm25_value)
+
+    if pm10 is None and pm25 is None:
+        return "unknown"
+
+    # Korean guideline levels:
+    # PM10: good <= 30, normal <= 80, bad <= 150
+    # PM2.5: good <= 15, normal <= 35, bad <= 75
+    pm10_level = 0
+    if pm10 is not None:
+        if pm10 > 150:
+            pm10_level = 3
+        elif pm10 > 80:
+            pm10_level = 2
+        elif pm10 > 30:
+            pm10_level = 1
+
+    pm25_level = 0
+    if pm25 is not None:
+        if pm25 > 75:
+            pm25_level = 3
+        elif pm25 > 35:
+            pm25_level = 2
+        elif pm25 > 15:
+            pm25_level = 1
+
+    level = max(pm10_level, pm25_level)
+    return ["good", "normal", "bad", "very_bad"][level]
+
+
+def _build_current_dust_payload(air_payload: dict) -> dict:
+    current = air_payload.get("current") or {}
+    pm10 = current.get("pm10")
+    pm25 = current.get("pm2_5")
+    grade = _dust_grade_code(pm10, pm25)
+
+    return {
+        "pm10": _format_pm_value(pm10),
+        "pm25": _format_pm_value(pm25),
+        "grade": grade,
+        "grade_ko": _DUST_GRADE_LABELS.get(grade, _DUST_GRADE_LABELS["unknown"]),
+    }
+
+
+def _build_weather_forecast_payload(weather_payload: dict) -> list[dict]:
+    hourly = weather_payload.get("hourly") or {}
+    times = hourly.get("time") or []
+    temps = hourly.get("temperature_2m") or []
+    codes = hourly.get("weather_code") or []
+    if not times:
+        return []
+
+    try:
+        now_local = datetime.now(ZoneInfo("Asia/Seoul")).replace(tzinfo=None)
+    except Exception:
+        now_local = datetime.now(timezone.utc).astimezone(
+            timezone(timedelta(hours=9))
+        ).replace(tzinfo=None)
+
+    forecast: list[dict] = []
+    future_count = 0
+    upper_bound = min(len(times), len(temps), len(codes))
+    for idx in range(upper_bound):
+        try:
+            forecast_time = datetime.fromisoformat(str(times[idx]))
+            if forecast_time.tzinfo is not None:
+                forecast_time = forecast_time.astimezone(ZoneInfo("Asia/Seoul")).replace(tzinfo=None)
+        except Exception:
+            continue
+
+        if forecast_time <= now_local:
+            continue
+        if future_count % 3 != 0:
+            future_count += 1
+            continue
+
+        forecast.append(
+            {
+                "time": str(times[idx]),
+                "temp": _format_temp_value(temps[idx]),
+                "icon": _wmo_weather_icon(codes[idx]),
+            }
+        )
+        future_count += 1
+        if len(forecast) >= 12:
+            break
+    return forecast
+
+
+def _restaurant_image_expr(cursor) -> str:
+    cursor.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'locallink'
+          AND table_name = 'gg_restaurant_info'
+          AND column_name = ANY(%s)
+        ORDER BY array_position(%s, column_name)
+        LIMIT 1
+        """,
+        (list(_RESTAURANT_IMAGE_COLUMN_CANDIDATES), list(_RESTAURANT_IMAGE_COLUMN_CANDIDATES)),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return "NULL::TEXT"
+    column_name = row[0]
+    if column_name not in _RESTAURANT_IMAGE_COLUMN_CANDIDATES:
+        return "NULL::TEXT"
+    return f"COALESCE(NULLIF(TRIM({column_name}::TEXT), ''), NULL)"
+
+
+def _normalize_image_url(raw) -> str | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+
+    parsed_candidates: list[str] = []
+    if text.startswith("["):
+        try:
+            parsed_json = json.loads(text)
+            if isinstance(parsed_json, list):
+                parsed_candidates = [str(item).strip() for item in parsed_json if str(item).strip()]
+        except Exception:
+            parsed_candidates = []
+
+    if text.startswith("{") and text.endswith("}"):
+        body = text[1:-1]
+        parsed_candidates.extend(
+            segment.strip().strip('"').strip("'")
+            for segment in body.split(",")
+            if segment.strip().strip('"').strip("'")
+        )
+
+    if not parsed_candidates:
+        matches = re.findall(r"https?://[^\"'\]\}\s,]+", text)
+        if matches:
+            parsed_candidates.extend(matches)
+
+    if not parsed_candidates:
+        for separator in (",", ";", "|", "\n"):
+            if separator in text:
+                candidate = text.split(separator)[0].strip().strip('"').strip("'")
+                if candidate:
+                    parsed_candidates.append(candidate)
+                break
+
+    if not parsed_candidates:
+        parsed_candidates = [text]
+
+    candidate = parsed_candidates[0]
+    if not candidate.lower().startswith(("http://", "https://")):
+        return None
+
+    try:
+        split = urlsplit(candidate)
+        encoded_path = quote(split.path, safe="/:%")
+        encoded_query = quote(split.query, safe="=&%:/?+-_.,")
+        return urlunsplit((split.scheme, split.netloc, encoded_path, encoded_query, split.fragment))
+    except Exception:
+        return candidate
+
+
+def _normalize_place_row(row: dict) -> dict:
+    row["image_url"] = _normalize_image_url(row.get("image_url"))
+    return row
 
 
 def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int) -> list[dict]:
@@ -181,7 +522,7 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                             )::NUMERIC,
                             0
                         )::INT AS distance_m,
-                        NULL::TEXT AS image_url,
+                        COALESCE(NULLIF(TRIM(ad.image_urls), ''), NULL) AS image_url,
                         TRUE AS is_approximate_location,
                         NULL::TEXT AS event_start_date,
                         NULL::TEXT AS event_end_date,
@@ -216,11 +557,12 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                         limit,
                     ),
                 )
-                results.extend(dict(row) for row in cursor.fetchall())
+                results.extend(_normalize_place_row(dict(row)) for row in cursor.fetchall())
 
             if category in {"all", "restaurant"}:
+                restaurant_image_expr = _restaurant_image_expr(cursor)
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
                         MD5(bizplc_nm || COALESCE(refine_roadnm_addr, '')) AS id,
                         bizplc_nm AS name,
@@ -236,10 +578,10 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                                     ST_MakePoint(refine_wgs84_logt::FLOAT, refine_wgs84_lat::FLOAT),
                                     4326
                                 )::geography
-                            )::NUMERIC,
+                        )::NUMERIC,
                             0
                         )::INT AS distance_m,
-                        NULL::TEXT AS image_url,
+                        {restaurant_image_expr} AS image_url,
                         FALSE AS is_approximate_location,
                         NULL::TEXT AS event_start_date,
                         NULL::TEXT AS event_end_date,
@@ -263,7 +605,7 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                     """,
                     (lng, lat, lng, lat, radius, limit),
                 )
-                results.extend(dict(row) for row in cursor.fetchall())
+                results.extend(_normalize_place_row(dict(row)) for row in cursor.fetchall())
 
             if category in {"all", "event"}:
                 cursor.execute(
@@ -289,6 +631,7 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                             COALESCE(inst_nm, '') AS address,
                             COALESCE(city, '') AS region,
                             COALESCE(url, '') AS event_url,
+                            COALESCE(NULLIF(TRIM(image_url), ''), NULL) AS image_url,
                             CASE
                                 WHEN begin_de ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN begin_de::DATE
                                 ELSE NULL
@@ -319,7 +662,7 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                             )::NUMERIC,
                             0
                         )::INT AS distance_m,
-                        NULL::TEXT AS image_url,
+                        ne.image_url AS image_url,
                         TRUE AS is_approximate_location,
                         ne.event_start_date::TEXT AS event_start_date,
                         ne.event_end_date::TEXT AS event_end_date,
@@ -354,7 +697,7 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                         limit,
                     ),
                 )
-                results.extend(dict(row) for row in cursor.fetchall())
+                results.extend(_normalize_place_row(dict(row)) for row in cursor.fetchall())
 
     results.sort(key=lambda row: row.get("distance_m") or 0)
     return results[: max(limit, 1)]

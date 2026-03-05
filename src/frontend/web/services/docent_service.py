@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,7 @@ from openai import AzureOpenAI
 
 
 TTL_SECONDS = 7 * 24 * 60 * 60
+logger = logging.getLogger(__name__)
 _VALID_CATEGORIES = {"attraction", "restaurant", "event"}
 _VALID_LANGUAGES = {"ko", "en"}
 _VALID_MODES = {"brief", "detail"}
@@ -49,12 +51,29 @@ def generate_docent_script(cursor, place_id: str, category: str, language: str, 
 
     context = _load_context(cursor, place_id, category)
 
-    try:
-        script = _generate_with_llm(context=context, category=category, language=language, mode=mode)
-        source = "llm"
-    except Exception:
+    script = ""
+    source = "fallback"
+    llm_error: Exception | None = None
+    for _ in range(2):
+        try:
+            script = _generate_with_llm(context=context, category=category, language=language, mode=mode)
+            source = "llm"
+            llm_error = None
+            break
+        except Exception as exc:
+            llm_error = exc
+
+    if source != "llm":
+        if llm_error is not None:
+            logger.warning(
+                "docent_llm_failed place_id=%s category=%s language=%s mode=%s error=%s",
+                place_id,
+                category,
+                language,
+                mode,
+                llm_error,
+            )
         script = _fallback_script(context=context, category=category, language=language, mode=mode)
-        source = "fallback"
 
     _store_cache(
         cursor,
@@ -84,7 +103,7 @@ def _load_cached_script(cursor, place_id: str, category: str, language: str, mod
     try:
         cursor.execute(
             """
-            SELECT script, created_at
+            SELECT script, source, created_at
             FROM locallink.docent_script_cache
             WHERE place_id = %s
               AND category = %s
@@ -102,6 +121,24 @@ def _load_cached_script(cursor, place_id: str, category: str, language: str, mod
 
     row = cursor.fetchone()
     if not row:
+        return None
+
+    cached_source = str(row["source"] or "").strip().lower()
+    if cached_source == "fallback":
+        # Never reuse fallback cache rows; allow next request to try LLM again.
+        try:
+            cursor.execute(
+                """
+                DELETE FROM locallink.docent_script_cache
+                WHERE place_id = %s
+                  AND category = %s
+                  AND language = %s
+                  AND mode = %s
+                """,
+                (place_id, category, language, mode),
+            )
+        except Exception:
+            _safe_rollback(cursor)
         return None
 
     created_at = row["created_at"]
