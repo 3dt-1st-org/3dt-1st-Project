@@ -36,11 +36,12 @@ EMBEDDING_DEPLOYMENT_NAME = _get_secret("azure-openai-embedding-deployment-name"
 EMBEDDING_API_VERSION     = _get_secret("azure-openai-embedding-api-version")
 
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", "5433")),
-    "database": os.getenv("DB_NAME", "postgres"),
-    "user": os.getenv("DB_USER", "admin_user"),
-    "password": _get_secret("db-password"),
+    "host": _get_secret("lala-db-host"),
+    "port": int(_get_secret("lala-db-port")),
+    "database": _get_secret("lala-db-name"),
+    "user": _get_secret("lala-db-user"),
+    "password": _get_secret("lala-db-password"),
+    "sslmode": "require"
 }
 
 # ==============================================================================
@@ -98,11 +99,37 @@ def generate_embeddings_batch(texts: list[str]) -> list[list[float]]:
     except Exception:
         return []
 
+
+def has_existing_restaurant_reviews(restaurant_name: str) -> bool:
+    """이미 적재된 음식점 리뷰가 있는지 확인합니다."""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM locallink.restaurant_reviews
+            WHERE restaurant_name = %s;
+            """,
+            (restaurant_name,)
+        )
+        existing_count = cursor.fetchone()[0]
+        cursor.close()
+        conn.close()
+        return existing_count > 0
+    except Exception as e:
+        print(f"   ⚠️ 기존 음식점 리뷰 확인 실패(스킵 체크 생략): {e}")
+        return False
+
 # ==============================================================================
 # 3. 메인 파이프라인
 # ==============================================================================
 def run_restaurant_pipeline(target_restaurant):
     print(f"🚀 [{target_restaurant}] 리뷰 수집 및 분석 시작...")
+
+    if has_existing_restaurant_reviews(target_restaurant):
+        print(f"   ⏭️ [{target_restaurant}] 이미 리뷰 데이터가 적재되어 있어 건너뜁니다.")
+        return
 
     # [STEP 1] 네이버 API 호출
     search_word = urllib.parse.quote(f"{target_restaurant} 후기")

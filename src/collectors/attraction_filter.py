@@ -11,19 +11,24 @@ load_dotenv()
 
 def get_db_connection():
     """Key Vault에서 인증 정보를 로드하여 DB 연결 객체를 생성합니다."""
-    vault_url = os.getenv("KEY_VAULT_URL")
-    credential = DefaultAzureCredential()
-    kv_client = SecretClient(vault_url=vault_url, credential=credential)
+    _vault_url = os.getenv("KEY_VAULT_URL")
+    if not _vault_url:
+        raise ValueError("❌ .env에 KEY_VAULT_URL이 설정되지 않았습니다.")
+
+    _credential = DefaultAzureCredential()
+    _kv_client = SecretClient(vault_url=_vault_url, credential=_credential)    
     
-    # 보안 시크릿 로드
-    db_password = kv_client.get_secret("db-password").value
+    def _get_secret(name: str) -> str:
+        """Key Vault에서 시크릿 값을 가져오는 헬퍼 함수"""
+        return _kv_client.get_secret(name).value
     
     return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", "5433")),
-        database=os.getenv("DB_NAME", "postgres"),
-        user=os.getenv("DB_USER", "admin_user"),
-        password=db_password
+        host=_get_secret("lala-db-host"),
+            port=int(_get_secret("lala-db-port")),
+            database=_get_secret("lala-db-name"),
+            user=_get_secret("lala-db-user"),
+            password=_get_secret("lala-db-password"),
+            sslmode="require"
     )
 
 # ==============================================================================
