@@ -69,11 +69,53 @@ protocol MapDataProviding {
     func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot
 }
 
+private actor WeatherSnapshotStore {
+    struct Entry {
+        let snapshot: WeatherSnapshot
+        let expiresAt: Date
+    }
+
+    private let ttl: TimeInterval
+    private var cache: [String: Entry] = [:]
+    private var inFlight: [String: Task<WeatherSnapshot, Error>] = [:]
+
+    init(ttl: TimeInterval) {
+        self.ttl = ttl
+    }
+
+    func cachedSnapshot(for key: String, now: Date = Date()) -> WeatherSnapshot? {
+        guard let entry = cache[key] else { return nil }
+        guard entry.expiresAt > now else {
+            cache.removeValue(forKey: key)
+            return nil
+        }
+        return entry.snapshot
+    }
+
+    func inFlightTask(for key: String) -> Task<WeatherSnapshot, Error>? {
+        inFlight[key]
+    }
+
+    func setInFlight(_ task: Task<WeatherSnapshot, Error>, for key: String) {
+        inFlight[key] = task
+    }
+
+    func store(_ snapshot: WeatherSnapshot, for key: String, now: Date = Date()) {
+        cache[key] = Entry(snapshot: snapshot, expiresAt: now.addingTimeInterval(ttl))
+        inFlight.removeValue(forKey: key)
+    }
+
+    func clearInFlight(for key: String) {
+        inFlight.removeValue(forKey: key)
+    }
+}
+
 final class MapRemoteService: MapDataProviding {
     private let baseURL: URL?
     private let apiKey: String?
     private let session: URLSession
     private let decoder = JSONDecoder()
+    private static let weatherCache = WeatherSnapshotStore(ttl: 180)
 
     init(
         baseURL: URL? = AppRuntime.apiBaseURL,
@@ -140,6 +182,14 @@ final class MapRemoteService: MapDataProviding {
             throw MapServiceError.missingAPIKey
         }
 
+        let cacheKey = Self.weatherCacheKey(for: coordinate)
+        if let cached = await Self.weatherCache.cachedSnapshot(for: cacheKey) {
+            return cached
+        }
+        if let task = await Self.weatherCache.inFlightTask(for: cacheKey) {
+            return try await task.value
+        }
+
         let requestURL = try makeURL(
             path: "/api/ios/v1/weather",
             queryItems: [
@@ -148,25 +198,37 @@ final class MapRemoteService: MapDataProviding {
             ]
         )
 
-        let (data, response) = try await performRequest(url: requestURL)
-        try validate(response: response)
+        let task = Task<WeatherSnapshot, Error> { [self] in
+            let (data, response) = try await performRequest(url: requestURL)
+            try validate(response: response)
 
-        let decoded = try decoder.decode(RemoteWeatherResponse.self, from: data)
-        let filteredForecast = Self.filterFutureForecast(decoded.forecast)
-        let forecast = filteredForecast.map {
-            WeatherForecastItem(
-                id: $0.time,
-                timeText: Self.weatherTimeText(from: $0.time),
-                symbolName: Self.weatherSymbolName(from: $0.icon),
-                temperatureText: Self.temperatureText(from: $0.temp)
+            let decoded = try decoder.decode(RemoteWeatherResponse.self, from: data)
+            let filteredForecast = Self.filterFutureForecast(decoded.forecast)
+            let forecast = filteredForecast.map {
+                WeatherForecastItem(
+                    id: $0.time,
+                    timeText: Self.weatherTimeText(from: $0.time),
+                    symbolName: Self.weatherSymbolName(from: $0.icon),
+                    temperatureText: Self.temperatureText(from: $0.temp)
+                )
+            }
+            return WeatherSnapshot(
+                symbolName: Self.weatherSymbolName(from: decoded.icon),
+                temperatureText: Self.temperatureText(from: decoded.temp),
+                dustText: Self.dustText(from: decoded.dust),
+                forecast: forecast
             )
         }
-        return WeatherSnapshot(
-            symbolName: Self.weatherSymbolName(from: decoded.icon),
-            temperatureText: Self.temperatureText(from: decoded.temp),
-            dustText: Self.dustText(from: decoded.dust),
-            forecast: forecast
-        )
+        await Self.weatherCache.setInFlight(task, for: cacheKey)
+
+        do {
+            let snapshot = try await task.value
+            await Self.weatherCache.store(snapshot, for: cacheKey)
+            return snapshot
+        } catch {
+            await Self.weatherCache.clearInFlight(for: cacheKey)
+            throw error
+        }
     }
 
     private func performRequest(url: URL) async throws -> (Data, URLResponse) {
@@ -231,6 +293,12 @@ final class MapRemoteService: MapDataProviding {
         config.timeoutIntervalForResource = 25
         config.httpMaximumConnectionsPerHost = 4
         return URLSession(configuration: config)
+    }
+
+    private static func weatherCacheKey(for coordinate: CLLocationCoordinate2D) -> String {
+        let lat = (coordinate.latitude * 1000).rounded() / 1000
+        let lng = (coordinate.longitude * 1000).rounded() / 1000
+        return "\(lat)|\(lng)"
     }
 
     private static func mapPlace(from item: RemotePlaceItem) -> PlaceRecommendation {

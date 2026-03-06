@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}LALA — {{ t('loc_consent_title') }}{% endblock %}
+
+{% block content %}
+<div class="location-consent-page">
+  <section class="info-card">
+    <h1 class="info-title">{{ t('loc_consent_title') }}</h1>
+    <p class="info-body">{{ t('loc_consent_body') }}</p>
+    <div class="btn-row">
+      <button id="btn-location" class="btn-primary" style="width:100%;">{{ t('loc_consent_btn') }}</button>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function moveToNext() {
+    const S = window.LalaState;
+    const hasCompleted = S.getBool(S.keys.hasCompletedOnboarding, false);
+    window.location.replace(hasCompleted ? '/map' : '/onboarding');
+  }
+
+  function storeLocation(lat, lng) {
+    sessionStorage.setItem('user_lat', String(lat));
+    sessionStorage.setItem('user_lng', String(lng));
+  }
+
+  document.getElementById('btn-location').addEventListener('click', function () {
+    const S = window.LalaState;
+    S.setBool(S.keys.isLocationConsentEnabled, true);
+
+    if (!navigator.geolocation) {
+      moveToNext();
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      function (pos) {
+        storeLocation(pos.coords.latitude, pos.coords.longitude);
+        moveToNext();
+      },
+      function () {
+        moveToNext();
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 }
+    );
+  });
+</script>
+{% endblock %}

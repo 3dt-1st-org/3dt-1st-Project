@@ -82,7 +82,24 @@ def _suggest_secret_names() -> list[str]:
 
 def _write_plist(api_base_url: str) -> None:
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"API_BASE_URL": api_base_url}
+
+    payload: dict[str, str] = {}
+    if OUTPUT_PATH.exists():
+        try:
+            with OUTPUT_PATH.open("rb") as fp:
+                existing = plistlib.load(fp)
+            if isinstance(existing, dict):
+                payload.update(
+                    {
+                        str(key): str(value)
+                        for key, value in existing.items()
+                        if isinstance(key, str) and isinstance(value, str)
+                    }
+                )
+        except Exception:
+            payload = {}
+
+    payload["API_BASE_URL"] = api_base_url
 
     with OUTPUT_PATH.open("wb") as fp:
         plistlib.dump(payload, fp, sort_keys=True)
