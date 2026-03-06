@@ -48,7 +48,7 @@ if __name__ == "__main__":
             print(f"   {i}. {name} (거리: {distance:.2f}m)")
         
         # ==============================================================================
-        # STEP 2: 리뷰 수집 및 DB 적재
+        # STEP 2: 리뷰 수집 및 분석
         # ==============================================================================
         print("\n" + "="*80)
         print("📚 [STEP 2] 명소별 리뷰 데이터 수집 및 적재")
@@ -60,6 +60,7 @@ if __name__ == "__main__":
         for attraction_name in attraction_names:
             try:
                 print(f"\n📍 [{attraction_name}] 리뷰 수집 중...")
+                # load_review_pipeline.py의 run_review_pipeline 사용
                 run_review_pipeline(attraction_name)
                 success_count += 1
             except Exception as e:

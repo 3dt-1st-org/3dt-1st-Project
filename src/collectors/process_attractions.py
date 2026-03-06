@@ -30,11 +30,12 @@ def _get_secret(name: str) -> str:
 
 # 설정 로드
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", "5433")),
-    "database": os.getenv("DB_NAME", "postgres"),
-    "user": os.getenv("DB_USER", "admin_user"),
-    "password": _get_secret("db-password"),
+    "host": _get_secret("lala-db-host"),
+    "port": _get_secret("lala-db-port"),
+    "database": _get_secret("lala-db-name"),
+    "user": _get_secret("lala-db-user"),
+    "password": _get_secret("lala-db-password"),
+    "sslmode": "require"
 }
 
 NAVER_CLIENT_ID = _get_secret("naver-client-id")
@@ -48,13 +49,39 @@ AZURE_OPENAI_VERSION = _get_secret("azure-openai-version")
 # ==============================================================================
 # 2. [3단계] 리뷰 수집 및 RAG 분석 (요약/분위기/팁)
 # ==============================================================================
-def clean_html(raw_html):
+def clean_and_filter_text(raw_html):
+    """HTML 태그 제거 및 명소와 무관한 리뷰(맛집, 카페 등) 필터링"""
     if not raw_html:
-        return ''
+        return None
+    
+    # HTML 태그 제거 및 엔티티 변환
     cleanr = re.compile('<.*?>')
-    cleantext = re.sub(cleanr, '', raw_html)
-    return cleantext.replace('&quot;', '"').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+    text = re.sub(cleanr, '', raw_html)
+    text = text.replace('&quot;', '"').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
 
+    # 제외 키워드 설정 (명소 자체의 정보보다 식도락 비중이 높은 리뷰 제외)
+    exclude_keywords = ['맛집', '카페', '식당', '디저트', '메뉴판', '존맛', '내돈내산 맛집']
+    if any(kw in text for kw in exclude_keywords):
+        return None
+    
+    return text
+
+def has_existing_analysis(attraction_name):
+    """이미 분석 결과가 테이블에 존재하는지 확인 (중복 방지)"""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM locallink.attraction_details WHERE attraction_name = %s",
+            (attraction_name,)
+        )
+        exists = cursor.fetchone()[0] > 0
+        conn.close()
+        return exists
+    except Exception as e:
+        print(f"⚠️ 중복 체크 중 오류: {e}")
+        return False
+    
 def fetch_naver_reviews(query, display=30):
     """네이버 블로그 검색 API 호출"""
     enc_query = urllib.parse.quote(f"{query}") # 검색어 단순화
@@ -69,9 +96,12 @@ def fetch_naver_reviews(query, display=30):
         if response.getcode() == 200:
             data = json.loads(response.read().decode('utf-8'))
             items = data.get('items', [])
-            if not items:
-                print(f"⚠️ '{query}'에 대한 검색 결과가 없습니다.")
-            return [clean_html(item['description']) for item in items]
+            valid_reviews = []
+            for item in items:
+                cleaned = clean_and_filter_text(item['description'])
+                if cleaned:
+                    valid_reviews.append(cleaned)
+            return valid_reviews
     except Exception as e:
         print(f"❌ 네이버 API 호출 실패 ({query}): {e}")
         return []
@@ -101,12 +131,13 @@ def analyze_reviews_with_llm(attraction_name, reviews):
     system_prompt = """
     당신은 외국인 관광객을 위한 전문 도슨트 AI입니다.
     제공된 리뷰를 분석하여 다음 정보를 JSON 형식으로 추출하세요. 모든 항목에 대해 영어 번역이 필수입니다.
+    특히 리뷰 내용 중 '어떤 날씨나 계절에 방문하면 가장 좋은지(비 오는 날, 맑은 날, 가을 등)'에 대한 언급이 있다면 tips에 포함하세요.
     
     1. summary_ko: 외국인이 이해하기 쉽게 장소의 핵심 특징을 3줄로 요약 (한국어)
     2. summary_en: A 3-line summary of the place's key features for foreign tourists (English)
     3. atmosphere: 장소의 분위기를 나타내는 형용사 3~5개 (한국어)
     4. atmosphere_en: 3-5 adjectives describing the atmosphere (English)
-    5. tips: 방문 시 유용한 실질적인 꿀팁 (주차, 포토존, 웨이팅 등 - 한국어)
+    5. tips: 방문 시 유용한 실질적인 꿀팁 (주차, 포토존, 웨이팅, 날씨/계절 추천 등 - 한국어)
     6. tips_en: Practical tips for visitors (English)
     
     반드시 아래 JSON 포맷을 지켜주세요.
@@ -135,35 +166,62 @@ def analyze_reviews_with_llm(attraction_name, reviews):
         print(f"❌ LLM 분석 실패 ({attraction_name}): {e}")
         return None
 
+# [추가] 임베딩 생성 함수
+def generate_embeddings(text):
+    """Azure OpenAI를 사용하여 텍스트의 임베딩 벡터를 생성합니다."""
+    client = AzureOpenAI(
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        api_key=AZURE_OPENAI_KEY,
+        api_version=AZURE_OPENAI_VERSION
+    )
+    try:
+        # 모델명은 실제 배포하신 임베딩 모델명(예: text-embedding-3-small)으로 변경하세요.
+        response = client.embeddings.create(
+            input=text,
+            model="text-embedding-3-small" 
+        )
+        return response.data[0].embedding
+    except Exception as e:
+        print(f"❌ 임베딩 생성 실패: {e}")
+        return None
+
 def save_analysis_result(attraction_name, analysis_data):
     """분석 결과를 DB에 저장합니다."""
     if not analysis_data:
         return
 
+    # 1. 요약된 텍스트를 바탕으로 임베딩 생성 (OpenAI API 호출)
+    summary_text = analysis_data['summary_ko'] + " " + analysis_data['tips']
+    embedding_vector = generate_embeddings(summary_text) 
+
     conn = psycopg2.connect(**DB_CONFIG)
     cursor = conn.cursor()
     
     try:
-        # extracted_keywords 컬럼에 JSON 데이터를 저장
-        # attraction_reviews 테이블에 요약 정보를 저장 (기존 스키마 활용)
-        # 주의: attraction_name 컬럼이 FK(ID)인지 TEXT인지 확인 필요. 
-        # 제공된 DDL 이슈를 고려하여, 여기서는 안전하게 텍스트 매칭 또는 ID 사용을 시도합니다.
-        
-        # 여기서는 분석된 '종합 결과'를 저장하는 것이므로, 개별 리뷰 저장과는 다르게
-        # 별도의 'attraction_details' 테이블이나 'attraction_reviews'의 대표 레코드로 저장할 수 있습니다.
-        # 요청에 따라 attraction_reviews 테이블의 extracted_keywords에 넣습니다.
-        
-        json_str = json.dumps(analysis_data, ensure_ascii=False)
-        
-        # 임시로 가장 최근 리뷰 레코드 하나를 생성하거나 업데이트하는 방식 사용
-        insert_query = """
-            INSERT INTO locallink.attraction_reviews 
-            (attraction_name, title, description, clean_text, extracted_keywords, post_date)
-            VALUES (%s, 'AI 종합 분석', '명소 도슨트 분석 결과입니다.', 'AI Summary', %s, NOW())
+        query = """
+            INSERT INTO locallink.attraction_details 
+            (attraction_name, summary_ko, summary_en, atmosphere_ko, atmosphere_en, tips_ko, tips_en, updated_at, embedding)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s)
+            ON CONFLICT (attraction_name) DO UPDATE SET
+            summary_ko = EXCLUDED.summary_ko,
+            summary_en = EXCLUDED.summary_en,
+            atmosphere_ko = EXCLUDED.atmosphere_ko,
+            atmosphere_en = EXCLUDED.atmosphere_en,
+            tips_ko = EXCLUDED.tips_ko,
+            tips_en = EXCLUDED.tips_en,
+            embedding = EXCLUDED.embedding,
+            updated_at = NOW();
         """
-        # attraction_name 컬럼이 INT(ID)라면 attraction_id를, TEXT라면 attraction_name을 넣어야 함
-        # DDL 상 INT REFERENCES 이므로 ID를 넣습니다.
-        cursor.execute(insert_query, (attraction_name, json_str))
+        cursor.execute(query, (
+            attraction_name,
+            analysis_data['summary_ko'],
+            analysis_data['summary_en'],
+            ", ".join(analysis_data['atmosphere']),
+            ", ".join(analysis_data['atmosphere_en']),
+            analysis_data['tips'],
+            analysis_data['tips_en'],
+            embedding_vector 
+        ))
         
         conn.commit()
         print(f"💾 [{attraction_name}] 분석 결과 DB 저장 완료")
@@ -177,60 +235,44 @@ def save_analysis_result(attraction_name, analysis_data):
 # ==============================================================================
 # 3. 메인 실행 파이프라인
 # ==============================================================================
-def run_attraction_analysis_pipeline():
-    print("🚀 [1단계] 위치 기반 필터링 (Simulation)")
-    print("ℹ️ 1단계는 완료되었다고 가정하고, 가상의 후보 리스트를 사용합니다.")
+def run_attraction_analysis_pipeline(external_attraction_list):
+    print(f"📥 2단계: {len(external_attraction_list)}개 후보 분석 시작")
 
-    # [Simulation] 1단계에서 넘어왔다고 가정한 후보 리스트 (10개 이상)
-    step1_result_list = [
-        {'id': 1, 'attraction_name': '경기도박물관', 'city_county_name': '용인시'},
-        {'id': 2, 'attraction_name': '양지파인리조트', 'city_county_name': '용인시'},
-        {'id': 3, 'attraction_name': '수원화성', 'city_county_name': '수원시'},
-        {'id': 4, 'attraction_name': '화성행궁', 'city_county_name': '수원시'},
-        {'id': 5, 'attraction_name': '광교호수공원', 'city_county_name': '수원시'},
-        {'id': 6, 'attraction_name': '한국민속촌', 'city_county_name': '용인시'},
-        {'id': 7, 'attraction_name': '에버랜드', 'city_county_name': '용인시'},
-        {'id': 8, 'attraction_name': '서울랜드', 'city_county_name': '과천시'},
-        {'id': 9, 'attraction_name': '아침고요수목원', 'city_county_name': '가평군'},
-        {'id': 10, 'attraction_name': '쁘띠프랑스', 'city_county_name': '가평군'},
-    ]
-
-    print(f"📥 1단계 결과 수신: {len(step1_result_list)}개 후보")
-
-    if not step1_result_list:
+    if not external_attraction_list:
         print("⚠️ 주변에 관광지가 없습니다.")
         return
     
     # 2단계: 랭킹 로직 제거 (명소는 발견 시 모두 안내)
     # 1단계에서 필터링된 명소 리스트를 그대로 사용합니다.
-    target_attractions = pd.DataFrame(step1_result_list)
+    target_attractions = pd.DataFrame(external_attraction_list)
     print(f"📋 주변 명소 {len(target_attractions)}곳에 대한 도슨트 정보를 준비합니다.")
     
     # 3단계: 리뷰 분석 및 정보 추출
     print("\n🚀 명소 심층 분석(RAG) 및 도슨트 생성 시작...")
     
-    for _, row in target_attractions.iterrows():
-        att_name = row['attraction_name']
+    for att in external_attraction_list:
+        name = att.get('attraction_name')
+        if not name: continue
         
-        print(f"\n🔍 분석 중: {att_name}...")
-        
-        # 3-1. 리뷰 수집
-        reviews = fetch_naver_reviews(att_name)
-        
-        # 3-2. LLM 분석 (요약, 분위기, 팁)
-        analysis_result = analyze_reviews_with_llm(att_name, reviews)
-        
-        if analysis_result:
-            print(f"   ✅ 요약(KO): {analysis_result.get('summary_ko')}")
-            print(f"   ✅ 요약(EN): {analysis_result.get('summary_en')}")
-            print(f"   ✅ 분위기(EN): {analysis_result.get('atmosphere_en')}")
-            print(f"   ✅ 꿀팁(KO): {analysis_result.get('tips')}")
-            print(f"   ✅ 꿀팁(EN): {analysis_result.get('tips_en')}")
+        # 1. 중복 체크
+        if has_existing_analysis(name):
+            print(f"⏭️ [{name}] 이미 분석된 데이터가 존재하여 건너뜁니다.")
+            continue
             
-            # 3-3. DB 저장 (4단계 음성 도슨트 활용용)
-            save_analysis_result(att_name, analysis_result)
+        print(f"\n🔍 분석 중: {name}...")
+        
+        # 2. 리뷰 수집 및 LLM 분석
+        reviews = fetch_naver_reviews(name)
+        analysis_result = analyze_reviews_with_llm(name, reviews)
+        
+        # 3. 결과 저장
+        if analysis_result:
+            save_analysis_result(name, analysis_result)
+            print(f"💾 [{name}] 도슨트 생성 및 DB 저장 완료")
 
-    print("\n✨ 모든 분석 완료. 음성 도슨트 서비스 준비 끝.")
+    print("\n✨ 모든 분석 완료.")
 
 if __name__ == "__main__":
-    run_attraction_analysis_pipeline()
+    # 다른 코드에서 받아온 예시 리스트
+    my_list = [{'attraction_name': '수원화성'}, {'attraction_name': '에버랜드'}]
+    run_attraction_analysis_pipeline(my_list)
