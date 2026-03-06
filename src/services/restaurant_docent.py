@@ -1,33 +1,21 @@
 import os
 import psycopg2
 from openai import AzureOpenAI
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
 import azure.cognitiveservices.speech as speechsdk
 from dotenv import load_dotenv
+from config.vault_manager import vault
 
 # ==============================================================================
-# 0. 환경 설정 및 리소스 로드
+# 0. 환경 설정 및 리소스 로드 (vault_manager 통일)
 # ==============================================================================
 load_dotenv()
 
-_vault_url = os.getenv("KEY_VAULT_URL")
-if not _vault_url:
-    raise ValueError("❌ .env에 KEY_VAULT_URL이 설정되지 않았습니다.")
-
-_credential = DefaultAzureCredential()
-_kv_client = SecretClient(vault_url=_vault_url, credential=_credential)
-
-def _get_secret(name: str) -> str:
-    return _kv_client.get_secret(name).value
-
-# 모든 시크릿 로드
-AZURE_OPENAI_KEY = _get_secret("azure-openai-key")
-AZURE_OPENAI_ENDPOINT = _get_secret("azure-openai-endpoint")
-AZURE_OPENAI_VERSION = _get_secret("azure-openai-version")
-AZURE_SPEECH_KEY = _get_secret("azure-speech-key")
-AZURE_SPEECH_REGION = _get_secret("azure-speech-region")
-AZURE_OPENAI_RESTAURANT_DEPLOYMENT = _get_secret("azure-openai-deployment-name")
+AZURE_OPENAI_KEY                    = vault.get_secret("azure-openai-key")
+AZURE_OPENAI_ENDPOINT               = vault.get_secret("azure-openai-endpoint")
+AZURE_OPENAI_VERSION                = vault.get_secret("azure-openai-version")
+AZURE_SPEECH_KEY                    = vault.get_secret("azure-speech-key")
+AZURE_SPEECH_REGION                 = vault.get_secret("azure-speech-region")
+AZURE_OPENAI_RESTAURANT_DEPLOYMENT  = vault.get_secret("azure-openai-deployment-name")
 
 DOCENT_OUTPUT_DIR_MP3 = r"C:\Users\EL030\Desktop\dataschool\3dt-1st-Project\3dt-1st-Project\data\docent\mp3"
 DOCENT_OUTPUT_DIR_SCRIPTS = r"C:\Users\EL030\Desktop\dataschool\3dt-1st-Project\3dt-1st-Project\data\docent\scripts"
@@ -39,37 +27,20 @@ if not os.path.exists(DOCENT_OUTPUT_DIR_SCRIPTS):
     os.makedirs(DOCENT_OUTPUT_DIR_SCRIPTS, exist_ok=True)
 
 def get_db_and_llm_resources():
-    """Key Vault에서 정보를 로드하고 Azure OpenAI 클라이언트를 생성합니다."""
-    # 1. Key Vault에서 비밀번호 및 API Key 로드
-    db_password = _get_secret("lala-db-password")
-    azure_api_key = AZURE_OPENAI_KEY
-    
-    # 2. Azure OpenAI 설정 정보 (.env 기반)
-    endpoint = AZURE_OPENAI_ENDPOINT
-    api_version = AZURE_OPENAI_VERSION
-    
-    # 3. Azure OpenAI 클라이언트 생성
+    """Azure OpenAI 클라이언트를 생성합니다 (vault_manager 통일)."""
     azure_client = AzureOpenAI(
-        azure_endpoint=endpoint,
-        api_key=azure_api_key,
-        api_version=api_version
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        api_key=AZURE_OPENAI_KEY,
+        api_version=AZURE_OPENAI_VERSION,
     )
-    
-    return azure_client, db_password
+    return azure_client
 
 # ==============================================================================
 # 1. RAG: DB에서 TOP 10 식당 데이터 일괄 추출 (기존 로직 유지)
 # ==============================================================================
 def fetch_top10_context(restaurant_list):
     """리스트에 담긴 10개 식당의 키워드와 리뷰를 DB에서 가져옵니다."""
-    conn = psycopg2.connect(
-        host=_get_secret("lala-db-host"),
-        port=int(_get_secret("lala-db-port")),
-        database=_get_secret("lala-db-name"),
-        user=_get_secret("lala-db-user"),
-        password=_get_secret("lala-db-password"),
-        sslmode="require"
-    )
+    conn = psycopg2.connect(vault.get_db_dsn())
     
     combined_data = []
     try:
@@ -98,7 +69,7 @@ def fetch_top10_context(restaurant_list):
 def generate_integrated_docent_script(restaurant_list, language="English"):
     """Azure OpenAI를 사용하여 통합 오디오 가이드 대본을 생성합니다."""
     # 리소스 로드
-    azure_client, _db_password = get_db_and_llm_resources()
+    azure_client = get_db_and_llm_resources()
     
     # 1. DB 컨텍스트 확보
     full_context = fetch_top10_context(restaurant_list)

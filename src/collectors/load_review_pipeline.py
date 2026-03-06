@@ -27,15 +27,7 @@ AZURE_OPENAI_VERSION    = vault.get_secret("azure-openai-version")
 EMBEDDING_DEPLOYMENT_NAME = vault.get_secret("azure-openai-embedding-deployment-name")
 EMBEDDING_API_VERSION     = vault.get_secret("azure-openai-embedding-api-version")
 
-# PostgreSQL DB 접속 정보
-DB_CONFIG = {
-    "host": vault.get_secret("lala-db-host"),
-    "port": vault.get_secret("lala-db-port"),
-    "database": vault.get_secret("lala-db-name"),
-    "user": vault.get_secret("lala-db-user"),
-    "password": vault.get_secret("lala-db-password"),
-    "sslmode": "require"
-}
+# DB 연결: vault.get_db_dsn() 사용 (vault_manager 통일)
 
 print("✅ Key Vault에서 모든 시크릿을 성공적으로 로드했습니다.")
 
@@ -229,13 +221,7 @@ def generate_embeddings_batch(texts: list[str]) -> list[list[float]]:
 def has_existing_attraction_reviews(attraction_name: str) -> bool:
     """이미 적재된 명소 리뷰가 있는지 확인합니다."""
     try:
-        conn = psycopg2.connect(
-            host=DB_CONFIG["host"],
-            port=DB_CONFIG["port"],
-            database=DB_CONFIG["database"],
-            user=DB_CONFIG["user"],
-            password=DB_CONFIG["password"]
-        )
+        conn = psycopg2.connect(vault.get_db_dsn())
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -345,13 +331,7 @@ def run_review_pipeline(target_attraction):
     # [STEP 3] PostgreSQL (Docker) DB 적재 (Bulk Insert)
     try:
         print("\n🗄️ 데이터베이스 적재 시작...")
-        conn = psycopg2.connect(
-            host=DB_CONFIG["host"],
-            port=DB_CONFIG["port"],
-            database=DB_CONFIG["database"],
-            user=DB_CONFIG["user"],
-            password=DB_CONFIG["password"]
-        )
+        conn = psycopg2.connect(vault.get_db_dsn())
         cursor = conn.cursor()
 
         # Insert 쿼리문 준비 (embedding은 pgvector가 인식하는 '[v1,v2,...]' 문자열로 캐스팅)
@@ -403,13 +383,7 @@ def fetch_attractions_in_area(lat: float, lng: float, radius_m: int = 10_000) ->
         ORDER BY tourist_nm;
     """
     try:
-        conn = psycopg2.connect(
-            host=DB_CONFIG["host"],
-            port=DB_CONFIG["port"],
-            database=DB_CONFIG["database"],
-            user=DB_CONFIG["user"],
-            password=DB_CONFIG["password"]
-        )
+        conn = psycopg2.connect(vault.get_db_dsn())
         cursor = conn.cursor()
         cursor.execute(query, (lng, lat, radius_m))
         rows = cursor.fetchall()

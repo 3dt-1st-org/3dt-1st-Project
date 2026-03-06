@@ -18,34 +18,43 @@ def get_vault_manager():
 class KeyVaultManager:
     def __init__(self):
         self.vault_url = os.getenv("KEY_VAULT_URL")
-        if not self.vault_url:
-            raise ValueError("환경 변수에 KEY_VAULT_URL이 설정되지 않았습니다.")
+        self.client = None
 
-        try:
-            # 2. DefaultAzureCredential을 통해 인증을 수행합니다.
-            # 로컬에서는 'az login' 정보를 사용하고, 클라우드 배포 시에는 '관리 ID(Managed Identity)'를 자동으로 사용합니다.
-            self.credential = DefaultAzureCredential()
+        if self.vault_url:
+            try:
+                # 2. DefaultAzureCredential을 통해 인증을 수행합니다.
+                # 로컬에서는 'az login' 정보를 사용하고, 클라우드 배포 시에는 '관리 ID(Managed Identity)'를 자동으로 사용합니다.
+                self.credential = DefaultAzureCredential()
 
-            # 3. Key Vault와 통신할 클라이언트 객체를 생성합니다.
-            self.client = SecretClient(vault_url=self.vault_url, credential=self.credential)
-            print(f"[OK] Key Vault 클라이언트가 성공적으로 연결되었습니다: {self.vault_url}")
+                # 3. Key Vault와 통신할 클라이언트 객체를 생성합니다.
+                self.client = SecretClient(vault_url=self.vault_url, credential=self.credential)
+                print(f"[OK] Key Vault 클라이언트가 성공적으로 연결되었습니다: {self.vault_url}")
 
-        except Exception as e:
-            print(f"[FAIL] Key Vault 인증 또는 연결에 실패했습니다: {e}")
-            raise
+            except Exception as e:
+                print(f"[WARN] Key Vault 연결 실패 - 환경 변수 fallback으로 전환합니다: {e}")
+        else:
+            print("[INFO] KEY_VAULT_URL 미설정 - 환경 변수에서 시크릿을 로드합니다")
 
     def get_secret(self, secret_name: str) -> str | None:
-        """Key Vault에서 주어진 이름의 시크릿 값을 가져옵니다."""
-        try:
-            retrieved_secret = self.client.get_secret(secret_name)
-            return retrieved_secret.value
+        """Key Vault에서 주어진 이름의 시크릿 값을 가져옵니다.
+        KV 클라이언트가 없거나 조회 실패 시 환경 변수(시크릿명 대문자 + 하이픈→언더스코어)에서 폴백합니다.
+        예: 'azure-openai-key' → AZURE_OPENAI_KEY
+        """
+        if self.client:
+            try:
+                retrieved_secret = self.client.get_secret(secret_name)
+                return retrieved_secret.value
+            except ResourceNotFoundError:
+                print(f"[WARN] Key Vault에 '{secret_name}' (이)라는 이름의 시크릿이 존재하지 않습니다.")
+            except HttpResponseError as e:
+                print(f"[WARN] Key Vault 접근 중 오류 발생 (권한 문제일 수 있습니다): {e}")
 
-        except ResourceNotFoundError:
-            print(f"[WARN] Key Vault에 '{secret_name}' (이)라는 이름의 시크릿이 존재하지 않습니다.")
-            return None
-        except HttpResponseError as e:
-            print(f"[WARN] Key Vault 접근 중 오류 발생 (권한 문제일 수 있습니다): {e}")
-            return None
+        # 환경 변수 fallback: azure-openai-key → AZURE_OPENAI_KEY
+        env_key = secret_name.upper().replace("-", "_")
+        val = os.getenv(env_key)
+        if val:
+            return val
+        return None
 
     def list_secret_names(self) -> list[str]:
         """Key Vault에 저장된 모든 시크릿의 이름 목록을 반환합니다."""
@@ -54,6 +63,31 @@ class KeyVaultManager:
         except HttpResponseError as e:
             print(f"[WARN] 시크릿 목록 조회 중 오류 발생: {e}")
             return []
+
+    def get_db_dsn(self) -> str:
+        """5개 DB 시크릿을 읽어 psycopg2 호환 DSN URL 문자열을 반환합니다.
+
+        반환 예: postgresql://user:pass@host:5432/dbname?sslmode=require
+        결과는 인스턴스에 캐시되어 재호출 시 KV를 재조회하지 않습니다.
+        """
+        if hasattr(self, "_db_dsn_cache"):
+            return self._db_dsn_cache
+
+        import urllib.parse
+        host     = self.get_secret("lala-db-host") or ""
+        port     = self.get_secret("lala-db-port") or "5432"
+        dbname   = self.get_secret("lala-db-name") or ""
+        user     = self.get_secret("lala-db-user") or ""
+        password = urllib.parse.quote(self.get_secret("lala-db-password") or "", safe="")
+        dsn = f"postgresql://{user}:{password}@{host}:{port}/{dbname}?sslmode=require"
+        self._db_dsn_cache = dsn
+        return dsn
+
+    def get_db_connection(self):
+        """DSN으로 psycopg2 연결 객체를 반환합니다. 컨텍스트 매니저로 사용하세요."""
+        import psycopg2
+        timeout = int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "5"))
+        return psycopg2.connect(self.get_db_dsn(), connect_timeout=timeout)
 
     def get_all_secrets(self) -> dict[str, str]:
         """Key Vault에 저장된 모든 시크릿을 {이름: 값} 딕셔너리로 반환합니다."""

@@ -1,0 +1,15 @@
+# Azure Functions 런타임
+azure-functions
+
+# DB
+psycopg2-binary
+
+# Azure Key Vault / Identity
+azure-identity
+azure-keyvault-secrets
+
+# LLM + 임베딩 (load_review_pipeline, load_restaurant_review 의존)
+openai>=1.0.0
+
+# 환경변수 로딩
+python-dotenv

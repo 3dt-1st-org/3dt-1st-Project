@@ -7,42 +7,23 @@ import psycopg2
 from datetime import datetime
 from dotenv import load_dotenv
 from openai import AzureOpenAI
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
+from config.vault_manager import vault
 
 # ==============================================================================
-# 0. Key Vault 및 인프라 설정
+# 0. Key Vault에서 시크릿 로드 (vault_manager 통일)
 # ==============================================================================
 load_dotenv()
 
-_vault_url = os.getenv("KEY_VAULT_URL")
-if not _vault_url:
-    raise ValueError("❌ .env에 KEY_VAULT_URL이 설정되지 않았습니다.")
+NAVER_CLIENT_ID           = vault.get_secret("naver-client-id")
+NAVER_CLIENT_SECRET       = vault.get_secret("naver-client-secret")
+AZURE_OPENAI_ENDPOINT     = vault.get_secret("azure-openai-endpoint")
+AZURE_OPENAI_KEY          = vault.get_secret("azure-openai-key")
+AZURE_OPENAI_DEPLOYMENT   = vault.get_secret("azure-openai-deployment-name")
+AZURE_OPENAI_VERSION      = vault.get_secret("azure-openai-version")
+EMBEDDING_DEPLOYMENT_NAME = vault.get_secret("azure-openai-embedding-deployment-name")
+EMBEDDING_API_VERSION     = vault.get_secret("azure-openai-embedding-api-version")
 
-_credential = DefaultAzureCredential()
-_kv_client = SecretClient(vault_url=_vault_url, credential=_credential)
-
-def _get_secret(name: str) -> str:
-    return _kv_client.get_secret(name).value
-
-# 모든 시크릿 로드
-NAVER_CLIENT_ID     = _get_secret("naver-client-id")
-NAVER_CLIENT_SECRET = _get_secret("naver-client-secret")
-AZURE_OPENAI_ENDPOINT   = _get_secret("azure-openai-endpoint")
-AZURE_OPENAI_KEY        = _get_secret("azure-openai-key")
-AZURE_OPENAI_DEPLOYMENT  = _get_secret("azure-openai-deployment-name")
-AZURE_OPENAI_VERSION    = _get_secret("azure-openai-version")
-EMBEDDING_DEPLOYMENT_NAME = _get_secret("azure-openai-embedding-deployment-name")
-EMBEDDING_API_VERSION     = _get_secret("azure-openai-embedding-api-version")
-
-DB_CONFIG = {
-    "host": _get_secret("lala-db-host"),
-    "port": int(_get_secret("lala-db-port")),
-    "database": _get_secret("lala-db-name"),
-    "user": _get_secret("lala-db-user"),
-    "password": _get_secret("lala-db-password"),
-    "sslmode": "require"
-}
+# DB 연결: vault.get_db_dsn() 사용 (vault_manager 통일)
 
 # ==============================================================================
 # 1. 텍스트 정제 함수 (인코딩 에러 방지 포함)
@@ -103,7 +84,7 @@ def generate_embeddings_batch(texts: list[str]) -> list[list[float]]:
 def has_existing_restaurant_reviews(restaurant_name: str) -> bool:
     """이미 적재된 음식점 리뷰가 있는지 확인합니다."""
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = psycopg2.connect(vault.get_db_dsn())
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -167,7 +148,7 @@ def run_restaurant_pipeline(target_restaurant):
 
     # [STEP 3] DB 적재
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = psycopg2.connect(vault.get_db_dsn())
         cursor = conn.cursor()
         insert_query = """
             INSERT INTO locallink.restaurant_reviews 

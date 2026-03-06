@@ -7,44 +7,22 @@ import psycopg2
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
 from openai import AzureOpenAI
+from config.vault_manager import vault
 
 # ==============================================================================
-# 0. 환경 설정 및 시크릿 로드
+# 0. 환경 설정 및 시크릿 로드 (vault_manager 통일)
 # ==============================================================================
 load_dotenv()
 
-def _get_secret(name: str) -> str:
-    """Key Vault 또는 환경 변수에서 시크릿을 가져옵니다."""
-    vault_url = os.getenv("KEY_VAULT_URL")
-    if vault_url:
-        credential = DefaultAzureCredential()
-        client = SecretClient(vault_url=vault_url, credential=credential)
-        try:
-            return client.get_secret(name).value
-        except Exception:
-            pass
-    return os.getenv(name.upper().replace("-", "_"))
+# DB 연결: vault.get_db_dsn() 사용
+NAVER_CLIENT_ID     = vault.get_secret("naver-client-id")
+NAVER_CLIENT_SECRET = vault.get_secret("naver-client-secret")
 
-# 설정 로드
-DB_CONFIG = {
-    "host": _get_secret("lala-db-host"),
-    "port": _get_secret("lala-db-port"),
-    "database": _get_secret("lala-db-name"),
-    "user": _get_secret("lala-db-user"),
-    "password": _get_secret("lala-db-password"),
-    "sslmode": "require"
-}
-
-NAVER_CLIENT_ID = _get_secret("naver-client-id")
-NAVER_CLIENT_SECRET = _get_secret("naver-client-secret")
-
-AZURE_OPENAI_ENDPOINT = _get_secret("azure-openai-endpoint")
-AZURE_OPENAI_KEY = _get_secret("azure-openai-key")
-AZURE_OPENAI_DEPLOYMENT = _get_secret("azure-openai-deployment-name")
-AZURE_OPENAI_VERSION = _get_secret("azure-openai-version")
+AZURE_OPENAI_ENDPOINT   = vault.get_secret("azure-openai-endpoint")
+AZURE_OPENAI_KEY        = vault.get_secret("azure-openai-key")
+AZURE_OPENAI_DEPLOYMENT = vault.get_secret("azure-openai-deployment-name")
+AZURE_OPENAI_VERSION    = vault.get_secret("azure-openai-version")
 
 # ==============================================================================
 # 2. [3단계] 리뷰 수집 및 RAG 분석 (요약/분위기/팁)
@@ -69,7 +47,7 @@ def clean_and_filter_text(raw_html):
 def has_existing_analysis(attraction_name):
     """이미 분석 결과가 테이블에 존재하는지 확인 (중복 방지)"""
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = psycopg2.connect(vault.get_db_dsn())
         cursor = conn.cursor()
         cursor.execute(
             "SELECT COUNT(*) FROM locallink.attraction_details WHERE attraction_name = %s",
@@ -194,7 +172,7 @@ def save_analysis_result(attraction_name, analysis_data):
     summary_text = analysis_data['summary_ko'] + " " + analysis_data['tips']
     embedding_vector = generate_embeddings(summary_text) 
 
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = psycopg2.connect(vault.get_db_dsn())
     cursor = conn.cursor()
     
     try:

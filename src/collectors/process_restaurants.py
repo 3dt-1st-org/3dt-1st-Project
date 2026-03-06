@@ -6,67 +6,22 @@ import psycopg2
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
 from openai import AzureOpenAI
+from config.vault_manager import vault
 
 # ==============================================================================
-# 0. 환경 설정 및 시크릿 로드
+# 0. 환경 설정 및 시크릿 로드 (vault_manager 통일)
 # ==============================================================================
 load_dotenv()
 
-_secret_cache = {}
-_vault_client = None
-_vault_disabled = False
+# DB 연결: vault.get_db_dsn() 사용
+NAVER_CLIENT_ID     = vault.get_secret("naver-client-id")
+NAVER_CLIENT_SECRET = vault.get_secret("naver-client-secret")
 
-def _get_vault_client():
-    global _vault_client, _vault_disabled
-    if _vault_disabled: return None
-    if _vault_client is not None: return _vault_client
-    vault_url = os.getenv("KEY_VAULT_URL")
-    if not vault_url:
-        _vault_disabled = True
-        return None
-    try:
-        credential = DefaultAzureCredential()
-        _vault_client = SecretClient(vault_url=vault_url, credential=credential)
-        return _vault_client
-    except Exception:
-        _vault_disabled = True
-        return None
-
-def _get_secret(name: str) -> str:
-    global _vault_disabled
-    if name in _secret_cache: return _secret_cache[name]
-    client = _get_vault_client()
-    if client is not None:
-        try:
-            value = client.get_secret(name).value
-            _secret_cache[name] = value
-            return value
-        except Exception:
-            _vault_disabled = True
-    env_value = os.getenv(name.upper().replace("-", "_"))
-    _secret_cache[name] = env_value
-    return env_value
-
-# 설정 로드
-DB_CONFIG = {
-    "host": _get_secret("lala-db-host"),
-    "port": int(_get_secret("lala-db-port")), # 정수형 변환
-    "database": _get_secret("lala-db-name"),
-    "user": _get_secret("lala-db-user"),
-    "password": _get_secret("lala-db-password"),
-    "sslmode": "require"
-}
-
-NAVER_CLIENT_ID = _get_secret("naver-client-id")
-NAVER_CLIENT_SECRET = _get_secret("naver-client-secret")
-
-AZURE_OPENAI_ENDPOINT = _get_secret("azure-openai-endpoint")
-AZURE_OPENAI_KEY = _get_secret("azure-openai-key")
-AZURE_OPENAI_DEPLOYMENT = _get_secret("azure-openai-deployment-name")
-AZURE_OPENAI_VERSION = _get_secret("azure-openai-version")
+AZURE_OPENAI_ENDPOINT   = vault.get_secret("azure-openai-endpoint")
+AZURE_OPENAI_KEY        = vault.get_secret("azure-openai-key")
+AZURE_OPENAI_DEPLOYMENT = vault.get_secret("azure-openai-deployment-name")
+AZURE_OPENAI_VERSION    = vault.get_secret("azure-openai-version")
 
 # ==============================================================================
 # 1. [2단계] 가중치 부여 및 랭킹 도출 (View 활용 최적화)
@@ -76,7 +31,7 @@ def get_ranked_restaurants(candidate_list):
     #     print(f"ℹ️ 후보군이 10개 미만입니다. 전체를 반환합니다.")
     #     return pd.DataFrame(candidate_list).assign(final_score=0.0)
 
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = psycopg2.connect(vault.get_db_dsn())
     names = [item['restaurant_name'] for item in candidate_list]
 
     query = """
@@ -166,7 +121,7 @@ def save_analysis_result(restaurant_name, analysis_data):
     emb_text = f"{analysis_data['summary_ko']} {analysis_data['tips']}"
     vec = generate_embeddings(emb_text)
 
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = psycopg2.connect(vault.get_db_dsn())
     cursor = conn.cursor()
     try:
         # restaurant_reviews 테이블 구조에 맞게 수정 (임베딩 컬럼 포함 가정)
@@ -185,7 +140,7 @@ def save_analysis_result(restaurant_name, analysis_data):
 
 def has_existing_restaurant_analysis(restaurant_name):
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = psycopg2.connect(vault.get_db_dsn())
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM locallink.restaurant_reviews WHERE restaurant_name = %s", (restaurant_name,))
         exists = cursor.fetchone()[0] > 0
