@@ -40,11 +40,8 @@ if not os.path.exists(DOCENT_OUTPUT_DIR_SCRIPTS):
 
 def get_db_and_llm_resources():
     """Key Vault에서 정보를 로드하고 Azure OpenAI 클라이언트를 생성합니다."""
-    credential = DefaultAzureCredential()
-    kv_client = SecretClient(vault_url=_vault_url, credential=credential)
-
     # 1. Key Vault에서 비밀번호 및 API Key 로드
-    db_password = kv_client.get_secret("db-password").value
+    db_password = _get_secret("lala-db-password")
     azure_api_key = AZURE_OPENAI_KEY
     
     # 2. Azure OpenAI 설정 정보 (.env 기반)
@@ -63,14 +60,15 @@ def get_db_and_llm_resources():
 # ==============================================================================
 # 1. RAG: DB에서 TOP 10 식당 데이터 일괄 추출 (기존 로직 유지)
 # ==============================================================================
-def fetch_top10_context(restaurant_list, db_password):
+def fetch_top10_context(restaurant_list):
     """리스트에 담긴 10개 식당의 키워드와 리뷰를 DB에서 가져옵니다."""
     conn = psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", "5433")),
-        database=os.getenv("DB_NAME", "postgres"),
-        user=os.getenv("DB_USER", "admin_user"),
-        password=db_password
+        host=_get_secret("lala-db-host"),
+        port=int(_get_secret("lala-db-port")),
+        database=_get_secret("lala-db-name"),
+        user=_get_secret("lala-db-user"),
+        password=_get_secret("lala-db-password"),
+        sslmode="require"
     )
     
     combined_data = []
@@ -100,10 +98,10 @@ def fetch_top10_context(restaurant_list, db_password):
 def generate_integrated_docent_script(restaurant_list, language="English"):
     """Azure OpenAI를 사용하여 통합 오디오 가이드 대본을 생성합니다."""
     # 리소스 로드
-    azure_client, db_password = get_db_and_llm_resources()
+    azure_client, _db_password = get_db_and_llm_resources()
     
     # 1. DB 컨텍스트 확보
-    full_context = fetch_top10_context(restaurant_list, db_password)
+    full_context = fetch_top10_context(restaurant_list)
     
     if not full_context:
         return "⚠️ DB에서 식당 데이터를 찾을 수 없습니다."

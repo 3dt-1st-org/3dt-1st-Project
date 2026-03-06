@@ -29,11 +29,12 @@ EMBEDDING_API_VERSION     = vault.get_secret("azure-openai-embedding-api-version
 
 # PostgreSQL DB 접속 정보
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", "5433")),
-    "database": os.getenv("DB_NAME", "postgres"),
-    "user": os.getenv("DB_USER", "admin_user"),
-    "password": vault.get_secret("db-password"),
+    "host": vault.get_secret("lala-db-host"),
+    "port": vault.get_secret("lala-db-port"),
+    "database": vault.get_secret("lala-db-name"),
+    "user": vault.get_secret("lala-db-user"),
+    "password": vault.get_secret("lala-db-password"),
+    "sslmode": "require"
 }
 
 print("✅ Key Vault에서 모든 시크릿을 성공적으로 로드했습니다.")
@@ -127,6 +128,34 @@ def generate_embeddings_batch(texts: list[str]) -> list[list[float]]:
         print(f"❌ 임베딩 생성 에러: {e}")
         return []  # ✅ 빈 리스트 반환 (list[list[float]] 타입 유지)
 
+
+def has_existing_attraction_reviews(attraction_name: str) -> bool:
+    """이미 적재된 명소 리뷰가 있는지 확인합니다."""
+    try:
+        conn = psycopg2.connect(
+            host=DB_CONFIG["host"],
+            port=DB_CONFIG["port"],
+            database=DB_CONFIG["database"],
+            user=DB_CONFIG["user"],
+            password=DB_CONFIG["password"]
+        )
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM locallink.attraction_reviews
+            WHERE attraction_name = %s;
+            """,
+            (attraction_name,)
+        )
+        existing_count = cursor.fetchone()[0]
+        cursor.close()
+        conn.close()
+        return existing_count > 0
+    except Exception as e:
+        print(f"⚠️ 기존 명소 리뷰 확인 실패(스킵 체크 생략): {e}")
+        return False
+
 # ==============================================================================
 # 4. 메인 파이프라인 (API 호출 -> 전처리 -> DB Insert)
 # ==============================================================================
@@ -134,6 +163,10 @@ def run_review_pipeline(target_attraction):
     print("==========================================================")
     print(f"🚀 [{target_attraction}] 리뷰 파이프라인 가동 시작")
     print("==========================================================\n")
+
+    if has_existing_attraction_reviews(target_attraction):
+        print(f"⏭️ [{target_attraction}] 이미 리뷰 데이터가 적재되어 있어 건너뜁니다.")
+        return
 
     # 검색용으로만 괄호 제거 (예: '연무대(동장대)' → '연무대')
     search_attraction = target_attraction.split('(')[0].strip()

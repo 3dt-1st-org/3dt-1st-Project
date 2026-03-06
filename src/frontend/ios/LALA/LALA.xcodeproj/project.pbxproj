@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+		4BD6DA462F59666D00ED36D7 /* suwon_docent_compatible.gpx */ = {isa = PBXFileReference; lastKnownFileType = text.xml; name = suwon_docent_compatible.gpx; path = ../../../../tests/ios/routes/suwon_docent_compatible.gpx; sourceTree = "<group>"; };
 		4BDCCB4C2F55325600E08514 /* LALA.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LALA.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -32,6 +33,7 @@
 		4BDCCB432F55325600E08514 = {
 			isa = PBXGroup;
 			children = (
+				4BD6DA462F59666D00ED36D7 /* suwon_docent_compatible.gpx */,
 				4BDCCB4E2F55325600E08514 /* LALA */,
 				4BDCCB4D2F55325600E08514 /* Products */,
 			);

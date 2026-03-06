@@ -35,89 +35,149 @@ enum MapPlaceFilter: String, CaseIterable, Identifiable {
 struct WeatherSnapshot {
     let symbolName: String
     let temperatureText: String
+    let dustText: String
+    let forecast: [WeatherForecastItem]
 
-    static let placeholder = WeatherSnapshot(symbolName: "cloud.sun.fill", temperatureText: "--°C")
+    static let placeholder = WeatherSnapshot(
+        symbolName: "cloud.sun.fill",
+        temperatureText: "--°C",
+        dustText: "--",
+        forecast: []
+    )
+}
+
+struct WeatherForecastItem: Identifiable {
+    let id: String
+    let timeText: String
+    let symbolName: String
+    let temperatureText: String
+}
+
+struct PlacesSnapshot {
+    let places: [PlaceRecommendation]
+    let city: String?
 }
 
 protocol MapDataProviding {
     func fetchPlaces(
         center: CLLocationCoordinate2D,
         radiusMeters: Int,
-        category: MapPlaceFilter
-    ) async throws -> [PlaceRecommendation]
+        category: MapPlaceFilter,
+        cityHint: String?
+    ) async throws -> PlacesSnapshot
 
     func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot
 }
 
 final class MapRemoteService: MapDataProviding {
     private let baseURL: URL?
+    private let apiKey: String?
     private let session: URLSession
     private let decoder = JSONDecoder()
 
     init(
         baseURL: URL? = AppRuntime.apiBaseURL,
-        session: URLSession = .shared
+        apiKey: String? = AppRuntime.iosAPIKey,
+        session: URLSession = MapRemoteService.makeDefaultSession()
     ) {
         self.baseURL = baseURL
+        self.apiKey = apiKey
         self.session = session
     }
 
     func fetchPlaces(
         center: CLLocationCoordinate2D,
         radiusMeters: Int,
-        category: MapPlaceFilter
-    ) async throws -> [PlaceRecommendation] {
+        category: MapPlaceFilter,
+        cityHint: String?
+    ) async throws -> PlacesSnapshot {
         guard baseURL != nil else {
-            return Self.fallbackPlaces(around: center, category: category)
+            throw MapServiceError.missingBaseURL
+        }
+        guard apiKey != nil else {
+            throw MapServiceError.missingAPIKey
+        }
+
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "lat", value: String(center.latitude)),
+            URLQueryItem(name: "lng", value: String(center.longitude)),
+            URLQueryItem(name: "scope", value: "city"),
+            URLQueryItem(name: "radius", value: String(radiusMeters)),
+            URLQueryItem(name: "category", value: category.apiValue),
+            URLQueryItem(name: "limit", value: "100")
+        ]
+        if let cityHint {
+            let normalizedCityHint = cityHint.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalizedCityHint.isEmpty {
+                queryItems.append(URLQueryItem(name: "city", value: normalizedCityHint))
+            }
         }
 
         let requestURL = try makeURL(
-            path: "/api/places",
-            queryItems: [
-                URLQueryItem(name: "lat", value: String(center.latitude)),
-                URLQueryItem(name: "lng", value: String(center.longitude)),
-                URLQueryItem(name: "radius", value: String(radiusMeters)),
-                URLQueryItem(name: "category", value: category.apiValue)
-            ]
+            path: "/api/ios/v1/places",
+            queryItems: queryItems
         )
 
         do {
-            let (data, response) = try await session.data(from: requestURL)
+            let (data, response) = try await performRequest(url: requestURL)
             try validate(response: response)
 
             let decoded = try decoder.decode(RemotePlacesResponse.self, from: data)
-            let mapped = decoded.places.map(Self.mapPlace(from:))
-            return mapped.isEmpty ? Self.fallbackPlaces(around: center, category: category) : mapped
+            return PlacesSnapshot(
+                places: decoded.places.map(Self.mapPlace(from:)),
+                city: decoded.city
+            )
         } catch {
-            return Self.fallbackPlaces(around: center, category: category)
+            throw error
         }
     }
 
     func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot {
         guard baseURL != nil else {
-            return WeatherSnapshot(symbolName: "cloud.sun.fill", temperatureText: "13°C")
+            throw MapServiceError.missingBaseURL
+        }
+        guard apiKey != nil else {
+            throw MapServiceError.missingAPIKey
         }
 
         let requestURL = try makeURL(
-            path: "/api/weather",
+            path: "/api/ios/v1/weather",
             queryItems: [
                 URLQueryItem(name: "lat", value: String(coordinate.latitude)),
                 URLQueryItem(name: "lng", value: String(coordinate.longitude))
             ]
         )
 
-        do {
-            let (data, response) = try await session.data(from: requestURL)
-            try validate(response: response)
+        let (data, response) = try await performRequest(url: requestURL)
+        try validate(response: response)
 
-            let decoded = try decoder.decode(RemoteWeatherResponse.self, from: data)
-            return WeatherSnapshot(
-                symbolName: Self.weatherSymbolName(from: decoded.icon),
-                temperatureText: Self.temperatureText(from: decoded.temp)
+        let decoded = try decoder.decode(RemoteWeatherResponse.self, from: data)
+        let filteredForecast = Self.filterFutureForecast(decoded.forecast)
+        let forecast = filteredForecast.map {
+            WeatherForecastItem(
+                id: $0.time,
+                timeText: Self.weatherTimeText(from: $0.time),
+                symbolName: Self.weatherSymbolName(from: $0.icon),
+                temperatureText: Self.temperatureText(from: $0.temp)
             )
-        } catch {
-            return WeatherSnapshot(symbolName: "cloud.sun.fill", temperatureText: "13°C")
         }
+        return WeatherSnapshot(
+            symbolName: Self.weatherSymbolName(from: decoded.icon),
+            temperatureText: Self.temperatureText(from: decoded.temp),
+            dustText: Self.dustText(from: decoded.dust),
+            forecast: forecast
+        )
+    }
+
+    private func performRequest(url: URL) async throws -> (Data, URLResponse) {
+        guard let apiKey else {
+            throw MapServiceError.missingAPIKey
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        return try await session.data(for: request)
     }
 
     private func makeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
@@ -164,7 +224,22 @@ final class MapRemoteService: MapDataProviding {
         }
     }
 
+    private static func makeDefaultSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = false
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 25
+        config.httpMaximumConnectionsPerHost = 4
+        return URLSession(configuration: config)
+    }
+
     private static func mapPlace(from item: RemotePlaceItem) -> PlaceRecommendation {
+        func normalized(_ value: String?) -> String? {
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
         let kind = PlaceCategoryKind.fromRemoteCategory(item.category)
         let categoryKo: String
         let categoryEn: String
@@ -179,8 +254,12 @@ final class MapRemoteService: MapDataProviding {
             categoryKo = "로컬 행사"
             categoryEn = "Event"
         }
-        let region = item.region ?? ""
-        let address = item.address ?? ""
+        let nameKo = item.name
+        let nameEn = normalized(item.nameEn) ?? nameKo
+        let regionKo = normalized(item.region) ?? ""
+        let regionEn = normalized(item.regionEn) ?? ""
+        let addressKo = normalized(item.address) ?? ""
+        let addressEn = normalized(item.addressEn) ?? ""
 
         let distanceGuideKo: String
         let distanceGuideEn: String
@@ -192,45 +271,138 @@ final class MapRemoteService: MapDataProviding {
             distanceGuideEn = "This is a recommended place near your location."
         }
 
-        let guideKo = "\(item.name) \(distanceGuideKo) \(region) \(address)"
-        let guideEn = "\(item.name). \(distanceGuideEn)"
+        let guideKo = "\(nameKo) \(distanceGuideKo) \(regionKo) \(addressKo)"
+        let guideEn = "\(nameEn). \(distanceGuideEn) \(regionEn) \(addressEn)"
 
         return PlaceRecommendation(
             id: item.id,
-            nameKo: item.name,
-            nameEn: item.name,
+            nameKo: nameKo,
+            nameEn: nameEn,
             categoryKind: kind,
             categoryKo: categoryKo,
             categoryEn: categoryEn,
-            districtKo: region,
-            districtEn: region,
+            districtKo: regionKo,
+            districtEn: regionEn,
             guideKo: guideKo,
             guideEn: guideEn,
             coordinate: CLLocationCoordinate2D(latitude: item.lat, longitude: item.lng),
             distanceMeters: item.distanceM,
-            addressKo: address,
-            addressEn: address,
-            imageURL: item.imageURL.flatMap(URL.init(string:))
+            addressKo: addressKo,
+            addressEn: addressEn,
+            imageURL: Self.makeImageURL(from: item.imageURL)
         )
     }
 
     private static func weatherSymbolName(from icon: String) -> String {
         switch icon {
         case "☀️": return "sun.max.fill"
+        case "⛅": return "cloud.sun.fill"
+        case "☁️": return "cloud.fill"
+        case "🌫️": return "cloud.fog.fill"
         case "🌧️": return "cloud.rain.fill"
         case "🌨️": return "cloud.sleet.fill"
         case "❄️": return "snowflake"
         case "🌦️": return "cloud.sun.rain.fill"
+        case "⛈️": return "cloud.bolt.rain.fill"
         default: return "cloud.sun.fill"
         }
     }
 
     private static func temperatureText(from raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "--°C"
+        }
         if trimmed.hasSuffix("°C") {
             return trimmed
         }
         return "\(trimmed)°C"
+    }
+
+    private static func dustText(from dust: RemoteWeatherDust?) -> String {
+        guard let dust else { return "--" }
+
+        let grade: String
+        switch dust.grade {
+        case "good":
+            grade = "좋음"
+        case "normal":
+            grade = "보통"
+        case "bad":
+            grade = "나쁨"
+        case "very_bad":
+            grade = "매우나쁨"
+        default:
+            grade = "정보없음"
+        }
+
+        if let pm10 = dust.pm10, let pm25 = dust.pm25 {
+            return "미세먼지 \(grade) (PM10 \(pm10) / PM2.5 \(pm25))"
+        }
+        if let pm10 = dust.pm10 {
+            return "미세먼지 \(grade) (PM10 \(pm10))"
+        }
+        if let pm25 = dust.pm25 {
+            return "미세먼지 \(grade) (PM2.5 \(pm25))"
+        }
+        return "미세먼지 \(grade)"
+    }
+
+    private static func weatherTimeText(from raw: String) -> String {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "ko_KR")
+        parser.timeZone = TimeZone(identifier: "Asia/Seoul")
+        parser.dateFormat = "yyyy-MM-dd'T'HH:mm"
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
+        formatter.dateFormat = "M/d HH:mm"
+
+        guard let date = parser.date(from: raw) else {
+            return raw
+        }
+        return formatter.string(from: date)
+    }
+
+    private static func filterFutureForecast(_ input: [RemoteWeatherForecast]) -> [RemoteWeatherForecast] {
+        let now = Date()
+        return input.filter { item in
+            guard let date = parseForecastDate(item.time) else { return false }
+            return date > now
+        }
+    }
+
+    private static func parseForecastDate(_ raw: String) -> Date? {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = TimeZone(identifier: "Asia/Seoul")
+        parser.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        if let date = parser.date(from: raw) {
+            return date
+        }
+
+        let parserWithSeconds = DateFormatter()
+        parserWithSeconds.locale = Locale(identifier: "en_US_POSIX")
+        parserWithSeconds.timeZone = TimeZone(identifier: "Asia/Seoul")
+        parserWithSeconds.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return parserWithSeconds.date(from: raw)
+    }
+
+    private static func makeImageURL(from raw: String?) -> URL? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return nil
+        }
+        if let url = URL(string: trimmed) {
+            return url
+        }
+        let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed)
+        if let encoded, let url = URL(string: encoded) {
+            return url
+        }
+        return nil
     }
 
     private static func fallbackPlaces(
@@ -335,6 +507,7 @@ final class MapRemoteService: MapDataProviding {
 
 enum MapServiceError: LocalizedError {
     case missingBaseURL
+    case missingAPIKey
     case localhostNotAllowed
     case invalidBaseURL
     case invalidRequestURL
@@ -345,6 +518,8 @@ enum MapServiceError: LocalizedError {
         switch self {
         case .missingBaseURL:
             return "API base URL is missing."
+        case .missingAPIKey:
+            return "iOS API key is missing."
         case .localhostNotAllowed:
             return "localhost is not allowed for API base URL."
         case .invalidBaseURL:
@@ -361,12 +536,12 @@ enum MapServiceError: LocalizedError {
 
 enum AppRuntime {
     static var apiBaseURL: URL? {
-        if let custom = loadBaseURLFromAppConfig(named: "AppConfig.local"),
+        if let custom = loadConfigValueFromAppConfig(named: "AppConfig.local", key: "API_BASE_URL"),
            let url = URL(string: custom) {
             return url
         }
 
-        if let custom = loadBaseURLFromAppConfig(named: "AppConfig"),
+        if let custom = loadConfigValueFromAppConfig(named: "AppConfig", key: "API_BASE_URL"),
            let url = URL(string: custom) {
             return url
         }
@@ -380,7 +555,26 @@ enum AppRuntime {
         return nil
     }
 
-    private static func loadBaseURLFromAppConfig(named resourceName: String) -> String? {
+    static var iosAPIKey: String? {
+        if let custom = loadConfigValueFromAppConfig(named: "AppConfig.local", key: "IOS_API_KEY") {
+            return custom
+        }
+
+        if let custom = loadConfigValueFromAppConfig(named: "AppConfig", key: "IOS_API_KEY") {
+            return custom
+        }
+
+        if let custom = Bundle.main.object(forInfoDictionaryKey: "LALA_IOS_API_KEY") as? String {
+            let trimmed = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        return nil
+    }
+
+    private static func loadConfigValueFromAppConfig(named resourceName: String, key: String) -> String? {
         let candidates: [(String?, String)] = [
             ("Config", resourceName),
             (nil, resourceName)
@@ -393,7 +587,7 @@ enum AppRuntime {
                 subdirectory: candidate.0
             ),
             let dictionary = NSDictionary(contentsOf: url) as? [String: Any],
-            let value = dictionary["API_BASE_URL"] as? String {
+            let value = dictionary[key] as? String {
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     return trimmed
@@ -406,34 +600,57 @@ enum AppRuntime {
 }
 
 private struct RemotePlacesResponse: Decodable {
+    let count: Int?
+    let scope: String?
+    let city: String?
     let places: [RemotePlaceItem]
 }
 
 private struct RemotePlaceItem: Decodable {
     let id: String
     let name: String
+    let nameEn: String?
     let lat: Double
     let lng: Double
     let category: String
     let address: String?
+    let addressEn: String?
     let region: String?
+    let regionEn: String?
     let distanceM: Int?
     let imageURL: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case name
+        case nameEn = "name_en"
         case lat
         case lng
         case category
         case address
+        case addressEn = "address_en"
         case region
+        case regionEn = "region_en"
         case distanceM = "distance_m"
         case imageURL = "image_url"
     }
 }
 
 private struct RemoteWeatherResponse: Decodable {
+    let temp: String
+    let icon: String
+    let dust: RemoteWeatherDust?
+    let forecast: [RemoteWeatherForecast]
+}
+
+private struct RemoteWeatherDust: Decodable {
+    let pm10: String?
+    let pm25: String?
+    let grade: String
+}
+
+private struct RemoteWeatherForecast: Decodable {
+    let time: String
     let temp: String
     let icon: String
 }

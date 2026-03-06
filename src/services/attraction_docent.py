@@ -19,17 +19,21 @@ _credential = DefaultAzureCredential()
 _kv_client = SecretClient(vault_url=_vault_url, credential=_credential)
 
 def _get_secret(name: str) -> str:
+    """Key Vault에서 시크릿 값을 가져오는 헬퍼 함수"""
     return _kv_client.get_secret(name).value
 
 # 모든 시크릿 로드
 AZURE_OPENAI_KEY = _get_secret("azure-openai-key")
 AZURE_OPENAI_ENDPOINT = _get_secret("azure-openai-endpoint")
 AZURE_OPENAI_VERSION = _get_secret("azure-openai-version")
-AZURE_SPEECH_KEY = _get_secret("azure-speech-key")
-AZURE_SPEECH_REGION = _get_secret("azure-speech-region")
 AZURE_OPENAI_ATTRACTION_DEPLOYMENT = _get_secret("azure-openai-deployment-name")
 
+AZURE_SPEECH_KEY = _get_secret("azure-speech-key")
+AZURE_SPEECH_REGION = _get_secret("azure-speech-region")
+
 BASIC_REVIEW_COUNT = 5
+
+# 경로 설정
 DOCENT_OUTPUT_DIR_MP3 = r"C:\Users\EL030\Desktop\dataschool\3dt-1st-Project\3dt-1st-Project\data\docent\mp3"
 DOCENT_OUTPUT_DIR_SCRIPTS = r"C:\Users\EL030\Desktop\dataschool\3dt-1st-Project\3dt-1st-Project\data\docent\scripts"
 
@@ -38,6 +42,35 @@ if not os.path.exists(DOCENT_OUTPUT_DIR_MP3):
     os.makedirs(DOCENT_OUTPUT_DIR_MP3, exist_ok=True)
 if not os.path.exists(DOCENT_OUTPUT_DIR_SCRIPTS):
     os.makedirs(DOCENT_OUTPUT_DIR_SCRIPTS, exist_ok=True)
+
+# ==============================================================================
+# 1. 데이터 추출 함수
+# ==============================================================================
+def fetch_attraction_data(attraction_name, table="reviews"):
+    """모든 DB 정보를 Key Vault의 'lala-db-' 시크릿에서 가져와 연결합니다."""
+    conn = psycopg2.connect(
+        host=_get_secret("lala-db-host"),
+        port=int(_get_secret("lala-db-port")),
+        database=_get_secret("lala-db-name"),
+        user=_get_secret("lala-db-user"),
+        password=_get_secret("lala-db-password"),
+        sslmode="require"
+    )
+    try:
+        with conn.cursor() as cursor:
+            if table == "reviews":
+                query = "SELECT extracted_keywords, clean_text FROM locallink.attraction_reviews WHERE attraction_name = %s;"
+                cursor.execute(query, (attraction_name,))
+                rows = cursor.fetchall()
+                return (rows[0][0], [row[1] for row in rows]) if rows else (None, [])
+            else:
+                query = "SELECT history, overview FROM locallink.attraction_descriptions WHERE attraction_name = %s;"
+                cursor.execute(query, (attraction_name,))
+                row = cursor.fetchone()
+                return row if row else (None, None)
+    finally:
+        conn.close()
+ 
 
 
 def pick_story_reviews(reviews, max_items=5):
@@ -64,11 +97,8 @@ def pick_story_reviews(reviews, max_items=5):
 
 def get_db_and_llm_resources():
     """Key Vault 및 .env에서 리소스를 로드하고 Azure 클라이언트를 생성합니다."""
-    credential = DefaultAzureCredential()
-    kv_client = SecretClient(vault_url=_vault_url, credential=credential)
-
     # 1. Key Vault에서 비밀 정보 로드
-    db_password = kv_client.get_secret("db-password").value
+    db_password = _get_secret("lala-db-password")
     azure_api_key = AZURE_OPENAI_KEY
     
     # 2. Azure OpenAI 설정
@@ -82,35 +112,6 @@ def get_db_and_llm_resources():
     )
     
     return azure_client, db_password
-
-# ==============================================================================
-# 1. 데이터 추출 함수 (중요: 이 함수가 정의되어 있어야 합니다)
-# ==============================================================================
-def fetch_attraction_data(attraction_name, db_password, table="reviews"):
-    """리뷰 데이터 또는 나무위키 상세 데이터를 가져옵니다."""
-    conn = psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", "5433")),
-        database=os.getenv("DB_NAME", "postgres"),
-        user=os.getenv("DB_USER", "admin_user"),
-        password=db_password
-    )
-    try:
-        with conn.cursor() as cursor:
-            if table == "reviews":
-                # 리뷰 데이터 조회
-                query = "SELECT extracted_keywords, clean_text FROM locallink.attraction_reviews WHERE attraction_name = %s;"
-                cursor.execute(query, (attraction_name,))
-                rows = cursor.fetchall()
-                return (rows[0][0], [row[1] for row in rows]) if rows else (None, [])
-            else:
-                # 나무위키 상세 정보 조회
-                query = "SELECT history, overview FROM locallink.attraction_descriptions WHERE attraction_name = %s;"
-                cursor.execute(query, (attraction_name,))
-                row = cursor.fetchone()
-                return row if row else (None, None)
-    finally:
-        conn.close()
 
 # ==============================================================================
 # 2. TTS & STT 서비스
@@ -157,12 +158,12 @@ def listen_for_confirmation():
 # 3. 대본 생성 로직
 # ==============================================================================
 def generate_docent_script(attraction_name, mode="basic", language="English"):
-    azure_client, db_password = get_db_and_llm_resources()
+    azure_client, _db_password = get_db_and_llm_resources()
     deployment_name = AZURE_OPENAI_ATTRACTION_DEPLOYMENT
     
     # 데이터 먼저 로드
-    keywords, reviews = fetch_attraction_data(attraction_name, db_password, "reviews")
-    history, overview = fetch_attraction_data(attraction_name, db_password, "history")
+    keywords, reviews = fetch_attraction_data(attraction_name, "reviews")
+    history, overview = fetch_attraction_data(attraction_name, "history")
 
     if mode == "basic":
         # 1. 리뷰 데이터가 있는 경우 (가장 이상적인 상황)
