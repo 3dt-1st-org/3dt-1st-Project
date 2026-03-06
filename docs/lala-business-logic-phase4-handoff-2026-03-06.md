@@ -237,3 +237,84 @@ az webapp restart --name lala --resource-group 3dt-1st-team2
 - `scripts/validate_local.py`로 Docker 빌드 전 통합 검증 가능합니다 (서버 기동 불필요, Flask test_client 방식).
 - `vault_manager.py`의 env var fallback 덕분에 `KEY_VAULT_URL` 없이도 Docker 로컬 실행이 가능합니다.
 - 카카오 지도를 사용하려면 [카카오 개발자 콘솔](https://developers.kakao.com) → 앱 → 플랫폼 → Web에 `http://localhost:8000`(로컬) 및 `https://lala.azurewebsites.net`(라이브)을 모두 등록해야 합니다.
+
+---
+
+## 10. 기존 비즈니스 로직 연결 지도
+
+Flask API 레이어가 `src/` 하위 비즈니스 로직과 연결되는 지점 전체 목록입니다.
+
+### 도슨트
+
+```
+POST /api/docent/script
+POST /api/ios/v1/docent/script
+        │
+src/frontend/web/services/docent_api_service.py   ← 진입점
+        │
+src/frontend/web/services/docent_service.py       ← _generate_with_llm() 분기
+        │
+        ├─ category=attraction → src/services/attraction_docent.py   (Phase 1에서 프롬프트 이식)
+        └─ category=restaurant → src/services/restaurant_docent.py   (Phase 1에서 프롬프트 이식)
+```
+
+### 날씨
+
+```
+GET /api/weather
+GET /api/ios/v1/weather
+        │
+src/frontend/web/routes/ios_api.py
+        │
+        ├─ _fetch_weather_from_db()     ← locallink.realtime_weather_conditions 조회 (Phase 2)
+        │        │
+        │        └─ weather_air_func이 수집·적재한 데이터 소비
+        │
+        └─ _compute_weather_snapshot()  ← 폴백 (Open-Meteo → 기상청)
+```
+
+### 리뷰 파이프라인 (배치)
+
+```
+review_pipeline_func (Azure Function, 매일 02:00 KST)
+        │
+src/functions/review_pipeline_func/function_app.py  ← Phase 3 신규 래퍼
+        │
+        ├─ src/collectors/load_review_pipeline.py    ← 원본 (네이버 → 감성분석 → 임베딩)
+        └─ src/collectors/load_restaurant_review.py  ← 식당 리뷰 파이프라인
+
+Flask는 파이프라인이 적재한 데이터를 읽기만 합니다:
+src/frontend/web/services/docent_service.py
+    ├─ _load_attraction_context()  → attraction_details, attraction_descriptions 테이블
+    └─ _load_restaurant_context()  → restaurant_reviews 테이블
+```
+
+### DB 연결 단일화
+
+```
+config/vault_manager.py  ← 모든 파일의 단일 시크릿 경로 (Phase 4)
+        │
+        ├─ src/collectors/load_restaurant_review.py
+        ├─ src/collectors/process_attractions.py
+        ├─ src/collectors/process_restaurants.py
+        ├─ src/services/attraction_docent.py
+        ├─ src/services/restaurant_docent.py
+        ├─ src/frontend/web/services/db.py           ← Flask DB 연결
+        └─ src/functions/review_pipeline_func/       ← Azure Function
+```
+
+### 한눈에 보는 연결 지도
+
+```
+[Flask API 레이어]                    [비즈니스 로직 레이어]
+docent_service.py            ──────→  attraction_docent.py    (프롬프트, 직접 import)
+docent_service.py            ──────→  restaurant_docent.py    (프롬프트, 직접 import)
+ios_api.py (날씨)            ──────→  realtime_weather_conditions (DB, 간접)
+docent_service.py (컨텍스트)  ──────→  attraction_details      (DB, pipeline 적재)
+docent_service.py (컨텍스트)  ──────→  restaurant_reviews      (DB, pipeline 적재)
+db.py                        ──────→  vault_manager.py         (시크릿)
+review_pipeline_func         ──────→  load_review_pipeline.py  (원본 로직, 직접 호출)
+```
+
+> Flask가 **직접 import**하는 비즈니스 로직은 도슨트 프롬프트 2개 파일뿐이며,
+> 날씨·리뷰는 **DB를 매개로 간접 연결**됩니다.
