@@ -257,9 +257,9 @@ final class MapRemoteService: MapDataProviding {
         let nameKo = item.name
         let nameEn = normalized(item.nameEn) ?? nameKo
         let regionKo = normalized(item.region) ?? ""
-        let regionEn = normalized(item.regionEn) ?? regionKo
+        let regionEn = normalized(item.regionEn) ?? ""
         let addressKo = normalized(item.address) ?? ""
-        let addressEn = normalized(item.addressEn) ?? addressKo
+        let addressEn = normalized(item.addressEn) ?? ""
 
         let distanceGuideKo: String
         let distanceGuideEn: String
