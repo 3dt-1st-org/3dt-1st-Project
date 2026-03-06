@@ -74,7 +74,7 @@ AttractionFiltered AS (
     FROM   AttractionCandidates ac
     CROSS  JOIN CurrentWeather cw
     WHERE
-        -- 악천후: is_indoor=FALSE(실외)만 제외, TRUE(실내)·NULL(판단불가) 통과
+        -- 악천후: is_indoor=TRUE(실내)만 통과, FALSE(실외)·NULL(판단불가) 제외
         -- 쾌적: 실내외 모두 통과
         CASE
             WHEN (
@@ -85,7 +85,7 @@ AttractionFiltered AS (
                 OR cw.temperature > 33
                 OR cw.temperature < -10
             )
-            THEN ac.is_indoor IS NOT FALSE
+            THEN ac.is_indoor = TRUE
             ELSE TRUE
         END
 ),
