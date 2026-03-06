@@ -3,6 +3,7 @@ import json
 import urllib.request
 import urllib.parse
 import re
+import requests
 import psycopg2
 import pandas as pd
 from datetime import datetime
@@ -70,35 +71,30 @@ def get_ranked_restaurants(candidate_list):
 
     query = """
     WITH TargetList AS (
-        -- 파이썬 리스트를 SQL 임시 테이블로 변환
         SELECT unnest(%s::text[]) as target_name
     ),
-    CardStats AS (
-        -- [수정] 지역(city) 및 업종(category)별 카드 매출 규모 집계
-        -- gyeonggi_card_spending_stats 테이블의 card_tpbuz_nm_2(중분류) 컬럼 활용
-        SELECT city, card_tpbuz_nm_2 as category, SUM(amt) as total_amt
-        FROM locallink.gyeonggi_card_spending_stats
-        GROUP BY city, card_tpbuz_nm_2
-    ),
-    -- [당근마켓 데이터 반영]
-    -- 실제 테이블(locallink.daangn_place_mentions) 조회
-    DaangnStats AS (
-        SELECT place_name, category, location, mention_count 
-        FROM locallink.daangn_place_mentions
-        -- WHERE category = '맛집' -- 필요시 주석 해제
+    TargetInfo AS (
+        SELECT 
+            t.target_name as bizplc_nm, 
+            r.sigun_nm, 
+            r.bizcond_div_nm_info
+        FROM TargetList t
+        LEFT JOIN locallink.gg_restaurant_info r ON t.target_name = r.bizplc_nm
     )
     SELECT 
-        r.bizplc_nm as restaurant_name,
-        r.sigun_nm as city_county_name,
+        ti.bizplc_nm as restaurant_name,
+        ti.sigun_nm as city_county_name,
         COALESCE(c.total_amt, 0) as card_score_raw,
-        COALESCE(d.mention_count, 0) as daangn_score_raw
-    FROM locallink.gg_restaurant_info r
-    JOIN TargetList t ON r.bizplc_nm = t.target_name
-    -- [수정] 지역(sigun_nm)과 업종(sanittn_bizcond_nm)이 모두 일치하는 카드 데이터 매칭
-    -- card_score_raw: 해당 지역 내 해당 업종의 총 매출액 (업종의 인기도/대세 반영)
-    LEFT JOIN CardStats c ON r.sigun_nm = c.city AND r.sanittn_bizcond_nm = c.category
-    LEFT JOIN DaangnStats d ON r.bizplc_nm = d.place_name
-    """
+        COALESCE(d.total_mention, 0) as daangn_score_raw
+    FROM TargetInfo ti
+    -- 미리 만들어둔 'View'를 사용하여 JOIN만 수행
+    LEFT JOIN locallink.v_card_stats_summary c 
+           ON ti.sigun_nm = c.city 
+          AND ti.bizcond_div_nm_info = c.category
+    LEFT JOIN daangn.v_daangn_stats_summary d 
+           ON ti.bizplc_nm = d.place_name 
+          AND ti.sigun_nm = d.city_name
+"""
     
     try:
         # names 리스트를 SQL 파라미터로 전달
@@ -147,21 +143,30 @@ def clean_html(raw_html):
 
 def fetch_naver_reviews(query, display=30):
     """네이버 블로그 검색 API 호출"""
-    enc_query = urllib.parse.quote(f"{query} 맛집") # 검색어 단순화 및 인코딩
-    url = f"https://openapi.naver.com/v1/search/blog?query={enc_query}&display={display}&sort=sim"
-    
-    request = urllib.request.Request(url)
-    request.add_header("X-Naver-Client-Id", NAVER_CLIENT_ID)
-    request.add_header("X-Naver-Client-Secret", NAVER_CLIENT_SECRET)
+    if not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET:
+        print("❌ 네이버 API 키가 설정되지 않았습니다. .env 파일을 확인해주세요.")
+        return []
+
+    url = "https://openapi.naver.com/v1/search/blog"
+    headers = {
+        "X-Naver-Client-Id": NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
+    }
+    params = {
+        "query": f"{query} 맛집",
+        "display": display,
+        "sort": "sim"
+    }
     
     try:
-        response = urllib.request.urlopen(request)
-        if response.getcode() == 200:
-            data = json.loads(response.read().decode('utf-8'))
-            items = data.get('items', [])
-            if not items:
-                print(f"⚠️ '{query}'에 대한 검색 결과가 없습니다.")
-            return [clean_html(item['description']) for item in items]
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status() # 4xx, 5xx 에러 발생 시 예외 처리
+        
+        data = response.json()
+        items = data.get('items', [])
+        if not items:
+            print(f"⚠️ '{query}'에 대한 검색 결과가 없습니다.")
+        return [clean_html(item['description']) for item in items]
     except Exception as e:
         print(f"❌ 네이버 API 호출 실패 ({query}): {e}")
         return []
