@@ -50,6 +50,18 @@ def clean_html(raw_html):
     cleantext = cleantext.replace('&quot;', '"').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&').replace('&apos;', "'")
     return cleantext
 
+def is_valid_attraction_review(text):
+    """명소와 무관한 리뷰(식도락 중심)를 필터링합니다."""
+    if not text:
+        return False
+    
+    # 제외 키워드 설정 (명소 자체의 정보보다 식도락 비중이 높은 리뷰 제외)
+    exclude_keywords = ['맛집', '카페', '식당', '디저트', '메뉴판', '존맛', '내돈내산 맛집', '음식', '맛있다', '맛없다']
+    if any(kw in text for kw in exclude_keywords):
+        return False
+    
+    return True
+
 # ==============================================================================
 # 2. LLM 전처리 함수 (Azure OpenAI)
 # ==============================================================================
@@ -104,6 +116,91 @@ def extract_keywords_with_llm(attraction_name, clean_reviews_list):
     except Exception as e:
         print(f"❌ LLM 호출 에러: {e}")
         return ""
+
+# ==============================================================================
+# 2-2. 배치 단위 명소 콘텐츠 추출 함수
+# ==============================================================================
+def extract_attraction_content_batch(attraction_name, reviews_list, batch_size=10):
+    """
+    리뷰들을 배치 단위(기본 10개)로 나누어 LLM에서 명소 관련 콘텐츠만 추출합니다.
+    비용 최적화를 위해 여러 리뷰를 한 번에 처리합니다.
+    """
+    client = AzureOpenAI(
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        api_key=AZURE_OPENAI_KEY,
+        api_version=AZURE_OPENAI_VERSION
+    )
+    
+    extracted_contents = []
+    total_batches = (len(reviews_list) + batch_size - 1) // batch_size
+    
+    for batch_idx in range(0, len(reviews_list), batch_size):
+        batch = reviews_list[batch_idx:batch_idx + batch_size]
+        current_batch = (batch_idx // batch_size) + 1
+        print(f"🔍 명소 콘텐츠 추출 진행 중... ({current_batch}/{total_batches})")
+        
+        # 배치 내 리뷰들을 번호와 함께 포맷
+        formatted_reviews = "\n".join([f"[리뷰 {i+1}]\n{review}" for i, review in enumerate(batch)])
+        
+        system_prompt = f"""당신은 관광객 리뷰 분석 AI입니다. 주어진 리뷰들에서 {attraction_name}에 대한 감상, 설명, 느낌만 추출하세요.
+        광고, 다른 장소와의 비교, 먹이나 쇼핑 등 관광지 자체와 무관한 부분은 제외하세요.
+        각 리뷰별로 추출된 부분을 정확히 반환하세요. 만약 관광지 관련 내용이 없다면 null을 반환하세요.
+        반드시 아래 JSON 포맷으로 응답하세요:
+        {{
+        "reviews": [
+            {{
+            "review_index": 1,
+            "extracted_content": "추출된 콘텐츠 또는 null"
+            }},
+            ...
+        ]
+        }}"""
+        
+        user_prompt = f"명소: {attraction_name}\n\n[리뷰 텍스트]\n{formatted_reviews}"
+        
+        try:
+            response = client.chat.completions.create(
+                model=AZURE_OPENAI_DEPLOYMENT,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.1,
+                max_tokens=2000
+            )
+            
+            content = response.choices[0].message.content
+            if not content:
+                print("⚠️ LLM 응답이 비어있습니다. 원본 리뷰를 사용합니다.")
+                extracted_contents.extend(batch)
+                continue
+            
+            try:
+                data = json.loads(content)
+                reviews_data = data.get("reviews", [])
+                
+                # 추출된 콘텐츠 또는 원본 텍스트 저장
+                for review_data in reviews_data:
+                    extracted = review_data.get("extracted_content")
+                    if extracted and extracted.strip():
+                        extracted_contents.append(extracted)
+                    else:
+                        # 추출된 내용이 없으면 원본 사용
+                        idx = review_data.get("review_index", 1) - 1
+                        if 0 <= idx < len(batch):
+                            extracted_contents.append(batch[idx])
+                        
+            except json.JSONDecodeError as e:
+                print(f"⚠️ JSON 파싱 실패: {e}. 원본 리뷰를 사용합니다.")
+                extracted_contents.extend(batch)
+                
+        except Exception as e:
+            print(f"⚠️ LLM 호출 실패: {e}. 원본 리뷰를 사용합니다.")
+            extracted_contents.extend(batch)
+    
+    print(f"✅ 명소 콘텐츠 추출 완료: {len(extracted_contents)}개")
+    return extracted_contents
 
 # ==============================================================================
 # 3. 임베딩 생성 함수 (Azure OpenAI text-embedding-3-small)
@@ -209,6 +306,10 @@ def run_review_pipeline(target_attraction):
         c_title = clean_html(item['title'])
         c_desc = clean_html(item['description'])
         
+        # ✅ 명소와 무관한 리뷰 필터링 (식도락 중심 리뷰 제외)
+        if not is_valid_attraction_review(c_desc):
+            continue
+        
         # 날짜 포맷 변환 (20231025 -> 2023-10-25)
         raw_date = item['postdate']
         formatted_date = datetime.strptime(raw_date, '%Y%m%d').strftime('%Y-%m-%d')
@@ -223,13 +324,23 @@ def run_review_pipeline(target_attraction):
         })
         pure_texts_for_llm.append(c_desc)
 
-    # 추출된 전체 텍스트를 LLM에 던져서 핵심 키워드 문자열 받아오기
+    # [STEP 2-1] 명소 관련 콘텐츠만 추출 (배치 처리)
+    extracted_attraction_contents = extract_attraction_content_batch(target_attraction, pure_texts_for_llm, batch_size=10)
+    
+    # 추출된 콘텐츠로 cleaned_data_list 업데이트
+    for i, data in enumerate(cleaned_data_list):
+        if i < len(extracted_attraction_contents):
+            data['extracted_content'] = extracted_attraction_contents[i]
+        else:
+            data['extracted_content'] = data['clean_text']  # 폴백
+
+    # [STEP 2-2] 추출된 전체 텍스트를 LLM에 던져서 핵심 키워드 문자열 받아오기
     # (비용 최적화를 위해 100개 리뷰의 분위기를 종합하여 하나의 대표 키워드 세트를 도출합니다)
-    extracted_keywords_str = extract_keywords_with_llm(target_attraction, pure_texts_for_llm)
+    extracted_keywords_str = extract_keywords_with_llm(target_attraction, extracted_attraction_contents)
     print(f"✅ LLM 추출 키워드: [{extracted_keywords_str}]")
 
-    # 각 리뷰의 clean_text를 벡터로 일괄 변환 (API 1회 호출로 전체 처리)
-    embeddings = generate_embeddings_batch(pure_texts_for_llm)
+    # 각 리뷰의 추출된_콘텐츠를 벡터로 일괄 변환 (API 1회 호출로 전체 처리)
+    embeddings = generate_embeddings_batch(extracted_attraction_contents)
 
     # [STEP 3] PostgreSQL (Docker) DB 적재 (Bulk Insert)
     try:
@@ -260,9 +371,9 @@ def run_review_pipeline(target_attraction):
                 data['description'],        # 원본 내용
                 data['post_date'],          # 작성일 (DATE 타입 호환)
                 data['post_link'],          # 블로그 링크
-                data['clean_text'],         # HTML 제거된 텍스트
+                data['extracted_content'],  # 명소 관련 콘텐츠만 추출된 텍스트
                 extracted_keywords_str,     # LLM이 추출한 대표 키워드
-                embedding_str               # 1536차원 임베딩 벡터
+                embedding_str               # 1536차원 임베딩 벡터 (추출된 콘텐츠 기반)
             ))
             insert_count += 1
             

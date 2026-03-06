@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dotenv import load_dotenv
 from src.collectors.restaurant_filter import filter_restaurants_by_location
-from src.collectors.load_restaurant_review import run_restaurant_pipeline
+from src.collectors.process_restaurants import get_ranked_restaurants, process_restaurant_analysis
 from src.services.restaurant_docent import process_restaurants
 
 load_dotenv()
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     print("="*80)
     print(f"📍 GPS 좌표: ({GPS_LAT}, {GPS_LON})")
     
-    restaurants, status = filter_restaurants_by_location(radius_m=80, lat=GPS_LAT, lon=GPS_LON)
+    restaurants, status = filter_restaurants_by_location(radius_m=150, lat=GPS_LAT, lon=GPS_LON)
     
     if not restaurants:
         print(f"⚠️ 상태: {status}")
@@ -52,19 +52,39 @@ if __name__ == "__main__":
                 print(f"   {i}. {name} (거리 정보 없음: {distance_raw})")
         
         # ==============================================================================
-        # STEP 2: 리뷰 수집 및 DB 적재
+        # STEP 2: 가중치 부여 및 Top 10 선정
         # ==============================================================================
         print("\n" + "="*80)
-        print("📚 [STEP 2] 음식점별 리뷰 데이터 수집 및 적재")
+        print("⭐ [STEP 2] 가중치 부여 및 Top 10 음식점 선정")
+        print("="*80)
+        
+        # filter_restaurants_by_location 결과를 get_ranked_restaurants 형식으로 변환
+        candidate_list = [{'restaurant_name': rest[0]} for rest in restaurants]
+        top10_restaurants = get_ranked_restaurants(candidate_list)
+        
+        if top10_restaurants.empty:
+            print("⚠️ Top 10 선정 실패")
+            top10_names = restaurant_names  # fallback
+        else:
+            top10_names = top10_restaurants['restaurant_name'].tolist()
+            print(f"\n✅ Top {len(top10_names)}개 음식점 선정:")
+            for i, name in enumerate(top10_names, 1):
+                print(f"   {i}. {name}")
+        
+        # ==============================================================================
+        # STEP 3: 리뷰 수집 및 DB 적재
+        # ==============================================================================
+        print("\n" + "="*80)
+        print("📚 [STEP 3] 음식점별 리뷰 데이터 수집 및 적재")
         print("="*80)
         
         success_count = 0
         fail_count = 0
         
-        for restaurant_name in restaurant_names:
+        for restaurant_name in top10_names:
             try:
-                print(f"\n📍 [{restaurant_name}] 리뷰 수집 중...")
-                run_restaurant_pipeline(restaurant_name)
+                print(f"\n📍 [{restaurant_name}] 리뷰 수집 및 분석 중...")
+                process_restaurant_analysis(restaurant_name)
                 success_count += 1
             except Exception as e:
                 print(f"❌ [{restaurant_name}] 실패: {str(e)}")
@@ -73,16 +93,16 @@ if __name__ == "__main__":
         print(f"\n✅ 리뷰 적재 완료: {success_count}개 성공, {fail_count}개 실패")
         
         # ==============================================================================
-        # STEP 3: 도슨트 음성 가이드 생성
+        # STEP 4: 도슨트 음성 가이드 생성
         # ==============================================================================
         if success_count > 0:
             print("\n" + "="*80)
-            print("🎤 [STEP 3] AI 도슨트 음성 가이드 생성")
+            print("🎤 [STEP 4] AI 도슨트 음성 가이드 생성")
             print("="*80)
             
             try:
-                process_restaurants(restaurant_names, language="English")
-                print(f"\n✅ 도슨트 생성 완료: {len(restaurant_names)}개 음식점 처리됨")
+                process_restaurants(top10_names, language="English")
+                print(f"\n✅ 도슨트 생성 완료: {len(top10_names)}개 음식점 처리됨")
                 print(f"📁 저장 위치: data/docent/")
             except Exception as e:
                 print(f"❌ 도슨트 생성 실패: {str(e)}")

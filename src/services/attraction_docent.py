@@ -59,10 +59,23 @@ def fetch_attraction_data(attraction_name, table="reviews"):
     try:
         with conn.cursor() as cursor:
             if table == "reviews":
-                query = "SELECT extracted_keywords, clean_text FROM locallink.attraction_reviews WHERE attraction_name = %s;"
+                # ✅ attraction_details 테이블에서 데이터 조회 (process_attractions.py와 연동)
+                query = """
+                    SELECT summary_ko, atmosphere_ko, tips_ko 
+                    FROM locallink.attraction_details 
+                    WHERE attraction_name = %s;
+                """
                 cursor.execute(query, (attraction_name,))
-                rows = cursor.fetchall()
-                return (rows[0][0], [row[1] for row in rows]) if rows else (None, [])
+                row = cursor.fetchone()
+                if row:
+                    summary_ko, atmosphere_ko, tips_ko = row
+                    # 기존 형식과 호환되도록 변환
+                    # keywords = atmosphere (분위기를 키워드로 사용)
+                    # reviews = [summary, tips] (요약과 팁을 도슨트 컨텍스트로 사용)
+                    keywords = atmosphere_ko if atmosphere_ko else "Not available"
+                    reviews = [summary_ko, tips_ko] if summary_ko else []
+                    return (keywords, reviews)
+                return (None, [])
             else:
                 query = "SELECT history, overview FROM locallink.attraction_descriptions WHERE attraction_name = %s;"
                 cursor.execute(query, (attraction_name,))
