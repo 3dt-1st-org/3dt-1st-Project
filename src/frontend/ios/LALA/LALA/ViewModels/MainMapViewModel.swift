@@ -64,6 +64,8 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private var lastPlacesFailureAt: Date?
     private var lastPlacesFailureCoordinate: CLLocationCoordinate2D?
     private var placesFailureRetryTask: Task<Void, Never>?
+    private var lastWeatherFailureCoordinate: CLLocationCoordinate2D?
+    private var weatherFailureRetryTask: Task<Void, Never>?
 
     private let initialRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 36.35, longitude: 127.9),
@@ -185,7 +187,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     func presentWeatherDetail() {
         isWeatherDetailPresented = true
-        reloadWeather(force: true)
+        reloadWeather(force: weatherForecast.isEmpty)
     }
 
     func statusMessage(for language: AppLanguage) -> String? {
@@ -575,13 +577,24 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         if !force, let failedAt = lastWeatherFailureAt {
             let elapsed = Date().timeIntervalSince(failedAt)
             if elapsed < weatherFailureRetryCooldownSeconds {
-                return
+                if let failedCoordinate = lastWeatherFailureCoordinate,
+                   distance(from: failedCoordinate, to: coordinate) >= weatherReloadThresholdMeters {
+                    // User moved far enough from the failed point: allow immediate retry.
+                } else {
+                    scheduleWeatherRetryAfterCooldown(failedAt: failedAt)
+                    return
+                }
             }
         }
         guard force || shouldReloadWeather(for: coordinate) else { return }
-        if weatherTask != nil {
+        if force {
+            weatherTask?.cancel()
+            weatherTask = nil
+        } else if weatherTask != nil {
             return
         }
+        weatherFailureRetryTask?.cancel()
+        weatherFailureRetryTask = nil
         weatherTask = Task { [weak self] in
             guard let self else { return }
             defer {
@@ -597,16 +610,33 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 weatherForecast = weatherResult.forecast
                 lastWeatherFetchCoordinate = coordinate
                 lastWeatherFailureAt = nil
+                lastWeatherFailureCoordinate = nil
             } catch {
                 guard !Task.isCancelled else { return }
                 lastWeatherFailureAt = Date()
+                lastWeatherFailureCoordinate = coordinate
                 if lastWeatherFetchCoordinate == nil {
                     weatherSymbol = WeatherSnapshot.placeholder.symbolName
                     weatherValue = WeatherSnapshot.placeholder.temperatureText
                     weatherDust = WeatherSnapshot.placeholder.dustText
                     weatherForecast = []
                 }
+                scheduleWeatherRetryAfterCooldown(failedAt: lastWeatherFailureAt ?? Date())
             }
+        }
+    }
+
+    private func scheduleWeatherRetryAfterCooldown(failedAt: Date) {
+        let elapsed = Date().timeIntervalSince(failedAt)
+        let remaining = max(0.2, weatherFailureRetryCooldownSeconds - elapsed)
+
+        weatherFailureRetryTask?.cancel()
+        weatherFailureRetryTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            guard lastWeatherFailureAt != nil else { return }
+            reloadWeather(force: true)
         }
     }
 
@@ -670,6 +700,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             reloadTask?.cancel()
             weatherTask?.cancel()
             placesFailureRetryTask?.cancel()
+            weatherFailureRetryTask?.cancel()
             isLoadingPlaces = false
             return
         }
@@ -707,7 +738,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         } else {
             region = clamped
         }
-        refreshData(forcePlaces: true, forceWeather: false)
+        refreshData(forcePlaces: true, forceWeather: true)
     }
 
     func centerOnPlace(_ place: PlaceRecommendation, animated: Bool) {
