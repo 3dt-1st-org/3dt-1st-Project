@@ -2,8 +2,7 @@
 
 시나리오:
   1. 쾌적 날씨  → 실내·실외 모두 후보 (현재 DB 날씨 사용)
-  2. 악천후 시뮬레이션 → 실내 또는 판단불가(NULL)만 후보
-  3. 반경 확장 테스트 → 5km vs 20km 결과 비교
+  2. 악천후 시뮬레이션 → 실내(TRUE)만 후보, 실외·NULL 제외
 
 Usage:
     python scripts/ingest/_test_hybrid_matching.py
@@ -30,40 +29,9 @@ USER_LNG    = 127.0152   # 수원화성
 USER_LAT    = 37.2808
 TOP_K       = 10
 
-# 더미 임베딩 (zero vector 1536차원) ─ 벡터 정렬 비교용
-ZERO_VEC = "[" + ",".join(["0.0"] * 1536) + "]"
 
 
-def get_real_embedding(text: str) -> str | None:
-    """Azure OpenAI text-embedding으로 실제 임베딩 생성."""
-    try:
-        sys.path.insert(0, str(_ROOT))
-        from config.vault_manager import get_vault_manager
-        vm = get_vault_manager()
-        from openai import AzureOpenAI
-        import re as _re
-        # azure-openai-key는 docent-openai 리소스 (text-embedding-3-small 배포)
-        # azure-openai-embedding-endpoint는 별개 리소스 → 이 키로 인증 불가
-        # 진단 결과: azure-openai-key + azure-openai-endpoint 조합이 정상 동작
-        raw_endpoint = vm.get_secret("azure-openai-endpoint") or \
-                       vm.get_secret("azure-openai-embedding-endpoint") or ""
-        base_endpoint = _re.sub(r"/openai/.*$", "", raw_endpoint.rstrip("/"))
-        client = AzureOpenAI(
-            api_key=vm.get_secret("azure-openai-key"),
-            azure_endpoint=base_endpoint,
-            api_version=vm.get_secret("azure-openai-embedding-api-version") or "2024-02-01",
-        )
-        deployment = vm.get_secret("azure-openai-embedding-deployment-name") or \
-                     vm.get_secret("azure-openai-embedding-deployment")
-        resp = client.embeddings.create(model=deployment, input=text)
-        vec = resp.data[0].embedding
-        return "[" + ",".join(map(str, vec)) + "]"
-    except Exception as e:
-        print(f"  (임베딩 생성 실패, zero vector 사용: {e})")
-        return ZERO_VEC
-
-
-def make_sql(radius_m: int, override_weather: dict | None = None, query_vec: str | None = None) -> tuple[str, dict]:
+def make_sql(radius_m: int, override_weather: dict | None = None) -> tuple[str, dict]:
     """파라미터 치환된 SQL 반환."""
     sql = (Path(_ROOT) / "sql/analytics/hybrid_place_matching.sql").read_text(encoding="utf-8")
     sql = sql[sql.index("WITH"):]   # ALTER/UPDATE 제거
@@ -73,7 +41,6 @@ def make_sql(radius_m: int, override_weather: dict | None = None, query_vec: str
         "user_lng":     USER_LNG,
         "user_lat":     USER_LAT,
         "radius_m":     radius_m,
-        "query_vector": query_vec or ZERO_VEC,
         "top_k":        TOP_K,
     }
 
@@ -102,18 +69,17 @@ def make_sql(radius_m: int, override_weather: dict | None = None, query_vec: str
     sql = sql.replace(":user_lng",     str(params["user_lng"]))
     sql = sql.replace(":user_lat",     str(params["user_lat"]))
     sql = sql.replace(":radius_m",     str(params["radius_m"]))
-    sql = sql.replace(":query_vector", f"'{params['query_vector']}'")
     sql = sql.replace(":top_k",        str(params["top_k"]))
     return sql, params
 
 
-def run_scenario(label: str, radius_m: int, override_weather: dict | None = None, query_vec: str | None = None) -> None:
+def run_scenario(label: str, radius_m: int, override_weather: dict | None = None) -> None:
     if label:
         print(f"\n{'='*60}")
         print(f"  {label}  (반경 {radius_m/1000:.0f}km)")
         print(f"{'='*60}")
 
-    sql, _ = make_sql(radius_m, override_weather, query_vec)
+    sql, _ = make_sql(radius_m, override_weather)
 
     conn = psycopg2.connect(DSN)
     cur  = conn.cursor()
@@ -132,13 +98,11 @@ def run_scenario(label: str, radius_m: int, override_weather: dict | None = None
             r = dict(zip(cols, row))
             indoor = {True: "실내", False: "실외", None: "미분류"}.get(r.get("is_indoor"))
             dist   = r.get("distance_m") or "-"
-            vscore = f"{r.get('similarity_score'):.4f}" if r.get("similarity_score") is not None else "N/A"
             print(
                 f"  [{r['place_type']:10s}] "
                 f"{str(r['place_name']):<{name_w}}  "
                 f"{indoor:4s}  "
                 f"거리:{dist:>7}m  "
-                f"벡터:{vscore}  "
                 f"({r.get('sigun_nm','')})"
             )
             if r.get("review_snippet"):
@@ -154,21 +118,15 @@ def run_scenario(label: str, radius_m: int, override_weather: dict | None = None
 if __name__ == "__main__":
     print(f"\n기준 위치: {TEST_CITY}  ({USER_LAT}, {USER_LNG})")
 
-    # 실제 사용자 검색어로 임베딩 생성
-    QUERY_TEXT = "조용하고 역사적인 실내 전시관"
-    print(f"검색어: \"{QUERY_TEXT}\"")
-    real_vec = get_real_embedding(QUERY_TEXT)
-
-    # ── 시나리오 1: 실제 임베딩 + 현재 날씨 ───────────────────────────
+    # ── 시나리오 1: 현재 날씨 (DB 실시간) ───────────────────────────
     run_scenario(
-        "시나리오 1 │ 실제 임베딩 + 현재 날씨 (DB 실시간) — 10km",
+        "시나리오 1 │ 현재 날씨 (DB 실시간) — 10km",
         radius_m=10_000,
-        query_vec=real_vec,
     )
 
-    # ── 시나리오 2: 실제 임베딩 + 악천후 시뮬레이션 ──────────────────
+    # ── 시나리오 2: 악천후 시뮬레이션 ────────────────────────────────
     run_scenario(
-        "시나리오 2 │ 실제 임베딩 + 악천후 (비·미세먼지 나쁨) — 10km",
+        "시나리오 2 │ 악천후 (비·미세먼지 나쁨) — 10km",
         radius_m=10_000,
         override_weather={
             "outdoor_status":     "미세먼지 나쁨",
@@ -177,12 +135,4 @@ if __name__ == "__main__":
             "pm25":               60,
             "precipitation_type": 1,
         },
-        query_vec=real_vec,
-    )
-
-    # ── 시나리오 3: zero vector (순수 거리 기반) 비교 ─────────────────
-    run_scenario(
-        "시나리오 3 │ zero vector — 순수 거리 기반 비교 — 10km",
-        radius_m=10_000,
-        query_vec=ZERO_VEC,
     )

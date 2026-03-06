@@ -1,7 +1,7 @@
 -- =============================================================================
 -- 선제적 추천 매칭 쿼리: PostGIS + pgvector 하이브리드 (관광지 전용)
 -- is_indoor 컬럼: GPT-4o-mini 일괄 분류 결과 저장 (classify_tourist_indoor.py)
---   TRUE=실내, FALSE=실외, NULL=판단불가(악천후에도 항상 통과)
+--   TRUE=실내 → 악천후 통과 / FALSE=실외·NULL=판단불가 → 악천후 제외
 -- 음식점은 별도 추천 알고리즘으로 분리 예정
 -- =============================================================================
 -- 대상 테이블 (실제 스키마 기준):
@@ -18,7 +18,6 @@
 --   :user_lng      FLOAT    -- 사용자 경도 (예: 126.9990)
 --   :user_lat      FLOAT    -- 사용자 위도 (예: 37.2665)
 --   :radius_m      INT      -- 반경 미터 (예: 5000)
---   :query_vector  VECTOR   -- 사용자 검색어 임베딩 (예: '[0.12, -0.34, ...]'::vector)
 --   :top_k         INT      -- 최종 후보 수 (예: 3)
 -- -----------------------------------------------------------------------------
 
@@ -90,31 +89,18 @@ AttractionFiltered AS (
         END
 ),
 
--- 3. 관광지 후보에 리뷰 임베딩 조인 (벡터 유사도용)
-AttractionWithEmbedding AS (
+-- 3. 대표 리뷰 스니펫 조인
+AttractionWithReview AS (
     SELECT
         ac.*,
-        -- AttractionFiltered 에서 날씨 필터 완료된 후보만 사용
-        -- 리뷰 임베딩 중 사용자 쿼리와 가장 유사한 것 선택
-        -- <=> 코사인 거리 사용: 값 범위 [0, 2], 정규화 용이
-        -- NULLIF: zero-norm 벡터 → NaN 반환 방어 (NULL로 변환)
-        NULLIF(MIN(ar.embedding <=> :query_vector::vector), 'NaN'::float)  AS vector_distance,
-        COUNT(ar.id)                                      AS review_count,
-        -- 대표 리뷰 스니펫 (최신 1건)
         (
-            SELECT ar2.description
-            FROM   locallink.attraction_reviews ar2
-            WHERE  ar2.attraction_name = ac.place_name
-            ORDER  BY ar2.post_date DESC NULLS LAST
+            SELECT ar.description
+            FROM   locallink.attraction_reviews ar
+            WHERE  ar.attraction_name = ac.place_name
+            ORDER  BY ar.post_date DESC NULLS LAST
             LIMIT  1
         )                                                 AS review_snippet
     FROM   AttractionFiltered ac
-    LEFT   JOIN locallink.attraction_reviews ar
-           ON  ar.attraction_name = ac.place_name
-           AND ar.embedding IS NOT NULL
-    GROUP  BY
-        ac.place_name, ac.place_name_en, ac.road_address, ac.road_address_en,
-        ac.sigun_nm, ac.lat, ac.lng, ac.is_indoor, ac.place_type, ac.distance_meters
 )
 
 -- 4. 최종 정렬 및 상위 K개 반환
@@ -128,26 +114,7 @@ SELECT
     place_type,
     is_indoor,
     ROUND(distance_meters::numeric, 0)                   AS distance_m,
-    ROUND(vector_distance::numeric, 4)                   AS similarity_score,
-    review_count,
     review_snippet
-FROM   AttractionWithEmbedding
-ORDER BY
-    -- [하이브리드 정렬] 거리 × 시맨틱 감쇄 공식
-    --
-    -- 설계 원칙: 벡터 유사도가 높을수록 거리 패널티를 줄여 순위를 올림
-    --   score = dist_norm × (1 - similarity × boost)
-    --   similarity = 1 - cosine_dist/2   → [0, 1]
-    --   boost_factor = 0.8
-    --
-    -- 예시 (radius=10km):
-    --   수원화성(1m, cosine=0.58): 0.0001 × (1 - 0.71×0.8) = 0.0001×0.432 ≈ 0.0000432
-    --   → 리뷰 없는 관광지(vector NULL): dist_norm 그대로 (거리 순 정렬)
-    --
-    -- ※ zero-norm 벡터 → NaN 방어: NULLIF로 NULL 변환 후 처리
-    CASE WHEN vector_distance IS NOT NULL
-         THEN (distance_meters / :radius_m)
-              * (1.0 - GREATEST(0.0, 1.0 - vector_distance / 2.0) * 0.8)
-         ELSE (distance_meters / :radius_m)
-    END ASC
+FROM   AttractionWithReview
+ORDER BY distance_meters ASC
 LIMIT  :top_k;
