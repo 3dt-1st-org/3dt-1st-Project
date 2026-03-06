@@ -1,5 +1,23 @@
 """hybrid_place_matching.sql 문법 검증 스크립트 (일회성)."""
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_ROOT))
+
 import psycopg2
+from config.vault_manager import get_vault_manager
+
+
+def get_dsn() -> str:
+    vm = get_vault_manager()
+    return (
+        f"host={vm.get_secret('lala-db-host')} port=5432 "
+        f"dbname={vm.get_secret('lala-db-name')} "
+        f"user={vm.get_secret('lala-db-user')} "
+        f"password={vm.get_secret('lala-db-password')} "
+        "sslmode=require"
+    )
 
 sql = open("sql/analytics/hybrid_place_matching.sql", encoding="utf-8").read()
 
@@ -17,10 +35,7 @@ test_sql = (
 # WITH 절부터 잘라냄 (ALTER/UPDATE 제외)
 main_sql = test_sql[test_sql.index("WITH"):]
 
-conn = psycopg2.connect(
-    "host=lala-db.postgres.database.azure.com port=5432 "
-    "dbname=postgres user=admin_user password=Aremarem2 sslmode=require"
-)
+conn = psycopg2.connect(get_dsn())
 cur = conn.cursor()
 try:
     cur.execute("EXPLAIN " + main_sql)

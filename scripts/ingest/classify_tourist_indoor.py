@@ -15,10 +15,16 @@ sys.path.insert(0, str(_ROOT))
 import psycopg2
 from config.vault_manager import get_vault_manager
 
-DSN = (
-    "host=lala-db.postgres.database.azure.com port=5432 "
-    "dbname=postgres user=admin_user password=Aremarem2 sslmode=require"
-)
+
+def get_dsn() -> str:
+    vm = get_vault_manager()
+    return (
+        f"host={vm.get_secret('lala-db-host')} port=5432 "
+        f"dbname={vm.get_secret('lala-db-name')} "
+        f"user={vm.get_secret('lala-db-user')} "
+        f"password={vm.get_secret('lala-db-password')} "
+        "sslmode=require"
+    )
 
 # ── GPT 분류 프롬프트 ──────────────────────────────────────────────────────
 SYSTEM_PROMPT = """당신은 한국 관광지 분류 전문가입니다.
@@ -84,7 +90,7 @@ def main(dry_run: bool = False):
     client, deployment = get_openai_client(vm)
     print(f"[GPT] 배포: {deployment}")
 
-    conn = psycopg2.connect(DSN)
+    conn = psycopg2.connect(get_dsn())
     cur  = conn.cursor()
 
     # 1. is_indoor 컬럼 추가 (없으면)
