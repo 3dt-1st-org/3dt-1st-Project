@@ -226,3 +226,8 @@ artifacts/**
 src/frontend/ios/LALA/LALA/Config/AppConfig.local.plist
 
 local.settings.json
+
+# Azurite local storage emulator
+__azurite_db_*.json
+__blobstorage__/
+__queuestorage__/

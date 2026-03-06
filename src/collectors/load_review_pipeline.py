@@ -386,8 +386,74 @@ def run_review_pipeline(target_attraction):
         print(f"❌ DB 적재 중 오류 발생: {e}")
 
 # ==============================================================================
-# 4. 파이프라인 실행
+# 5. 반경 내 관광지 목록 조회 (tourist_spot_info 기반)
+# ==============================================================================
+def fetch_attractions_in_area(lat: float, lng: float, radius_m: int = 10_000) -> list[str]:
+    """PostGIS ST_DWithin으로 반경 내 tourist_spot_info의 tourist_nm 목록을 반환합니다."""
+    query = """
+        SELECT tourist_nm
+        FROM   locallink.tourist_spot_info
+        WHERE  lat IS NOT NULL
+          AND  lng IS NOT NULL
+          AND  ST_DWithin(
+                   ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                   ST_SetSRID(ST_MakePoint(lng::float, lat::float), 4326)::geography,
+                   %s
+               )
+        ORDER BY tourist_nm;
+    """
+    try:
+        conn = psycopg2.connect(
+            host=DB_CONFIG["host"],
+            port=DB_CONFIG["port"],
+            database=DB_CONFIG["database"],
+            user=DB_CONFIG["user"],
+            password=DB_CONFIG["password"]
+        )
+        cursor = conn.cursor()
+        cursor.execute(query, (lng, lat, radius_m))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        names = [row[0] for row in rows]
+        print(f"✅ 반경 {radius_m/1000:.0f}km 내 관광지 {len(names)}개 확인")
+        return names
+    except Exception as e:
+        print(f"❌ 관광지 목록 조회 실패: {e}")
+        return []
+
+
+# ==============================================================================
+# 6. 반경 내 전체 관광지 일괄 적재
+# ==============================================================================
+def run_batch_for_area(lat: float, lng: float, radius_m: int = 10_000) -> None:
+    """반경 내 모든 관광지를 순차적으로 run_review_pipeline에 전달합니다.
+    has_existing_attraction_reviews()로 이미 적재된 명소는 자동 스킵됩니다."""
+    print("="*60)
+    print(f"🗺️  일괄 적재 시작  |  기준 ({lat}, {lng}) 반경 {radius_m/1000:.0f}km")
+    print("="*60)
+
+    attractions = fetch_attractions_in_area(lat, lng, radius_m)
+    if not attractions:
+        print("⚠️  적재할 관광지가 없습니다.")
+        return
+
+    total = len(attractions)
+    for idx, name in enumerate(attractions, start=1):
+        print(f"\n[{idx}/{total}] 처리 중: {name}")
+        run_review_pipeline(name)
+
+    print("\n" + "="*60)
+    print(f"🎉 일괄 적재 완료: 총 {total}개 관광지 처리 (기적재 건 포함)")
+    print("="*60)
+
+
+# ==============================================================================
+# 실행 (_test_hybrid_matching.py 와 동일한 수원화성 좌표·반경 사용)
 # ==============================================================================
 if __name__ == "__main__":
-    # '경복궁' 명소를 대상으로 파이프라인 실행
-    run_review_pipeline("수원화성")
+    run_batch_for_area(
+        lat=37.2808,
+        lng=127.0152,
+        radius_m=10_000,   # 10km — _test_hybrid_matching.py 기본값과 동일
+    )
