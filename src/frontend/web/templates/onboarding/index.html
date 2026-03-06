@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}LALA — Onboarding{% endblock %}
+{% block nav %}{% endblock %}
+
+{% block content %}
+<section class="onboarding-wrap fullscreen-page">
+  <div class="onboarding-panel">
+    <h1 class="onboarding-title">{{ t('onboarding_title') }}</h1>
+    <p class="onboarding-subtitle">{{ t('onboarding_subtitle') }}</p>
+
+    <div class="onboarding-bullets">
+      <div class="onboarding-bullet"><span class="onboarding-dot"></span><span>{{ t('onboarding_bullet_1') }}</span></div>
+      <div class="onboarding-bullet"><span class="onboarding-dot"></span><span>{{ t('onboarding_bullet_2') }}</span></div>
+      <div class="onboarding-bullet"><span class="onboarding-dot"></span><span>{{ t('onboarding_bullet_3') }}</span></div>
+    </div>
+
+    <button id="btn-start" class="btn-primary onboarding-btn">{{ t('onboarding_cta') }}</button>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById('btn-start').addEventListener('click', function () {
+    const S = window.LalaState;
+    S.setBool(S.keys.hasCompletedOnboarding, true);
+    window.location.replace('/map');
+  });
+</script>
+{% endblock %}

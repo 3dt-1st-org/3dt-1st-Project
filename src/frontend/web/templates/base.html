@@ -3,38 +3,90 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <!-- iOS PWA 종일 화면 -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <!-- 주소표시줄 / 상태바 테마색 -->
   <meta name="theme-color" content="#2B6CB0" />
   <title>{% block title %}LALA{% endblock %}</title>
 
-  <!-- Tailwind CSS (CDN) -->
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- 오방색 테마 & 레이아웃 -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}" />
-
   {% block head %}{% endblock %}
 </head>
 <body>
-
-  <!-- GNB -->
+  {% block nav %}
   <nav class="gnb">
     <a href="/" class="gnb__logo obang-border">LALA</a>
     <div class="gnb__actions">
-      <a href="/map"      class="gnb__nav-btn" aria-label="지도">{{ t('nav_map') }}</a>
-      <a href="/settings" class="gnb__nav-btn" aria-label="설정">&#9881;&#65039; {{ t('nav_settings') }}</a>
+      <a href="/map" class="gnb__nav-btn" aria-label="Map">{{ t('nav_map') }}</a>
+      <a href="/settings" class="gnb__nav-btn" aria-label="Settings">{{ t('nav_settings') }}</a>
     </div>
   </nav>
+  {% endblock %}
 
-  <!-- 페이지 본문 -->
   <main class="page-content">
     {% block content %}{% endblock %}
   </main>
+
+  <script>
+    window.LalaState = {
+      keys: {
+        hasEverLaunched: 'hasEverLaunched',
+        hasAcceptedPrivacyNotice: 'hasAcceptedPrivacyNotice',
+        hasCompletedOnboarding: 'hasCompletedOnboarding',
+        isLocationConsentEnabled: 'isLocationConsentEnabled',
+        selectedLanguage: 'selectedLanguage',
+        fontScale: 'fontScale',
+        isVoiceGuidanceEnabled: 'isVoiceGuidanceEnabled',
+        isAutoDocentEnabled: 'isAutoDocentEnabled'
+      },
+      getBool(key, fallback) {
+        const v = localStorage.getItem(key);
+        if (v === null) return fallback;
+        return v === 'true';
+      },
+      setBool(key, value) {
+        localStorage.setItem(key, value ? 'true' : 'false');
+      },
+      getString(key, fallback) {
+        const v = localStorage.getItem(key);
+        return v === null || v === '' ? fallback : v;
+      },
+      setString(key, value) {
+        localStorage.setItem(key, value);
+      },
+      getNumber(key, fallback) {
+        const raw = localStorage.getItem(key);
+        const num = Number(raw);
+        return Number.isFinite(num) ? num : fallback;
+      },
+      setNumber(key, value) {
+        localStorage.setItem(key, String(value));
+      },
+      ensureDefaults() {
+        if (localStorage.getItem(this.keys.selectedLanguage) === null) {
+          const browserLang = (navigator.language || 'en').toLowerCase();
+          this.setString(this.keys.selectedLanguage, browserLang.startsWith('ko') ? 'ko' : 'en');
+        }
+        if (localStorage.getItem(this.keys.fontScale) === null) {
+          this.setNumber(this.keys.fontScale, 1.0);
+        }
+        if (localStorage.getItem(this.keys.isVoiceGuidanceEnabled) === null) {
+          this.setBool(this.keys.isVoiceGuidanceEnabled, true);
+        }
+        if (localStorage.getItem(this.keys.isAutoDocentEnabled) === null) {
+          this.setBool(this.keys.isAutoDocentEnabled, false);
+        }
+      }
+    };
+
+    (function applyFontScale() {
+      window.LalaState.ensureDefaults();
+      const scale = window.LalaState.getNumber(window.LalaState.keys.fontScale, 1.0);
+      const bounded = Math.min(Math.max(scale, 0.85), 1.3);
+      document.documentElement.style.fontSize = (bounded * 16) + 'px';
+    })();
+  </script>
 
   {% block scripts %}{% endblock %}
 </body>

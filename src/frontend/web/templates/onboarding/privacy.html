@@ -1,65 +1,32 @@
 {% extends "base.html" %}
-{% block title %}LALA — 서비스 안내{% endblock %}
+{% block title %}LALA — {{ t('privacy_title') }}{% endblock %}
+
 {% block content %}
-<div class="onboarding-screen">
+<div class="privacy-page">
+  <section class="info-card">
+    <h1 class="info-title">{{ t('privacy_title') }}</h1>
+    <p class="info-body">
+      LALA는 서비스 제공을 위해 최소한의 정보를 수집합니다.
+      - 필수: 서비스 이용 로그, 현재 위치(위도/경도)
+      - 선택: 언어, 글꼴 크기 설정
 
-  <!-- Step 인디케이터 -->
-  <div class="flex gap-2 mb-6">
-    <span class="h-1.5 w-8 rounded-full" style="background:var(--obang-east)"></span>
-    <span class="h-1.5 w-8 rounded-full bg-gray-200"></span>
-  </div>
-
-  <h1 class="onboarding-screen__title">서비스 이용 안내 및<br/>개인정보 수집 동의</h1>
-
-  <div class="onboarding-screen__body">
-
-    <p>
-      <strong>LALA</strong>는 경기도 관광지, 음식점, 지역 행사 정보를
-      지도 기반으로 제공하는 서비스입니다.
+      수집된 정보는 주변 로컬 명소/맛집 추천, 음성 안내 제공, 품질 개선 목적으로만 사용됩니다.
+      동의를 거부할 수 있으나 위치 기반 핵심 기능이 제한될 수 있습니다.
     </p>
 
-    <hr class="my-4 border-gray-200"/>
-
-    <h2 class="font-semibold text-sm text-gray-700 mb-2">수집 항목</h2>
-    <ul class="list-disc pl-5 text-sm space-y-1">
-      <li><strong>위치 정보</strong> &mdash; 주변 장소 추천 목적 (1회성, 저장 안 함)</li>
-      <li><strong>브라우저 세션</strong> &mdash; 언어 설정 유지 목적</li>
-    </ul>
-
-    <hr class="my-4 border-gray-200"/>
-
-    <h2 class="font-semibold text-sm text-gray-700 mb-2">위치 정보 이용 안내</h2>
-    <p class="text-sm">
-      &ldquo;동의하고 시작하기&rdquo; 버튼을 누르면 브라우저의
-      <strong>위치 권한을 요청</strong>합니다.
-      거부하셔도 기본 좌표(수원시청)로 서비스를 이용할 수 있습니다.
-    </p>
-    <p class="text-xs text-gray-400 mt-2">
-      수집된 정보는 당해 서비스 제공 외 용도로 활용되지 않으며,
-      관련 법령에 따라 안전하게 보호됩니다.
-    </p>
-
-  </div>
-
-  <div class="onboarding-screen__footer">
-    <button class="btn-primary w-full" id="btn-agree">
-      <span id="btn-text">동의하고 시작하기</span>
-    </button>
-    <p class="text-xs text-center text-gray-400 mt-3">
-      동의를 거부해도 서비스를 이용할 수 있습니다.
-    </p>
-  </div>
-
+    <div class="btn-row">
+      <button id="btn-agree" class="btn-primary" style="width:100%;">{{ t('privacy_btn') }}</button>
+    </div>
+  </section>
 </div>
 {% endblock %}
+
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/location.js') }}"></script>
 <script>
-  document.getElementById('btn-agree').addEventListener('click', () => {
-    document.getElementById('btn-text').textContent = '위치 권한 요청 중…';
-    document.getElementById('btn-agree').disabled = true;
-    sessionStorage.setItem('lala_agreed', 'true');
-    requestLocationAndRedirect();
+  document.getElementById('btn-agree').addEventListener('click', function () {
+    const S = window.LalaState;
+    S.setBool(S.keys.hasAcceptedPrivacyNotice, true);
+    window.location.replace('/location-consent');
   });
 </script>
 {% endblock %}
