@@ -1,139 +1,107 @@
 {% extends "base.html" %}
-{% block title %}LALA — 지도{% endblock %}
+{% block title %}LALA — Map{% endblock %}
 
 {% block head %}
-<!-- 카카오맵 SDK -->
-<script type="text/javascript"
-  src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={{ kakao_js_key }}&autoload=false">
-</script>
-<!-- Swiper (하단 카드 슬라이드) -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css"/>
-<script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
+<script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={{ kakao_js_key }}&autoload=false"></script>
 {% endblock %}
 
 {% block content %}
-<!-- ── 전체화면 지도 ─────────────────────────── -->
-<div id="map-container"></div>
+<div class="app-map">
+  <div id="map-container"></div>
 
-<!-- ── 카테고리 필터 버튼 ───────────────────── -->
-<div id="filter-bar"
-     style="position:fixed;top:calc(56px + env(safe-area-inset-top));left:0;right:0;z-index:40;
-            display:flex;gap:8px;padding:8px 12px;overflow-x:auto;
-            background:linear-gradient(to bottom,rgba(255,255,255,0.95),transparent);">
-  <button class="filter-btn active" data-cat="all">{{ t('filter_all') }}</button>
-  <button class="filter-btn" data-cat="attraction">{{ t('filter_attraction') }}</button>
-  <button class="filter-btn" data-cat="restaurant">{{ t('filter_restaurant') }}</button>
-</div>
+  <div class="map-chip-bar" id="filter-bar">
+    <button class="map-chip active" data-category="all">{{ t('map_filter_all') }}</button>
+    <button class="map-chip" data-category="attraction">{{ t('map_filter_attraction') }}</button>
+    <button class="map-chip" data-category="restaurant">{{ t('map_filter_restaurant') }}</button>
+    <button class="map-chip" data-category="event">{{ t('map_filter_event') }}</button>
+  </div>
 
-<!-- ── 날씨 위젯 (우상단 고정) ───────────────── -->
-<div id="weather-widget"
-     style="position:fixed;top:calc(112px + env(safe-area-inset-top));right:12px;z-index:41;
-            display:none;align-items:center;gap:5px;
-            background:rgba(255,255,255,0.93);border-radius:20px;
-            padding:5px 13px;box-shadow:0 2px 10px rgba(0,0,0,0.12);
-            font-size:0.85rem;font-weight:600;color:var(--color-text);">
-  <span id="weather-icon">🌡️</span>
-  <span id="weather-temp">––°C</span>
-</div>
+  <div class="map-top-stack">
+    <div id="card-panel" class="map-card-panel"></div>
+    <div class="map-weather-row">
+      <button id="weather-btn" class="map-pill-btn map-weather-btn" aria-label="Weather">
+        <span id="weather-icon">🌡️</span>
+        <span class="map-weather-copy">
+          <span id="weather-temp">--°C</span>
+          <span id="weather-dust">미세먼지 --</span>
+        </span>
+      </button>
+    </div>
+  </div>
 
-<!-- ── AI 추천 텍스트 박스 (카드 선택 시 표시, 플레이스홀더) ── -->
-<div id="ai-recommendation" style="display:none;">
-  <div style="background:#fff;border-radius:16px;padding:13px 15px;
-              box-shadow:0 4px 20px rgba(0,0,0,0.13);
-              border:1.5px solid var(--color-border);">
-    <p id="ai-text"
-       style="margin:0;font-size:0.87rem;line-height:1.7;
-              color:var(--color-text);opacity:0.55;font-style:italic;">
-      {{ t('map_ai_placeholder') }}
-    </p>
+  <div class="map-subtitle-dock">
+    <div id="status-panel" class="map-subtitle-panel">
+      <p id="status-text" class="map-subtitle-text">{{ t('map_voice_default') }}</p>
+      <div class="map-subtitle-actions">
+        <button id="more-info-btn" class="map-pill-btn" style="display:none;">{{ t('map_more_info') }}</button>
+        <button id="retry-btn" class="map-pill-btn" style="display:none;">{{ t('map_retry') }}</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="map-fab-row">
+    <button id="voice-btn" class="fab-circle" aria-label="{{ t('map_toggle_voice') }}">🔊</button>
+    <button id="auto-btn" class="fab-circle auto secondary" aria-label="{{ t('map_toggle_auto_docent') }}">
+      <span>✨</span>
+      <span id="auto-label">OFF</span>
+    </button>
+    <button id="loc-btn" class="fab-circle" aria-label="{{ t('map_current_location') }}">◎</button>
   </div>
 </div>
 
-<!-- ── TTS FAB — iOS voiceToggleButton 대응 (중앙 하단 큰 원형) ── -->
-<button id="tts-fab" class="fab-tts" onclick="_toggleTTS()"
-        aria-label="음성으로 듣기">
-  <span id="tts-icon">🔊</span>
-</button>
+<div id="sheet-backdrop" class="sheet-backdrop"></div>
 
-<!-- ── 하단 카드 패널 (Swiper) ───────────────── -->
-<div class="bottom-card-panel" id="card-panel" style="display:none;">
-  <div class="swiper" id="place-swiper" style="height:100%;">
-    <div class="swiper-wrapper" id="swiper-wrapper"></div>
+<section id="detail-sheet" class="bottom-sheet" aria-hidden="true">
+  <h3 id="detail-title" class="sheet-title"></h3>
+  <p id="detail-sub" class="sheet-sub"></p>
+  <img id="detail-image" class="detail-sheet__image" alt="place" />
+  <p id="detail-recommend" class="info-body" style="margin-top:10px;"></p>
+  <div class="btn-row">
+    <button id="detail-more-btn" class="btn-primary" style="width:100%;">{{ t('map_more_info') }}</button>
+  </div>
+</section>
+
+<section id="weather-sheet" class="bottom-sheet" aria-hidden="true">
+  <h3 class="sheet-title">{{ t('map_weather_title') }}</h3>
+  <p id="weather-now" class="sheet-sub"></p>
+  <p id="weather-dust-detail" class="sheet-sub weather-dust-line"></p>
+  <div id="forecast-list" class="forecast-list"></div>
+</section>
+
+<div id="location-overlay" class="location-overlay">
+  <div class="location-overlay__panel">
+    <h3 class="location-overlay__title">{{ t('map_overlay_title') }}</h3>
+    <p class="location-overlay__body">{{ t('map_overlay_body') }}</p>
+    <div class="btn-row">
+      <a href="/settings" class="btn-primary" style="width:100%; text-align:center; text-decoration:none;">{{ t('map_overlay_open_settings') }}</a>
+    </div>
+    <div class="btn-row">
+      <button id="overlay-retry" class="map-pill-btn" style="width:100%;">{{ t('map_overlay_retry') }}</button>
+    </div>
   </div>
 </div>
 
-<!-- ── 로딩 오버레이 (기본 숨김, JS에서 제어) ── -->
-<div id="loading-overlay"
-     style="position:fixed;inset:0;z-index:200;background:rgba(255,255,255,0.85);
-            display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;">
-  <div style="width:40px;height:40px;border:4px solid var(--obang-east);
-              border-top-color:transparent;border-radius:50%;
-              animation:spin 0.8s linear infinite;"></div>
-  <p style="font-size:0.9rem;color:var(--color-text);">{{ t('map_loading') }}</p>
+<div id="loading-overlay" class="location-overlay" style="display:none;">
+  <div class="location-overlay__panel" style="text-align:center;">
+    <p class="location-overlay__body">{{ t('map_loading') }}</p>
+  </div>
 </div>
-
-<!-- ── Kakao SDK 로드 실패 안내 (기본 숨김) ── -->
-<div id="map-error"
-     style="display:none;position:fixed;inset:0;z-index:201;background:#fff;
-            flex-direction:column;align-items:center;justify-content:center;gap:16px;">
-  <p style="font-size:1.1rem;font-weight:700;color:#C53030;">{{ t('map_error_title') }}</p>
-  <p style="font-size:0.85rem;color:#718096;text-align:center;padding:0 2rem;">
-    {{ t('map_error_domain') }}<br>
-    <code style="background:#F7FAFC;padding:2px 6px;border-radius:4px;">http://localhost:5000</code><br><br>
-    <a href="https://developers.kakao.com" target="_blank"
-       style="color:#2B6CB0;text-decoration:underline;">{{ t('map_error_link') }}</a>
-  </p>
-</div>
-
-<!-- ── 필터 버튼 스타일 ─────────────────────── -->
-<style>
-.filter-btn {
-  flex-shrink: 0;
-  border: 1.5px solid var(--color-border);
-  border-radius: 999px;
-  padding: 5px 14px;
-  font-size: 0.82rem;
-  font-weight: 500;
-  background: #fff;
-  color: var(--color-text);
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-.filter-btn.active {
-  background: var(--color-primary);
-  color: #fff;
-  border-color: var(--color-primary);
-}
-</style>
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/map_logic.js') }}"></script>
 <script>
-  // ── Kakao SDK 로드 타임아웃 감지 (3초) ──
-  const _kakaoTimer = setTimeout(() => {
-    if (typeof kakao === 'undefined' || !kakao.maps) {
-      document.getElementById('map-error').style.display = 'flex';
-    }
-  }, 3000);
-
-  // 기본 좌표 (수원시청) — location.js의 _DEFAULT_LAT/LNG와 동일한 값으로 유지
-  const _MAP_DEFAULT_LAT = 37.2636;
-  const _MAP_DEFAULT_LNG = 127.0286;
-
-  kakao.maps.load(() => {
-    clearTimeout(_kakaoTimer);
-    const lat = parseFloat(sessionStorage.getItem('user_lat') || _MAP_DEFAULT_LAT);
-    const lng = parseFloat(sessionStorage.getItem('user_lng') || _MAP_DEFAULT_LNG);
-    initMap(lat, lng);
-    _loadWeather(lat, lng);
-  });
-
-  // 저장된 폰트 크기 복원
-  (function() {
-    const scale = parseFloat(localStorage.getItem('lala_font_scale') || '1');
-    document.documentElement.style.fontSize = (scale * 16) + 'px';
-  })();
+  window.LALA_MAP_TEXT = {
+    loading: "{{ t('map_loading') }}",
+    noResults: "{{ t('map_no_results') }}",
+    retry: "{{ t('map_retry') }}",
+    defaultSubtitle: "{{ t('map_voice_default') }}",
+    docentLoading: "{{ t('map_docent_loading') }}",
+    docentUnavailable: "{{ t('map_docent_unavailable') }}",
+    moreInfo: "{{ t('map_more_info') }}",
+    weatherTitle: "{{ t('map_weather_title') }}",
+    weatherNow: "{{ t('map_weather_now') }}",
+    weatherEmpty: "{{ t('map_weather_empty') }}"
+  };
 </script>
+<script src="{{ url_for('static', filename='js/map_logic.js') }}"></script>
 {% endblock %}

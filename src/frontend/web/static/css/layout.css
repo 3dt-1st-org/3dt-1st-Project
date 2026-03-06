@@ -1,257 +1,765 @@
-/* ================================================
-   Mobile-first 반응형 기본 레이아웃
-   ================================================ */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 html {
   height: 100%;
-  /* iOS Safari 자동 폰트 크기 조정 방지 */
   -webkit-text-size-adjust: 100%;
 }
 
 body {
   height: 100%;
-  font-family: 'Pretendard', 'Noto Sans KR', -apple-system, sans-serif;
-  background-color: var(--color-bg);
+  font-family: 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--color-bg);
   color: var(--color-text);
   overflow-x: hidden;
-  /* 터치 시 하이라이트 제거 */
   -webkit-tap-highlight-color: transparent;
-  /* 버듰 클릭 효과 제거 */
-  -webkit-touch-callout: none;
 }
 
-/* ---- GNB ---- */
 .gnb {
   position: fixed;
-  top: 0; left: 0; right: 0;
-  /* Safe area 대응 (notch/Dynamic Island) */
+  top: 0;
+  left: 0;
+  right: 0;
   height: calc(var(--gnb-height) + env(safe-area-inset-top));
   padding-top: env(safe-area-inset-top);
-  background: rgba(255,255,255,0.96);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  display: flex;
-  align-items: center;
   padding-left: 1rem;
-  padding-right: 0.75rem;
-  z-index: 100;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-}
-.gnb__logo {
-  font-size: 1.25rem;
-  font-weight: 800;
-  color: var(--color-primary);
-  letter-spacing: -0.5px;
-  border-radius: 8px;
-  padding: 2px 10px;
-  /* 터치 타겟 충분히 */
-  min-height: 44px;
+  padding-right: 0.8rem;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(14px);
   display: flex;
   align-items: center;
+  z-index: 100;
+  box-shadow: 0 1px 12px rgba(10, 18, 28, 0.08);
 }
-.gnb__actions { margin-left: auto; display: flex; gap: 0.25rem; align-items: center; }
 
-/* GNB 네비게이션 버튼 — 터치 타겟 44×44px 보장 */
+.gnb__logo {
+  min-height: 44px;
+  padding: 4px 12px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  font-size: 1.18rem;
+  font-weight: 800;
+  color: var(--obang-east);
+  text-decoration: none;
+}
+
+.gnb__actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .gnb__nav-btn {
+  min-height: 42px;
+  min-width: 42px;
+  padding: 0 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0 8px;
-  font-size: 0.82rem;
-  font-weight: 500;
-  color: #4A5568;
   border-radius: 10px;
   text-decoration: none;
-  transition: background 0.15s, color 0.15s;
-  white-space: nowrap;
-}
-.gnb__nav-btn:hover, .gnb__nav-btn:active { background: #EBF4FF; color: var(--color-primary); }
-
-/* ---- 페이지 컨텐츠 여백 (GNB 높이 보정 + Safe area) ---- */
-.page-content { padding-top: calc(var(--gnb-height) + env(safe-area-inset-top)); }
-
-/* ---- 전체화면 지도 컨테이너 ---- */
-#map-container {
-  position: fixed;
-  top: calc(var(--gnb-height) + env(safe-area-inset-top)); left: 0; right: 0; bottom: 0;
-  z-index: 0;
+  color: #374151;
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
-/* ---- 하단 카드 슬라이드 패널 ---- */
-.bottom-card-panel {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  height: 220px;
-  z-index: 50;
-  /* iOS 스타일: 위쪽 둥근 모서리 + 핸들 바 */
-  border-radius: 20px 20px 0 0;
-  background: #fff;
-  box-shadow: 0 -4px 32px rgba(0,0,0,0.12);
-  overflow: hidden;
-  /* Safe area (iOS 홈 인디케이터) */
-  padding-bottom: env(safe-area-inset-bottom);
+.gnb__nav-btn:hover,
+.gnb__nav-btn:active {
+  background: #eaf2fb;
+  color: var(--obang-east);
 }
 
-/* 핸들 바 (드래그 힌트) */
-.bottom-card-panel::before {
-  content: '';
-  display: block;
-  width: 36px;
-  height: 4px;
-  background: #CBD5E0;
-  border-radius: 2px;
-  margin: 10px auto 0;
-  flex-shrink: 0;
+.page-content {
+  padding-top: calc(var(--gnb-height) + env(safe-area-inset-top));
+  min-height: 100dvh;
 }
 
-/* ---- 장소 카드 ---- */
-.place-card {
-  background: #fff;
-  /* 패널이 rounded top 이지뭐 알아서 카드는 border-radius 제거 */
-  border-radius: 0;
-  box-shadow: none;
-  padding: 0.85rem 1.25rem 1rem;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  cursor: pointer;
-  border: 2px solid transparent;
-  transition: border-color 0.2s;
+.fullscreen-page {
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
 }
-.place-card__name  { font-size: 1.05rem; font-weight: 700; }
-.place-card__meta  { font-size: 0.82rem; color: #718096; display: flex; gap: 0.5rem; align-items: center; }
-.place-card__badge { font-size: 0.73rem; border-radius: 999px; padding: 2px 10px; }
-.place-card__addr  { font-size: 0.78rem; color: #A0AEC0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.place-card__ai    { font-size: 0.78rem; color: #A0AEC0; font-style: italic; margin-top: auto; padding-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* ---- 스플래시 ---- */
 .splash-screen {
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-primary);
-}
-.splash-screen__logo {
-  font-size: 3.5rem;
-  font-weight: 900;
-  color: #fff;
-  letter-spacing: -1px;
-}
-.splash-screen__sub {
-  margin-top: 0.75rem;
-  font-size: 1rem;
-  color: rgba(255,255,255,0.8);
-}
-
-/* ---- 온보딩 화면 ---- */
-.onboarding-screen {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: 2rem 1.5rem;
-  padding-top: calc(var(--gnb-height) + 2rem);
-}
-.onboarding-screen__title {
-  font-size: 1.4rem;
-  font-weight: 700;
-  margin-bottom: 1rem;
-}
-.onboarding-screen__body {
-  flex: 1;
-  overflow-y: auto;
-  font-size: 0.9rem;
-  line-height: 1.8;
-  color: #4A5568;
-  margin-bottom: 1.5rem;
-}
-.onboarding-screen__footer {
-  position: sticky;
-  bottom: 0;
-  background: var(--color-bg);
-  padding: 1rem 0;
-}
-
-/* ---- 활성 카드 하이라이트 + 오방색 테두리 애니메이션 (iOS AnimatedObangBorder) ---- */
-@keyframes obang-card-border {
-  0%   { border-color: var(--obang-center);  box-shadow: 0 0 0 3px rgba(245,200,66,0.18), var(--shadow-card); }
-  20%  { border-color: var(--obang-east);    box-shadow: 0 0 0 3px rgba(43,108,176,0.18), var(--shadow-card); }
-  40%  { border-color: var(--obang-north);   box-shadow: 0 0 0 3px rgba(26,32,44,0.14),  var(--shadow-card); }
-  60%  { border-color: var(--obang-south);   box-shadow: 0 0 0 3px rgba(197,48,48,0.18), var(--shadow-card); }
-  80%  { border-color: var(--obang-west);    box-shadow: 0 0 0 3px rgba(180,180,180,0.2),var(--shadow-card); }
-  100% { border-color: var(--obang-center);  box-shadow: 0 0 0 3px rgba(245,200,66,0.18), var(--shadow-card); }
-}
-.place-card--active {
-  border: 2.5px solid var(--obang-east);
-  animation: obang-card-border 2.5s linear infinite;
-}
-.place-card__dist   { font-size: 0.8rem; color: #718096; }
-.place-card__region { font-size: 0.78rem; color: #A0AEC0; margin-left: auto; }
-
-/* ---- AI 추천 박스 — 카드패널 위에 융쪽는 주석바 동물 ---- */
-#ai-recommendation {
-  position: fixed !important;
-  bottom: 0;
-  left: 0; right: 0;
-  z-index: 52;
-  padding: 0 10px calc(10px + env(safe-area-inset-bottom));
-  /* 진입 애니메이션 */
-  transition: bottom 0.3s ease;
-}
-.has-card-panel #ai-recommendation {
-  bottom: calc(220px + env(safe-area-inset-bottom));
-}
-
-/* ---- 현재 위치 FAB ---- */
-.fab-locate {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: #fff;
-  border: none;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
-  display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  z-index: 45;
-  color: var(--color-primary);
-  transition: background 0.2s, bottom 0.3s;
+  gap: 1rem;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(255, 255, 255, 0.25), transparent 40%),
+    linear-gradient(145deg, rgba(43, 108, 176, 0.92), rgba(245, 200, 66, 0.8), rgba(197, 48, 48, 0.7));
 }
-.fab-locate:hover { background: #EBF4FF; }
-.fab-locate.loading { animation: spin 1s linear infinite; pointer-events: none; }
 
-/* 카드 패널이 열리면 FAB를 패널 위로 올림 */
-.has-card-panel .fab-locate { bottom: calc(220px + 12px); }
+.splash-screen__logo {
+  font-size: 3.6rem;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: -0.04em;
+  padding: 0.35rem 1.1rem;
+  border-radius: 1rem;
+}
 
-/* ---- 마커 이름 툴팁 오버레이 ---- */
-.marker-tooltip {
-  background: #fff;
-  border: 1.5px solid;   /* border-color는 JS에서 인라인으로 지정 */
-  border-radius: 8px;
-  padding: 4px 10px;
-  font-size: 12px;
+.splash-screen__sub {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 1rem;
   font-weight: 600;
-  color: #1A202C;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+
+.onboarding-wrap {
+  min-height: 100dvh;
+  padding: 1.2rem;
+  background:
+    linear-gradient(145deg, rgba(43, 108, 176, 0.38), rgba(245, 200, 66, 0.9), rgba(197, 48, 48, 0.4));
+  display: flex;
+  flex-direction: column;
+}
+
+.onboarding-panel {
+  margin-top: auto;
+  margin-bottom: auto;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 18px;
+  padding: 1.2rem;
+  box-shadow: 0 14px 34px rgba(18, 31, 45, 0.18);
+}
+
+.onboarding-title {
+  font-size: 2rem;
+  line-height: 1.1;
+  font-weight: 850;
+  color: var(--obang-north);
+  margin-bottom: 0.8rem;
+}
+
+.onboarding-subtitle {
+  font-size: 0.95rem;
+  color: #475569;
+  margin-bottom: 1rem;
+  line-height: 1.6;
+}
+
+.onboarding-bullets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-bottom: 1.2rem;
+}
+
+.onboarding-bullet {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  font-size: 0.9rem;
+  color: #1f2937;
+  line-height: 1.45;
+}
+
+.onboarding-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 0.42rem;
+  background: var(--obang-east);
+  flex-shrink: 0;
+}
+
+.onboarding-btn {
+  width: 100%;
+}
+
+.privacy-page,
+.location-consent-page,
+.settings-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.info-card {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  padding: 1rem;
+}
+
+.info-card + .info-card {
+  margin-top: 0.9rem;
+}
+
+.info-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  margin-bottom: 0.8rem;
+}
+
+.info-body {
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: #334155;
+  white-space: pre-line;
+}
+
+.btn-row {
+  display: flex;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.app-map {
+  position: fixed;
+  inset: 0;
+  top: calc(var(--gnb-height) + env(safe-area-inset-top));
+}
+
+#map-container {
+  position: absolute;
+  inset: 0;
+}
+
+.map-chip-bar {
+  position: absolute;
+  top: 12px;
+  left: 10px;
+  right: 10px;
+  z-index: 30;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.map-chip {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 0.79rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.95);
+  color: #0f172a;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
   white-space: nowrap;
-  transform: translateY(-52px);
+}
+
+.map-chip.active {
+  color: #fff;
+}
+
+.map-chip[data-category="all"].active {
+  background: var(--obang-north);
+}
+
+.map-chip[data-category="attraction"].active {
+  background: var(--obang-south);
+}
+
+.map-chip[data-category="restaurant"].active {
+  background: var(--obang-center);
+  color: var(--obang-north);
+}
+
+.map-chip[data-category="event"].active {
+  background: var(--obang-east);
+}
+
+.map-pill-btn {
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 9px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #0f172a;
+  box-shadow: 0 4px 14px rgba(16, 24, 40, 0.14);
+  cursor: pointer;
+}
+
+.map-weather-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+}
+
+.map-weather-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  max-width: 124px;
+}
+
+#weather-icon {
+  font-size: 1rem;
+}
+
+#weather-temp {
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+#weather-dust {
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1.1;
+  color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-top-stack {
+  --map-top-stack-width: min(820px, calc(100vw - 24px));
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 66px;
+  z-index: 34;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
   pointer-events: none;
 }
 
-/* ---- 공통 스피너 키프레임 ---- */
-@keyframes spin { to { transform: rotate(360deg); } }
+.map-subtitle-dock {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100px + env(safe-area-inset-bottom));
+  z-index: 34;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
 
-/* ---- 반응형: 태블릿 이상 ---- */
+.map-subtitle-panel {
+  width: min(460px, calc(100vw - 24px));
+  background: rgba(255, 255, 255, 0.94);
+  border-radius: 16px;
+  padding: 12px;
+  box-shadow: 0 8px 28px rgba(18, 31, 45, 0.16);
+  max-height: min(26dvh, 220px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+}
+
+.map-subtitle-text {
+  font-size: 0.87rem;
+  line-height: 1.55;
+  color: #1f2937;
+}
+
+.map-subtitle-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.map-fab-row {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fab-circle {
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--obang-east);
+  color: #fff;
+  font-size: 1.15rem;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.25);
+  cursor: pointer;
+}
+
+.fab-circle.secondary {
+  background: rgba(26, 32, 44, 0.84);
+}
+
+.fab-circle.auto {
+  width: 74px;
+  height: 74px;
+  font-size: 0.88rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fab-circle.auto.active {
+  background: var(--obang-east);
+}
+
+.map-card-panel {
+  width: var(--map-top-stack-width);
+  min-height: 146px;
+  max-height: 146px;
+  background: rgba(255, 255, 255, 0.98);
+  border-radius: 20px;
+  box-shadow: 0 12px 26px rgba(18, 31, 45, 0.2);
+  padding: 10px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  pointer-events: auto;
+}
+
+.map-card-panel::-webkit-scrollbar {
+  display: none;
+}
+
+.map-weather-row {
+  width: var(--map-top-stack-width);
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.map-weather-row .map-weather-btn {
+  pointer-events: auto;
+}
+
+.place-card {
+  width: 252px;
+  min-width: 252px;
+  max-width: 252px;
+  height: 126px;
+  border-radius: 14px;
+  padding: 12px;
+  border: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.1);
+  cursor: pointer;
+  scroll-snap-align: start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.place-card.active {
+  border-color: var(--obang-east);
+}
+
+.place-card__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+}
+
+.place-card__name {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #111827;
+  line-height: 1.16;
+  letter-spacing: -0.02em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: keep-all;
+}
+
+.place-card__category {
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.place-card__category--all {
+  color: #374151;
+}
+
+.place-card__category--attraction {
+  color: var(--obang-south);
+}
+
+.place-card__category--restaurant {
+  color: #9a7a00;
+}
+
+.place-card__category--event {
+  color: var(--obang-east);
+}
+
+.place-card__meta {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: nowrap;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.place-card__meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.place-card__meta:empty {
+  display: none;
+}
+
+.place-card__thumb {
+  width: 96px;
+  height: 96px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(216, 215, 184, 0.82), rgba(221, 228, 236, 0.88));
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.detail-sheet__image {
+  width: 100%;
+  height: 170px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(245, 200, 66, 0.4), rgba(43, 108, 176, 0.5));
+  object-fit: cover;
+}
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 80;
+  display: none;
+}
+
+.sheet-backdrop.active {
+  display: block;
+}
+
+.bottom-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 81;
+  border-radius: 18px 18px 0 0;
+  background: #fff;
+  box-shadow: 0 -8px 32px rgba(15, 23, 42, 0.24);
+  padding: 14px;
+  max-height: 70dvh;
+  overflow-y: auto;
+  display: none;
+}
+
+.bottom-sheet.active {
+  display: block;
+}
+
+.sheet-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.sheet-sub {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-bottom: 10px;
+}
+
+.weather-dust-line {
+  margin-top: -4px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.forecast-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.forecast-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px auto;
+  align-items: center;
+  column-gap: 10px;
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 0.82rem;
+}
+
+.forecast-item span:first-child {
+  min-width: 0;
+}
+
+.forecast-item strong {
+  justify-self: end;
+}
+
+.location-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(2, 6, 23, 0.55);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.location-overlay.active {
+  display: flex;
+}
+
+.location-overlay__panel {
+  width: min(360px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 16px 30px rgba(2, 6, 23, 0.34);
+}
+
+.location-overlay__title {
+  font-size: 1.1rem;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.location-overlay__body {
+  font-size: 0.88rem;
+  color: #475569;
+  line-height: 1.55;
+  margin-bottom: 12px;
+}
+
+.settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-card {
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
+}
+
+.settings-card__title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.settings-card__body {
+  font-size: 0.84rem;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.settings-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.segmented button {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.segmented button.active {
+  background: #e6f0fb;
+  border-color: var(--obang-east);
+  color: var(--obang-east);
+}
+
 @media (min-width: 768px) {
-  .bottom-card-panel { max-width: 480px; left: 50%; transform: translateX(-50%); }
-  .onboarding-screen { max-width: 600px; margin: 0 auto; }
+  .map-top-stack {
+    top: 74px;
+  }
+
+  .map-subtitle-panel {
+    width: min(520px, calc(100vw - 48px));
+  }
+}
+
+@media (min-width: 1024px) {
+  .map-top-stack {
+    --map-top-stack-width: min(804px, calc(100vw - 140px));
+    top: 78px;
+  }
+
+  .map-subtitle-panel {
+    width: min(500px, calc(100vw - 96px));
+    max-height: 132px;
+  }
+
+  .map-card-panel {
+    min-height: 146px;
+    max-height: 146px;
+  }
+
+  .place-card {
+    width: 252px;
+    min-width: 252px;
+    max-width: 252px;
+  }
+
+  .bottom-sheet {
+    left: 50%;
+    right: auto;
+    width: min(580px, calc(100% - 48px));
+    bottom: calc(18px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    border-radius: 24px;
+    padding: 18px;
+  }
 }

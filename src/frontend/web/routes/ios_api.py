@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import copy
 import hmac
 import json
 import math
 import os
 import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from urllib.parse import quote, urlsplit, urlunsplit
@@ -15,8 +19,14 @@ import requests as http_requests
 from flask import Blueprint, Response, jsonify, request
 
 from src.frontend.web.services.db import get_db_connection
-from src.frontend.web.services.docent_service import generate_docent_script
-from src.frontend.web.services.speech_service import SpeechSynthesisError, synthesize_speech_mp3
+from src.frontend.web.services.docent_api_service import (
+    create_docent_audio_payload,
+    create_docent_script_payload,
+)
+from src.frontend.web.services.map_api_service import (
+    create_places_payload,
+    create_weather_payload,
+)
 
 
 ios_api_bp = Blueprint("ios_api", __name__)
@@ -48,6 +58,10 @@ _OPEN_METEO_WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 _OPEN_METEO_AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
 _OPEN_METEO_TIMEOUT_SEC = 3.5
 _LEGACY_WEATHER_TIMEOUT_SEC = 2.5
+_WEATHER_CACHE_TTL_SEC = 180
+_WEATHER_CACHE_STALE_SEC = 900
+_WEATHER_CACHE_COORD_PRECISION = 3
+_WEATHER_HTTP_CACHE_CONTROL = "private, max-age=180"
 _DUST_GRADE_LABELS = {
     "good": "좋음",
     "normal": "보통",
@@ -82,8 +96,100 @@ def _safe_float_env(name: str, default: float) -> float:
         return default
 
 
+def _safe_int_env(name: str, default: int) -> int:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 _OPEN_METEO_TIMEOUT_SEC = max(1.0, min(_safe_float_env("OPEN_METEO_TIMEOUT_SEC", _OPEN_METEO_TIMEOUT_SEC), 8.0))
 _LEGACY_WEATHER_TIMEOUT_SEC = max(1.0, min(_safe_float_env("LEGACY_WEATHER_TIMEOUT_SEC", _LEGACY_WEATHER_TIMEOUT_SEC), 8.0))
+_WEATHER_CACHE_TTL_SEC = max(30, min(_safe_int_env("WEATHER_CACHE_TTL_SEC", _WEATHER_CACHE_TTL_SEC), 900))
+_WEATHER_CACHE_STALE_SEC = max(
+    _WEATHER_CACHE_TTL_SEC,
+    min(_safe_int_env("WEATHER_CACHE_STALE_SEC", _WEATHER_CACHE_STALE_SEC), 3600),
+)
+_WEATHER_CACHE_COORD_PRECISION = max(
+    2,
+    min(_safe_int_env("WEATHER_CACHE_COORD_PRECISION", _WEATHER_CACHE_COORD_PRECISION), 4),
+)
+_WEATHER_HTTP_CACHE_CONTROL = f"private, max-age={_WEATHER_CACHE_TTL_SEC}"
+_WEATHER_FETCH_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="lala-weather")
+_WEATHER_CACHE_LOCK = threading.Lock()
+_WEATHER_CACHE: dict[tuple[float, float], dict] = {}
+_WEATHER_INFLIGHT: dict[tuple[float, float], "_InflightWeatherRequest"] = {}
+
+
+class _InflightWeatherRequest:
+    def __init__(self) -> None:
+        self.event = threading.Event()
+        self.payload: dict | None = None
+        self.status_code: int | None = None
+
+
+def _weather_cache_key(lat: float, lng: float) -> tuple[float, float]:
+    return (round(lat, _WEATHER_CACHE_COORD_PRECISION), round(lng, _WEATHER_CACHE_COORD_PRECISION))
+
+
+def _read_cached_weather_entry(
+    key: tuple[float, float],
+    *,
+    now_monotonic: float,
+    allow_stale: bool,
+) -> tuple[dict, int] | None:
+    entry = _WEATHER_CACHE.get(key)
+    if not entry:
+        return None
+
+    age = now_monotonic - float(entry.get("stored_at", 0.0))
+    if age <= _WEATHER_CACHE_TTL_SEC:
+        return copy.deepcopy(entry["payload"]), int(entry["status_code"])
+    if allow_stale and age <= _WEATHER_CACHE_STALE_SEC:
+        return copy.deepcopy(entry["payload"]), int(entry["status_code"])
+    return None
+
+
+def _store_cached_weather_entry(key: tuple[float, float], payload: dict, status_code: int) -> None:
+    _WEATHER_CACHE[key] = {
+        "payload": copy.deepcopy(payload),
+        "status_code": status_code,
+        "stored_at": time.monotonic(),
+    }
+
+
+def _has_meaningful_dust(payload: dict | None) -> bool:
+    if not payload:
+        return False
+
+    dust = payload.get("dust") or {}
+    grade = str(dust.get("grade") or "").strip().lower()
+    if grade and grade != "unknown":
+        return True
+    return dust.get("pm10") is not None or dust.get("pm25") is not None
+
+
+def _merge_cached_dust(current_payload: dict, cached_payload: dict | None) -> dict:
+    if _has_meaningful_dust(current_payload):
+        return current_payload
+    if not _has_meaningful_dust(cached_payload):
+        return current_payload
+
+    merged = copy.deepcopy(current_payload)
+    merged["dust"] = copy.deepcopy((cached_payload or {}).get("dust") or {})
+    cached_source = str((cached_payload or {}).get("dust_source") or "").strip()
+    if cached_source:
+        merged["dust_source"] = f"stale-{cached_source}"
+    return merged
+
+
+def _reset_weather_cache_for_tests() -> None:
+    with _WEATHER_CACHE_LOCK:
+        _WEATHER_CACHE.clear()
+        _WEATHER_INFLIGHT.clear()
 
 
 def _latlon_to_grid(lat: float, lon: float) -> tuple[int, int]:
@@ -138,8 +244,64 @@ def _parse_int_arg(name: str, default: int) -> int:
 
 
 def _weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
+    key = _weather_cache_key(lat, lng)
+    now_monotonic = time.monotonic()
+    cached_stale_payload: dict | None = None
+
+    with _WEATHER_CACHE_LOCK:
+        cached = _read_cached_weather_entry(key, now_monotonic=now_monotonic, allow_stale=False)
+        if cached is not None:
+            return cached
+
+        stale = _read_cached_weather_entry(key, now_monotonic=now_monotonic, allow_stale=True)
+        if stale is not None:
+            cached_stale_payload = stale[0]
+
+        inflight = _WEATHER_INFLIGHT.get(key)
+        owns_fetch = inflight is None
+        if owns_fetch:
+            inflight = _InflightWeatherRequest()
+            _WEATHER_INFLIGHT[key] = inflight
+
+    if not owns_fetch:
+        inflight.event.wait(timeout=max(_OPEN_METEO_TIMEOUT_SEC * 2.0, 2.0) + 1.0)
+        if inflight.payload is not None and inflight.status_code is not None:
+            return copy.deepcopy(inflight.payload), inflight.status_code
+
+        with _WEATHER_CACHE_LOCK:
+            stale = _read_cached_weather_entry(key, now_monotonic=time.monotonic(), allow_stale=True)
+        if stale is not None:
+            return stale
+
     try:
-        weather_payload = _fetch_open_meteo_weather(lat=lat, lng=lng)
+        payload, status_code = _compute_weather_snapshot(lat=lat, lng=lng)
+    except Exception as exc:
+        payload, status_code = {"error": str(exc)}, 502
+
+    with _WEATHER_CACHE_LOCK:
+        stale = _read_cached_weather_entry(key, now_monotonic=time.monotonic(), allow_stale=True)
+        if status_code == 200:
+            payload = _merge_cached_dust(payload, cached_stale_payload)
+            _store_cached_weather_entry(key, payload, status_code)
+        elif stale is not None:
+            payload, status_code = stale
+
+        if owns_fetch:
+            current_inflight = _WEATHER_INFLIGHT.pop(key, None)
+            if current_inflight is not None:
+                current_inflight.payload = copy.deepcopy(payload)
+                current_inflight.status_code = status_code
+                current_inflight.event.set()
+
+    return payload, status_code
+
+
+def _compute_weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
+    try:
+        weather_future = _WEATHER_FETCH_EXECUTOR.submit(_fetch_open_meteo_weather, lat, lng)
+        air_quality_future = _WEATHER_FETCH_EXECUTOR.submit(_fetch_open_meteo_air_quality, lat, lng)
+
+        weather_payload = weather_future.result(timeout=_OPEN_METEO_TIMEOUT_SEC + 0.5)
 
         current = weather_payload.get("current") or {}
 
@@ -155,7 +317,7 @@ def _weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
         }
         dust_source = "none"
         try:
-            air_payload = _fetch_open_meteo_air_quality(lat=lat, lng=lng)
+            air_payload = air_quality_future.result(timeout=_OPEN_METEO_TIMEOUT_SEC + 0.5)
             dust = _build_current_dust_payload(air_payload=air_payload)
             dust_source = "open-meteo"
         except Exception:
@@ -490,6 +652,7 @@ def _normalize_place_row(row: dict) -> dict:
         text = str(value).strip()
         return text or default
 
+    row["place_id"] = _clean_text(row.get("place_id") or row.get("id"))
     row["name"] = _clean_text(row.get("name"), "이름 없음")
     row["name_en"] = _clean_text(row.get("name_en"), row["name"])
     row["address"] = _clean_text(row.get("address"))
@@ -1068,45 +1231,16 @@ def api_ios_places():
     except ValueError:
         return jsonify({"error": "invalid numeric query params"}), 400
 
-    category = (request.args.get("category", "all") or "all").strip().lower()
-    if category not in _VALID_PLACE_CATEGORIES:
-        return jsonify({"error": "category must be all|attraction|restaurant|event"}), 400
-
-    scope = (request.args.get("scope", "radius") or "radius").strip().lower()
-    if scope not in _VALID_PLACE_SCOPES:
-        return jsonify({"error": "scope must be radius|city"}), 400
-
-    city_hint = str(request.args.get("city") or "").strip()
-
-    if radius <= 0:
-        return jsonify({"error": "radius must be positive"}), 400
-
-    limit = min(max(limit, 1), _MAX_LIMIT)
-
-    try:
-        if scope == "city":
-            resolved_city = city_hint
-            if not resolved_city:
-                with get_db_connection() as conn:
-                    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                        resolved_city = _resolve_city_from_coordinate(cursor=cursor, lat=lat, lng=lng) or ""
-
-            if not resolved_city:
-                return jsonify({"count": 0, "places": [], "scope": "city", "city": None})
-
-            places = _fetch_places_by_city(
-                lat=lat,
-                lng=lng,
-                city=resolved_city,
-                category=category,
-                limit=limit,
-            )
-            return jsonify({"count": len(places), "places": places, "scope": "city", "city": resolved_city})
-
-        places = _fetch_places(lat=lat, lng=lng, radius=radius, category=category, limit=limit)
-        return jsonify({"count": len(places), "places": places, "scope": "radius", "city": None})
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+    payload, status_code = create_places_payload(
+        lat=lat,
+        lng=lng,
+        radius=radius,
+        category=(request.args.get("category", "all") or "all"),
+        scope=(request.args.get("scope", "radius") or "radius"),
+        city_hint=str(request.args.get("city") or ""),
+        limit=limit,
+    )
+    return jsonify(payload), status_code
 
 
 @ios_api_bp.route("/api/ios/v1/weather", methods=["GET"])
@@ -1118,76 +1252,26 @@ def api_ios_weather():
     except ValueError:
         return jsonify({"error": "invalid numeric query params"}), 400
 
-    payload, status_code = _weather_snapshot(lat=lat, lng=lng)
-    return jsonify(payload), status_code
+    payload, status_code = create_weather_payload(lat=lat, lng=lng)
+    return jsonify(payload), status_code, {"Cache-Control": _WEATHER_HTTP_CACHE_CONTROL}
 
 
 @ios_api_bp.route("/api/ios/v1/docent/script", methods=["POST"])
 @_require_api_key
 def api_ios_docent_script():
     payload = request.get_json(silent=True) or {}
-
-    place_id = str(payload.get("place_id") or "").strip()
-    category = str(payload.get("category") or "").strip().lower()
-    language = str(payload.get("language") or "ko").strip().lower()
-    mode = str(payload.get("mode") or "brief").strip().lower()
-
-    if category not in _VALID_DOCENT_CATEGORIES:
-        return jsonify({"error": "category must be attraction|restaurant|event"}), 400
-    if language not in _VALID_LANGUAGES:
-        return jsonify({"error": "language must be ko|en"}), 400
-    if mode not in _VALID_MODES:
-        return jsonify({"error": "mode must be brief|detail"}), 400
-
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                result = generate_docent_script(
-                    cursor=cursor,
-                    place_id=place_id,
-                    category=category,
-                    language=language,
-                    mode=mode,
-                )
-            conn.commit()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-    return jsonify(
-        {
-            "place_id": result.place_id,
-            "category": result.category,
-            "language": result.language,
-            "mode": result.mode,
-            "script": result.script,
-            "source": result.source,
-            "generated_at": result.generated_at,
-            "ttl_sec": result.ttl_sec,
-        }
-    )
+    response_payload, status_code = create_docent_script_payload(payload)
+    return jsonify(response_payload), status_code
 
 
 @ios_api_bp.route("/api/ios/v1/docent/audio", methods=["POST"])
 @_require_api_key
 def api_ios_docent_audio():
     payload = request.get_json(silent=True) or {}
-
-    script = str(payload.get("script") or "").strip()
-    language = str(payload.get("language") or "ko").strip().lower()
-
-    if language not in _VALID_LANGUAGES:
-        return jsonify({"error": "language must be ko|en"}), 400
-
-    try:
-        audio_bytes = synthesize_speech_mp3(script=script, language=language)
-    except SpeechSynthesisError as exc:
-        return jsonify({"error": str(exc)}), exc.status_code
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-    return Response(audio_bytes, mimetype="audio/mpeg")
+    response_payload, status_code, mime_type = create_docent_audio_payload(payload)
+    if mime_type == "audio/mpeg":
+        return Response(response_payload, mimetype=mime_type, status=status_code)
+    return jsonify(response_payload), status_code
 
 
 @ios_api_bp.route("/api/ios/v1/health", methods=["GET"])

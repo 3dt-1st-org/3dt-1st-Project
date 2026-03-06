@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, session, redirect, request
 
 settings_bp = Blueprint("settings", __name__)
 
-SUPPORTED_LANGS = ("ko", "en", "ja")
+SUPPORTED_LANGS = ("ko", "en")
 
 
 @settings_bp.route("/settings")
