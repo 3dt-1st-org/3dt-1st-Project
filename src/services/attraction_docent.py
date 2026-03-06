@@ -5,6 +5,7 @@ import azure.cognitiveservices.speech as speechsdk
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from dotenv import load_dotenv
+from config.vault_manager import vault
 
 # ==============================================================================
 # 0. 환경 설정 및 리소스 로드
@@ -47,15 +48,8 @@ if not os.path.exists(DOCENT_OUTPUT_DIR_SCRIPTS):
 # 1. 데이터 추출 함수
 # ==============================================================================
 def fetch_attraction_data(attraction_name, table="reviews"):
-    """모든 DB 정보를 Key Vault의 'lala-db-' 시크릿에서 가져와 연결합니다."""
-    conn = psycopg2.connect(
-        host=_get_secret("lala-db-host"),
-        port=int(_get_secret("lala-db-port")),
-        database=_get_secret("lala-db-name"),
-        user=_get_secret("lala-db-user"),
-        password=_get_secret("lala-db-password"),
-        sslmode="require"
-    )
+    """vault_manager DSN으로 DB에 연결합니다."""
+    conn = psycopg2.connect(vault.get_db_dsn())
     try:
         with conn.cursor() as cursor:
             if table == "reviews":

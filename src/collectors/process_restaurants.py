@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from openai import AzureOpenAI
+from config.vault_manager import vault
 
 # ==============================================================================
 # 0. 환경 설정 및 시크릿 로드
@@ -50,15 +51,7 @@ def _get_secret(name: str) -> str:
     _secret_cache[name] = env_value
     return env_value
 
-# 설정 로드
-DB_CONFIG = {
-    "host": _get_secret("lala-db-host"),
-    "port": int(_get_secret("lala-db-port")), # 정수형 변환
-    "database": _get_secret("lala-db-name"),
-    "user": _get_secret("lala-db-user"),
-    "password": _get_secret("lala-db-password"),
-    "sslmode": "require"
-}
+# DB 연결: vault.get_db_dsn() 사용 (vault_manager 통일)
 
 NAVER_CLIENT_ID = _get_secret("naver-client-id")
 NAVER_CLIENT_SECRET = _get_secret("naver-client-secret")
@@ -76,7 +69,7 @@ def get_ranked_restaurants(candidate_list):
     #     print(f"ℹ️ 후보군이 10개 미만입니다. 전체를 반환합니다.")
     #     return pd.DataFrame(candidate_list).assign(final_score=0.0)
 
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = psycopg2.connect(vault.get_db_dsn())
     names = [item['restaurant_name'] for item in candidate_list]
 
     query = """
@@ -166,7 +159,7 @@ def save_analysis_result(restaurant_name, analysis_data):
     emb_text = f"{analysis_data['summary_ko']} {analysis_data['tips']}"
     vec = generate_embeddings(emb_text)
 
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = psycopg2.connect(vault.get_db_dsn())
     cursor = conn.cursor()
     try:
         # restaurant_reviews 테이블 구조에 맞게 수정 (임베딩 컬럼 포함 가정)
@@ -185,7 +178,7 @@ def save_analysis_result(restaurant_name, analysis_data):
 
 def has_existing_restaurant_analysis(restaurant_name):
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = psycopg2.connect(vault.get_db_dsn())
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM locallink.restaurant_reviews WHERE restaurant_name = %s", (restaurant_name,))
         exists = cursor.fetchone()[0] > 0

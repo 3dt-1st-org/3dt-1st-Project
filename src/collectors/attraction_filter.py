@@ -1,35 +1,16 @@
 import os
 import psycopg2
 from dotenv import load_dotenv
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
+from config.vault_manager import vault
 
 # ==============================================================================
-# 0. 인프라 설정 (Key Vault & DB Connection)
+# 0. 인프라 설정 (DB Connection)
 # ==============================================================================
 load_dotenv()
 
 def get_db_connection():
-    """Key Vault에서 인증 정보를 로드하여 DB 연결 객체를 생성합니다."""
-    _vault_url = os.getenv("KEY_VAULT_URL")
-    if not _vault_url:
-        raise ValueError("❌ .env에 KEY_VAULT_URL이 설정되지 않았습니다.")
-
-    _credential = DefaultAzureCredential()
-    _kv_client = SecretClient(vault_url=_vault_url, credential=_credential)    
-    
-    def _get_secret(name: str) -> str:
-        """Key Vault에서 시크릿 값을 가져오는 헬퍼 함수"""
-        return _kv_client.get_secret(name).value
-    
-    return psycopg2.connect(
-        host=_get_secret("lala-db-host"),
-            port=int(_get_secret("lala-db-port")),
-            database=_get_secret("lala-db-name"),
-            user=_get_secret("lala-db-user"),
-            password=_get_secret("lala-db-password"),
-            sslmode="require"
-    )
+    """vault_manager의 DSN으로 DB 연결 객체를 반환합니다."""
+    return vault.get_db_connection()
 
 # ==============================================================================
 # 1. 위치 기반 명소 필터링 로직

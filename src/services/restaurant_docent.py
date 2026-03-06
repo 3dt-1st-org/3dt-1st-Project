@@ -5,6 +5,7 @@ from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 import azure.cognitiveservices.speech as speechsdk
 from dotenv import load_dotenv
+from config.vault_manager import vault
 
 # ==============================================================================
 # 0. 환경 설정 및 리소스 로드
@@ -62,14 +63,7 @@ def get_db_and_llm_resources():
 # ==============================================================================
 def fetch_top10_context(restaurant_list):
     """리스트에 담긴 10개 식당의 키워드와 리뷰를 DB에서 가져옵니다."""
-    conn = psycopg2.connect(
-        host=_get_secret("lala-db-host"),
-        port=int(_get_secret("lala-db-port")),
-        database=_get_secret("lala-db-name"),
-        user=_get_secret("lala-db-user"),
-        password=_get_secret("lala-db-password"),
-        sslmode="require"
-    )
+    conn = psycopg2.connect(vault.get_db_dsn())
     
     combined_data = []
     try:

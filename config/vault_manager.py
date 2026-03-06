@@ -55,6 +55,31 @@ class KeyVaultManager:
             print(f"[WARN] 시크릿 목록 조회 중 오류 발생: {e}")
             return []
 
+    def get_db_dsn(self) -> str:
+        """5개 DB 시크릿을 읽어 psycopg2 호환 DSN URL 문자열을 반환합니다.
+
+        반환 예: postgresql://user:pass@host:5432/dbname?sslmode=require
+        결과는 인스턴스에 캐시되어 재호출 시 KV를 재조회하지 않습니다.
+        """
+        if hasattr(self, "_db_dsn_cache"):
+            return self._db_dsn_cache
+
+        import urllib.parse
+        host     = self.get_secret("lala-db-host") or ""
+        port     = self.get_secret("lala-db-port") or "5432"
+        dbname   = self.get_secret("lala-db-name") or ""
+        user     = self.get_secret("lala-db-user") or ""
+        password = urllib.parse.quote(self.get_secret("lala-db-password") or "", safe="")
+        dsn = f"postgresql://{user}:{password}@{host}:{port}/{dbname}?sslmode=require"
+        self._db_dsn_cache = dsn
+        return dsn
+
+    def get_db_connection(self):
+        """DSN으로 psycopg2 연결 객체를 반환합니다. 컨텍스트 매니저로 사용하세요."""
+        import psycopg2
+        timeout = int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "5"))
+        return psycopg2.connect(self.get_db_dsn(), connect_timeout=timeout)
+
     def get_all_secrets(self) -> dict[str, str]:
         """Key Vault에 저장된 모든 시크릿을 {이름: 값} 딕셔너리로 반환합니다."""
         if hasattr(self, "_cache"):
