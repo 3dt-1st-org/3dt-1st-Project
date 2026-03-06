@@ -7,8 +7,10 @@ name = "3dt-project"
 version = "0.1.0"
 dependencies = [
     "flask>=3.0",
+    "openai>=1.40",
     "psycopg2-binary>=2.9",
     "python-dotenv>=1.0",
+    "requests>=2.31",
 ]
 
 [tool.setuptools.packages.find]

@@ -1,8 +1,8 @@
 import sys
+import os
 from pathlib import Path
 from flask import Flask
 from dotenv import load_dotenv
-from config.vault_manager import vault
 
 
 def _read_version() -> str:
@@ -23,7 +23,7 @@ def _read_version() -> str:
     except Exception:
         return "0.1.0"
 
-load_dotenv()  # KEY_VAULT_URL을 .env에서 읽기 위해 유지
+load_dotenv()  # 로컬 개발용 .env 지원
 
 # app.py 기준 절대 경로 — 실행 위치에 관계없이 항상 올바르게 탐색
 _BASE = Path(__file__).parent
@@ -35,10 +35,10 @@ def create_app() -> Flask:
         template_folder=str(_BASE / "templates"),
         static_folder=str(_BASE / "static"),
     )
-    app.secret_key = vault.get_secret("flask-secret-key")
+    app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
 
     # 카카오맵 키를 Jinja2 전역 변수로 주입
-    app.jinja_env.globals["kakao_js_key"] = vault.get_secret("kakao-js-key")
+    app.jinja_env.globals["kakao_js_key"] = os.getenv("KAKAO_JS_KEY", "")
 
     # 앱 버전 (모든 템플릿에서 {{ app_version }} 사용 가능)
     app.jinja_env.globals["app_version"] = _read_version()
@@ -52,10 +52,12 @@ def create_app() -> Flask:
     from src.frontend.web.routes.onboarding import onboarding_bp
     from src.frontend.web.routes.main_map import main_map_bp
     from src.frontend.web.routes.settings import settings_bp
+    from src.frontend.web.routes.ios_api import ios_api_bp
 
     app.register_blueprint(onboarding_bp)
     app.register_blueprint(main_map_bp)
     app.register_blueprint(settings_bp)
+    app.register_blueprint(ios_api_bp)
 
     return app
 

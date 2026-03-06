@@ -4,5 +4,7 @@
 <dict>
     <key>API_BASE_URL</key>
     <string></string>
+    <key>IOS_API_KEY</key>
+    <string></string>
 </dict>
 </plist>
