@@ -1,11 +1,12 @@
 -- =============================================================================
 -- 선제적 추천 매칭 쿼리: PostGIS + pgvector 하이브리드 (관광지 전용)
--- is_indoor 컬럼 없이 쿼리 시점에 리뷰 키워드로 실내/외 동적 판별
+-- is_indoor 컬럼: GPT-4o-mini 일괄 분류 결과 저장 (classify_tourist_indoor.py)
+--   TRUE=실내, FALSE=실외, NULL=판단불가(악천후에도 항상 통과)
 -- 음식점은 별도 추천 알고리즘으로 분리 예정
 -- =============================================================================
 -- 대상 테이블 (실제 스키마 기준):
---   locallink.tourist_spot_info       -- 관광지 (lat, lng, tourist_nm)
---   locallink.attraction_reviews      -- 리뷰 + 임베딩 (embedding vector, clean_text)
+--   locallink.tourist_spot_info       -- 관광지 (lat, lng, tourist_nm, is_indoor)
+--   locallink.attraction_reviews      -- 리뷰 + 임베딩 (embedding vector)
 --   locallink.realtime_weather_conditions -- 실시간 날씨 (outdoor_status, pm10, pm25)
 -- =============================================================================
 
@@ -37,8 +38,8 @@ CurrentWeather AS (
     LIMIT  1
 ),
 
--- 2. 관광지 후보: 날씨 필터 + 반경 필터
--- is_indoor 컬럼 없이, 리뷰 키워드로 쿼리 시점 동적 판별
+-- 2. 관광지 후보: 반경 필터
+-- is_indoor: GPT 사전 분류 컬럼 직접 참조 (리뷰 키워드 의존 제거)
 AttractionCandidates AS (
     SELECT
         t.tourist_nm                                      AS place_name,
@@ -48,31 +49,7 @@ AttractionCandidates AS (
         t.sigun_nm,
         t.lat,
         t.lng,
-        -- [동적 실내/외 판별] 리뷰 키워드 집계 (컬럼 불필요)
-        CASE
-            WHEN EXISTS (
-                SELECT 1 FROM locallink.attraction_reviews r
-                WHERE  r.attraction_name = t.tourist_nm
-                  AND  (   r.clean_text ILIKE ANY(ARRAY['%실내%','%전시관%','%박물관%',
-                                                        '%미술관%','%아쿠아리움%','%센터%',
-                                                        '%문화원%','%도서관%','%비 와도%',
-                                                        '%비가 와도%','%실내 놀이%'])
-                        OR r.extracted_keywords ILIKE ANY(ARRAY['%실내%','%전시%',
-                                                                '%박물관%','%미술관%'])
-                       )
-            ) THEN TRUE
-            WHEN EXISTS (
-                SELECT 1 FROM locallink.attraction_reviews r
-                WHERE  r.attraction_name = t.tourist_nm
-                  AND  (   r.clean_text ILIKE ANY(ARRAY['%등산%','%트레킹%','%야외%',
-                                                        '%공원%','%산책로%','%캠핑%',
-                                                        '%계곡%','%광장%','%야경%'])
-                        OR r.extracted_keywords ILIKE ANY(ARRAY['%야외%','%공원%',
-                                                                '%등산%','%트레킹%'])
-                       )
-            ) THEN FALSE
-            ELSE NULL  -- 리뷰 없거나 판단 불가 → 날씨 무관 항상 포함
-        END                                               AS is_indoor,
+        t.is_indoor,                                      -- GPT 분류 결과 직접 참조
         'attraction'                                      AS place_type,
         -- PostGIS 거리 계산 (미터)
         ST_Distance(
@@ -91,13 +68,14 @@ AttractionCandidates AS (
         )
 ),
 
--- 2-b. 날씨 조건 적용 (동적 is_indoor 판별 후 필터링)
+-- 2-b. 날씨 조건 적용
 AttractionFiltered AS (
     SELECT ac.*
     FROM   AttractionCandidates ac
     CROSS  JOIN CurrentWeather cw
     WHERE
-        -- 악천후 → is_indoor TRUE 또는 판단불가(NULL)만 통과
+        -- 악천후: is_indoor=FALSE(실외)만 제외, TRUE(실내)·NULL(판단불가) 통과
+        -- 쾌적: 실내외 모두 통과
         CASE
             WHEN (
                 cw.outdoor_status IN ('비/눈', '미세먼지 나쁨', '폭염', '한파', '대기 나쁨')
@@ -107,8 +85,8 @@ AttractionFiltered AS (
                 OR cw.temperature > 33
                 OR cw.temperature < -10
             )
-            THEN ac.is_indoor IS NOT FALSE   -- FALSE(실외) 제외, TRUE·NULL 통과
-            ELSE TRUE                         -- 날씨 쾌적 → 실내외 모두 통과
+            THEN ac.is_indoor IS NOT FALSE
+            ELSE TRUE
         END
 ),
 
