@@ -123,6 +123,48 @@ _WEATHER_CACHE_LOCK = threading.Lock()
 _WEATHER_CACHE: dict[tuple[float, float], dict] = {}
 _WEATHER_INFLIGHT: dict[tuple[float, float], "_InflightWeatherRequest"] = {}
 
+# weather_air_func 배치 데이터(realtime_weather_conditions) DB 우선 조회 활성화 여부
+# 장애 시 WEATHER_DB_ENABLED=false 로 즉시 우회 가능
+_WEATHER_DB_ENABLED: bool = (os.getenv("WEATHER_DB_ENABLED", "true").strip().lower() != "false")
+
+# stations.json 33개 도시: (nx, ny, DB location 한글명)
+# nx/ny 는 기상청 격자 좌표 — _latlon_to_grid() 결과와 비교하여 최근접 도시 탐색에 사용
+_STATION_COORD_MAP: list[tuple[int, int, str]] = [
+    (60, 127, "서울"),
+    (54, 124, "인천"),
+    (61, 121, "수원"),
+    (63, 124, "성남"),
+    (61, 130, "의정부"),
+    (59, 123, "안양"),
+    (56, 125, "부천"),
+    (58, 125, "광명"),
+    (62, 114, "평택"),
+    (61, 134, "동두천"),
+    (57, 121, "안산"),
+    (58, 128, "고양"),
+    (60, 124, "과천"),
+    (62, 127, "구리"),
+    (64, 128, "남양주"),
+    (62, 118, "오산"),
+    (57, 123, "시흥"),
+    (60, 122, "군포"),
+    (60, 123, "의왕"),
+    (64, 126, "하남"),
+    (64, 119, "용인"),
+    (56, 131, "파주"),
+    (68, 121, "이천"),
+    (65, 115, "안성"),
+    (55, 128, "김포"),
+    (57, 119, "화성"),
+    (65, 123, "광주"),
+    (61, 131, "양주"),
+    (64, 134, "포천"),
+    (71, 121, "여주"),
+    (58, 138, "연천"),
+    (69, 133, "가평"),
+    (69, 125, "양평"),
+]
+
 
 class _InflightWeatherRequest:
     def __init__(self) -> None:
@@ -190,6 +232,72 @@ def _reset_weather_cache_for_tests() -> None:
     with _WEATHER_CACHE_LOCK:
         _WEATHER_CACHE.clear()
         _WEATHER_INFLIGHT.clear()
+
+
+def _find_nearest_db_location(lat: float, lng: float) -> str | None:
+    """요청 좌표를 기상청 격자(nx, ny)로 변환 후 _STATION_COORD_MAP에서 최근접 도시명(한글) 반환."""
+    try:
+        nx, ny = _latlon_to_grid(lat, lng)
+        nearest_location: str | None = None
+        min_dist = float("inf")
+        for s_nx, s_ny, location in _STATION_COORD_MAP:
+            dist = (nx - s_nx) ** 2 + (ny - s_ny) ** 2
+            if dist < min_dist:
+                min_dist = dist
+                nearest_location = location
+        return nearest_location
+    except Exception:
+        return None
+
+
+def _fetch_weather_from_db(lat: float, lng: float) -> tuple[dict, int] | None:
+    """realtime_weather_conditions 에서 최근접 도시의 최신 날씨 레코드를 읽어 payload 형식으로 반환.
+
+    70분 이내 데이터가 없거나 DB 오류 시 None 반환 → 호출부에서 Open-Meteo 폴백.
+    """
+    location = _find_nearest_db_location(lat, lng)
+    if not location:
+        return None
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT temperature, precipitation_type, pm10, pm25
+                    FROM locallink.realtime_weather_conditions
+                    WHERE location = %s
+                      AND record_time > NOW() - INTERVAL '70 minutes'
+                    ORDER BY record_time DESC
+                    LIMIT 1
+                    """,
+                    (location,),
+                )
+                row = cur.fetchone()
+    except Exception:
+        return None
+
+    if not row:
+        return None
+
+    temp = _format_temp_value(row["temperature"])
+    pty_str = str(int(row["precipitation_type"] or 0))
+    icon = _PTY_ICON.get(pty_str, "🌡️")
+    grade = _dust_grade_code(row["pm10"], row["pm25"])
+
+    return {
+        "temp": temp,
+        "icon": icon,
+        "dust": {
+            "pm10": _format_pm_value(row["pm10"]),
+            "pm25": _format_pm_value(row["pm25"]),
+            "grade": grade,
+            "grade_ko": _DUST_GRADE_LABELS.get(grade, _DUST_GRADE_LABELS["unknown"]),
+        },
+        "forecast": [],
+        "source": "db",
+        "dust_source": "db",
+        "location": location,
+    }, 200
 
 
 def _latlon_to_grid(lat: float, lon: float) -> tuple[int, int]:
@@ -272,6 +380,21 @@ def _weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
             stale = _read_cached_weather_entry(key, now_monotonic=time.monotonic(), allow_stale=True)
         if stale is not None:
             return stale
+
+    # ── DB 우선 조회 (weather_air_func 배치 데이터) ────────────────────────
+    if _WEATHER_DB_ENABLED:
+        _db_result = _fetch_weather_from_db(lat, lng)
+        if _db_result is not None:
+            _db_payload, _db_status = _db_result
+            with _WEATHER_CACHE_LOCK:
+                _store_cached_weather_entry(key, _db_payload, _db_status)
+                _current_inflight = _WEATHER_INFLIGHT.pop(key, None)
+                if _current_inflight is not None:
+                    _current_inflight.payload = copy.deepcopy(_db_payload)
+                    _current_inflight.status_code = _db_status
+                    _current_inflight.event.set()
+            return copy.deepcopy(_db_payload), _db_status
+    # ────────────────────────────────────────────────────────────────────────
 
     try:
         payload, status_code = _compute_weather_snapshot(lat=lat, lng=lng)

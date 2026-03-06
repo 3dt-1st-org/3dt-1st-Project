@@ -50,6 +50,19 @@ class DocentScriptResult:
     ttl_sec: int = TTL_SECONDS
 
 
+_STORY_KEYWORDS = [
+    "역사", "유래", "전설", "설화", "옛날", "과거", "조선", "고려", "왕", "비화",
+    "숨", "알려지지", "비밀", "소문", "후기", "사연", "전해", "전해진", "스토리",
+]
+
+
+def pick_story_reviews(facts: list[str], max_items: int = 5) -> list[str]:
+    """facts 리스트에서 역사·전설·비하인드 힌트가 있는 항목을 우선 선택합니다."""
+    prioritized = [f for f in facts if any(kw in f for kw in _STORY_KEYWORDS)]
+    remaining = [f for f in facts if f not in set(prioritized)]
+    return (prioritized + remaining)[:max_items]
+
+
 def generate_docent_script(cursor, place_id: str, category: str, language: str, mode: str) -> DocentScriptResult:
     place_id = place_id.strip()
     category = category.strip().lower()
@@ -257,6 +270,28 @@ def _load_attraction_context(cursor, place_id: str) -> dict[str, Any]:
         if value:
             facts.append(value)
 
+    # attraction_details 에서 리뷰 기반 컨텍스트 보완 (summary_ko, atmosphere_ko, tips_ko)
+    try:
+        cursor.execute(
+            """
+            SELECT summary_ko, atmosphere_ko, tips_ko
+            FROM locallink.attraction_details
+            WHERE attraction_name = %s
+            LIMIT 1
+            """,
+            (place["name"],),
+        )
+        detail = cursor.fetchone()
+        if detail:
+            if (detail.get("atmosphere_ko") or "").strip():
+                facts.insert(0, f"분위기: {detail['atmosphere_ko'].strip()}")
+            if (detail.get("summary_ko") or "").strip():
+                facts.insert(0, f"방문객 요약: {detail['summary_ko'].strip()}")
+            if (detail.get("tips_ko") or "").strip():
+                facts.append(f"팁: {detail['tips_ko'].strip()}")
+    except Exception:
+        pass
+
     return {
         "name": place["name"],
         "region": place["region"],
@@ -296,6 +331,33 @@ def _load_restaurant_context(cursor, place_id: str) -> dict[str, Any]:
         value = (place.get(key) or "").strip()
         if value:
             facts.append(value)
+
+    # restaurant_reviews 에서 키워드 + 리뷰 인사이트 보완
+    try:
+        cursor.execute(
+            """
+            SELECT extracted_keywords, clean_text
+            FROM locallink.restaurant_reviews
+            WHERE restaurant_name = %s
+            ORDER BY id DESC
+            LIMIT 3
+            """,
+            (place["name"],),
+        )
+        review_rows = cursor.fetchall()
+        if review_rows:
+            kw = (review_rows[0].get("extracted_keywords") or "").strip()
+            if kw:
+                facts.insert(0, f"키워드: {kw}")
+            reviews_text = " / ".join(
+                (r.get("clean_text") or "")[:150]
+                for r in review_rows
+                if (r.get("clean_text") or "").strip()
+            )
+            if reviews_text:
+                facts.append(f"리뷰: {reviews_text}")
+    except Exception:
+        pass
 
     return {
         "name": place["name"],
@@ -374,13 +436,47 @@ def _generate_with_llm(context: dict[str, Any], category: str, language: str, mo
     sentence_rule = "3~4" if mode == "brief" else "6~8"
 
     facts = context.get("facts") or []
+    # 명소: 역사·전설 힌트 항목 우선 배치
+    if category == "attraction":
+        facts = pick_story_reviews(facts, max_items=8)
     facts_text = "\n".join(f"- {item}" for item in facts[:8])
 
-    system_message = (
-        "You are LALA docent writer for a location-based mobile app. "
-        f"Write exactly {sentence_rule} conversational sentences in {language_name}. "
-        "Mention practical tips and local context. Do not invent unavailable facts."
-    )
+    name = context.get("name", "")
+    has_review_data = any("리뷰" in f or "방문객" in f or "키워드" in f for f in facts)
+
+    if category == "attraction":
+        if has_review_data:
+            system_message = (
+                f"당신은 'LALA'의 활기차고 센스 있는 수석 도슨트입니다.\n"
+                f"[미션] 방문객의 실제 리뷰를 바탕으로 이 장소의 '살아있는 매력'을 짧고 강렬하게 소개하세요.\n"
+                f"[가이드라인]\n"
+                f"1. 첫인상: '{name}에 오신 것을 환영합니다!'로 시작해 분위기를 정의하세요.\n"
+                f"2. 공감대: '많은 분들이 이곳의 ~한 점을 좋아하시더라고요'라며 실제 방문객의 목소리를 인용하세요.\n"
+                f"3. 현장감: 사용자와 상호작용하는 구어체를 사용하세요.\n"
+                f"4. 분량: {sentence_rule}문장. 언어: {language_name}. 없는 사실을 지어내지 마세요."
+            )
+        else:
+            system_message = (
+                "당신은 장소의 가치를 전달하는 '공간 큐레이터'입니다.\n"
+                f"[미션] 공식 설명 데이터를 바탕으로 장소의 특징을 {sentence_rule}문장, {language_name}로 품격 있게 소개하세요.\n"
+                "실용적인 방문 팁을 포함하고, 없는 사실을 지어내지 마세요."
+            )
+    elif category == "restaurant":
+        system_message = (
+            "당신은 'LALA AI Guide'입니다.\n"
+            "[대본 작성 원칙]\n"
+            "1. 구성: 분위기와 메뉴 특성에 따라 자연스럽게 Storytelling 하세요.\n"
+            "2. 데이터 기반: 키워드와 리뷰 인사이트를 문장에 녹여내 생생함을 더하세요.\n"
+            "3. 말투: 이어폰으로 듣는 상황을 고려해 리듬감 있는 구어체를 사용하세요.\n"
+            f"4. 분량: {sentence_rule}문장. 언어: {language_name}. 없는 사실을 지어내지 마세요."
+        )
+    else:
+        # event — generic
+        system_message = (
+            "You are LALA docent writer for a location-based mobile app. "
+            f"Write exactly {sentence_rule} conversational sentences in {language_name}. "
+            "Mention practical tips and local context. Do not invent unavailable facts."
+        )
 
     user_message = (
         f"Category: {category}\n"
