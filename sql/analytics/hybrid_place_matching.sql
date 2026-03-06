@@ -1,10 +1,10 @@
 -- =============================================================================
--- 선제적 추천 매칭 쿼리: PostGIS + pgvector 하이브리드
+-- 선제적 추천 매칭 쿼리: PostGIS + pgvector 하이브리드 (관광지 전용)
 -- is_indoor 컬럼 없이 쿼리 시점에 리뷰 키워드로 실내/외 동적 판별
+-- 음식점은 별도 추천 알고리즘으로 분리 예정
 -- =============================================================================
 -- 대상 테이블 (실제 스키마 기준):
 --   locallink.tourist_spot_info       -- 관광지 (lat, lng, tourist_nm)
---   locallink.gg_restaurant_info      -- 음식점 (refine_wgs84_lat, refine_wgs84_logt)
 --   locallink.attraction_reviews      -- 리뷰 + 임베딩 (embedding vector, clean_text)
 --   locallink.realtime_weather_conditions -- 실시간 날씨 (outdoor_status, pm10, pm25)
 -- =============================================================================
@@ -112,42 +112,15 @@ AttractionFiltered AS (
         END
 ),
 
--- 3. 음식점 후보: 영업 중 + 반경 필터 (음식점은 날씨 무관 항상 실내 포함)
-RestaurantCandidates AS (
-    SELECT
-        r.bizplc_nm                                       AS place_name,
-        r.bizplc_nm_en                                    AS place_name_en,
-        r.refine_roadnm_addr                              AS road_address,
-        r.refine_roadnm_addr_en                           AS road_address_en,
-        r.sigun_nm,
-        r.refine_wgs84_lat                                AS lat,
-        r.refine_wgs84_logt                               AS lng,
-        TRUE                                              AS is_indoor,  -- 음식점은 항상 실내
-        'restaurant'                                      AS place_type,
-        ST_Distance(
-            ST_SetSRID(ST_MakePoint(:user_lng, :user_lat), 4326)::geography,
-            ST_SetSRID(ST_MakePoint(r.refine_wgs84_logt::float, r.refine_wgs84_lat::float), 4326)::geography
-        )                                                 AS distance_meters
-    FROM   locallink.gg_restaurant_info r
-    WHERE
-        -- 폐업·정지 업소 제외
-        r.bsn_state_nm = '영업'
-        AND r.refine_wgs84_lat  IS NOT NULL
-        AND r.refine_wgs84_logt IS NOT NULL
-        AND ST_DWithin(
-            ST_SetSRID(ST_MakePoint(:user_lng, :user_lat), 4326)::geography,
-            ST_SetSRID(ST_MakePoint(r.refine_wgs84_logt::float, r.refine_wgs84_lat::float), 4326)::geography,
-            :radius_m
-        )
-),
-
--- 4. 관광지 후보에 리뷰 임베딩 조인 (벡터 유사도용)
+-- 3. 관광지 후보에 리뷰 임베딩 조인 (벡터 유사도용)
 AttractionWithEmbedding AS (
     SELECT
         ac.*,
         -- AttractionFiltered 에서 날씨 필터 완료된 후보만 사용
         -- 리뷰 임베딩 중 사용자 쿼리와 가장 유사한 것 선택
-        MIN(ar.embedding <-> :query_vector::vector)       AS vector_distance,
+        -- <=> 코사인 거리 사용: 값 범위 [0, 2], 정규화 용이
+        -- NULLIF: zero-norm 벡터 → NaN 반환 방어 (NULL로 변환)
+        NULLIF(MIN(ar.embedding <=> :query_vector::vector), 'NaN'::float)  AS vector_distance,
         COUNT(ar.id)                                      AS review_count,
         -- 대표 리뷰 스니펫 (최신 1건)
         (
@@ -164,26 +137,10 @@ AttractionWithEmbedding AS (
     GROUP  BY
         ac.place_name, ac.place_name_en, ac.road_address, ac.road_address_en,
         ac.sigun_nm, ac.lat, ac.lng, ac.is_indoor, ac.place_type, ac.distance_meters
-),
-
--- 5. 음식점은 리뷰 임베딩 없으므로 거리 기반 점수만 부여
-RestaurantScored AS (
-    SELECT
-        rc.*,
-        NULL::float                                       AS vector_distance,
-        0                                                 AS review_count,
-        NULL::text                                        AS review_snippet
-    FROM   RestaurantCandidates rc
-),
-
--- 6. 관광지 + 음식점 통합
-AllCandidates AS (
-    SELECT * FROM AttractionWithEmbedding
-    UNION ALL
-    SELECT * FROM RestaurantScored
 )
 
--- 7. 최종 정렬 및 상위 K개 반환
+-- 4. 최종 정렬 및 상위 K개 반환
+-- (음식점은 별도 알고리즘으로 분리)
 SELECT
     place_name,
     place_name_en,
@@ -196,13 +153,23 @@ SELECT
     ROUND(vector_distance::numeric, 4)                   AS similarity_score,
     review_count,
     review_snippet
-FROM   AllCandidates
+FROM   AttractionWithEmbedding
 ORDER BY
-    -- [하이브리드 정렬]
-    -- 임베딩 있는 관광지: 벡터 거리 우선
-    -- 임베딩 없는 음식점: 거리 우선
+    -- [하이브리드 정렬] 거리 × 시맨틱 감쇄 공식
+    --
+    -- 설계 원칙: 벡터 유사도가 높을수록 거리 패널티를 줄여 순위를 올림
+    --   score = dist_norm × (1 - similarity × boost)
+    --   similarity = 1 - cosine_dist/2   → [0, 1]
+    --   boost_factor = 0.8
+    --
+    -- 예시 (radius=10km):
+    --   수원화성(1m, cosine=0.58): 0.0001 × (1 - 0.71×0.8) = 0.0001×0.432 ≈ 0.0000432
+    --   → 리뷰 없는 관광지(vector NULL): dist_norm 그대로 (거리 순 정렬)
+    --
+    -- ※ zero-norm 벡터 → NaN 방어: NULLIF로 NULL 변환 후 처리
     CASE WHEN vector_distance IS NOT NULL
-         THEN vector_distance * 0.7 + (distance_meters / :radius_m) * 0.3
+         THEN (distance_meters / :radius_m)
+              * (1.0 - GREATEST(0.0, 1.0 - vector_distance / 2.0) * 0.8)
          ELSE (distance_meters / :radius_m)
     END ASC
 LIMIT  :top_k;
