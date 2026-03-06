@@ -1,11 +1,12 @@
 -- =============================================================================
--- 선제적 추천 매칭 쿼리: PostGIS + pgvector 하이브리드
--- is_indoor 컬럼 없이 쿼리 시점에 리뷰 키워드로 실내/외 동적 판별
+-- 선제적 추천 매칭 쿼리: PostGIS + pgvector 하이브리드 (관광지 전용)
+-- is_indoor 컬럼: GPT-4o-mini 일괄 분류 결과 저장 (classify_tourist_indoor.py)
+--   TRUE=실내 → 악천후 통과 / FALSE=실외·NULL=판단불가 → 악천후 제외
+-- 음식점은 별도 추천 알고리즘으로 분리 예정
 -- =============================================================================
 -- 대상 테이블 (실제 스키마 기준):
---   locallink.tourist_spot_info       -- 관광지 (lat, lng, tourist_nm)
---   locallink.gg_restaurant_info      -- 음식점 (refine_wgs84_lat, refine_wgs84_logt)
---   locallink.attraction_reviews      -- 리뷰 + 임베딩 (embedding vector, clean_text)
+--   locallink.tourist_spot_info       -- 관광지 (lat, lng, tourist_nm, is_indoor)
+--   locallink.attraction_reviews      -- 리뷰 + 임베딩 (embedding vector)
 --   locallink.realtime_weather_conditions -- 실시간 날씨 (outdoor_status, pm10, pm25)
 -- =============================================================================
 
@@ -17,7 +18,6 @@
 --   :user_lng      FLOAT    -- 사용자 경도 (예: 126.9990)
 --   :user_lat      FLOAT    -- 사용자 위도 (예: 37.2665)
 --   :radius_m      INT      -- 반경 미터 (예: 5000)
---   :query_vector  VECTOR   -- 사용자 검색어 임베딩 (예: '[0.12, -0.34, ...]'::vector)
 --   :top_k         INT      -- 최종 후보 수 (예: 3)
 -- -----------------------------------------------------------------------------
 
@@ -37,8 +37,8 @@ CurrentWeather AS (
     LIMIT  1
 ),
 
--- 2. 관광지 후보: 날씨 필터 + 반경 필터
--- is_indoor 컬럼 없이, 리뷰 키워드로 쿼리 시점 동적 판별
+-- 2. 관광지 후보: 반경 필터
+-- is_indoor: GPT 사전 분류 컬럼 직접 참조 (리뷰 키워드 의존 제거)
 AttractionCandidates AS (
     SELECT
         t.tourist_nm                                      AS place_name,
@@ -48,31 +48,7 @@ AttractionCandidates AS (
         t.sigun_nm,
         t.lat,
         t.lng,
-        -- [동적 실내/외 판별] 리뷰 키워드 집계 (컬럼 불필요)
-        CASE
-            WHEN EXISTS (
-                SELECT 1 FROM locallink.attraction_reviews r
-                WHERE  r.attraction_name = t.tourist_nm
-                  AND  (   r.clean_text ILIKE ANY(ARRAY['%실내%','%전시관%','%박물관%',
-                                                        '%미술관%','%아쿠아리움%','%센터%',
-                                                        '%문화원%','%도서관%','%비 와도%',
-                                                        '%비가 와도%','%실내 놀이%'])
-                        OR r.extracted_keywords ILIKE ANY(ARRAY['%실내%','%전시%',
-                                                                '%박물관%','%미술관%'])
-                       )
-            ) THEN TRUE
-            WHEN EXISTS (
-                SELECT 1 FROM locallink.attraction_reviews r
-                WHERE  r.attraction_name = t.tourist_nm
-                  AND  (   r.clean_text ILIKE ANY(ARRAY['%등산%','%트레킹%','%야외%',
-                                                        '%공원%','%산책로%','%캠핑%',
-                                                        '%계곡%','%광장%','%야경%'])
-                        OR r.extracted_keywords ILIKE ANY(ARRAY['%야외%','%공원%',
-                                                                '%등산%','%트레킹%'])
-                       )
-            ) THEN FALSE
-            ELSE NULL  -- 리뷰 없거나 판단 불가 → 날씨 무관 항상 포함
-        END                                               AS is_indoor,
+        t.is_indoor,                                      -- GPT 분류 결과 직접 참조
         'attraction'                                      AS place_type,
         -- PostGIS 거리 계산 (미터)
         ST_Distance(
@@ -91,13 +67,14 @@ AttractionCandidates AS (
         )
 ),
 
--- 2-b. 날씨 조건 적용 (동적 is_indoor 판별 후 필터링)
+-- 2-b. 날씨 조건 적용
 AttractionFiltered AS (
     SELECT ac.*
     FROM   AttractionCandidates ac
     CROSS  JOIN CurrentWeather cw
     WHERE
-        -- 악천후 → is_indoor TRUE 또는 판단불가(NULL)만 통과
+        -- 악천후: is_indoor=TRUE(실내)만 통과, FALSE(실외)·NULL(판단불가) 제외
+        -- 쾌적: 실내외 모두 통과
         CASE
             WHEN (
                 cw.outdoor_status IN ('비/눈', '미세먼지 나쁨', '폭염', '한파', '대기 나쁨')
@@ -107,83 +84,27 @@ AttractionFiltered AS (
                 OR cw.temperature > 33
                 OR cw.temperature < -10
             )
-            THEN ac.is_indoor IS NOT FALSE   -- FALSE(실외) 제외, TRUE·NULL 통과
-            ELSE TRUE                         -- 날씨 쾌적 → 실내외 모두 통과
+            THEN ac.is_indoor = TRUE
+            ELSE TRUE
         END
 ),
 
--- 3. 음식점 후보: 영업 중 + 반경 필터 (음식점은 날씨 무관 항상 실내 포함)
-RestaurantCandidates AS (
-    SELECT
-        r.bizplc_nm                                       AS place_name,
-        r.bizplc_nm_en                                    AS place_name_en,
-        r.refine_roadnm_addr                              AS road_address,
-        r.refine_roadnm_addr_en                           AS road_address_en,
-        r.sigun_nm,
-        r.refine_wgs84_lat                                AS lat,
-        r.refine_wgs84_logt                               AS lng,
-        TRUE                                              AS is_indoor,  -- 음식점은 항상 실내
-        'restaurant'                                      AS place_type,
-        ST_Distance(
-            ST_SetSRID(ST_MakePoint(:user_lng, :user_lat), 4326)::geography,
-            ST_SetSRID(ST_MakePoint(r.refine_wgs84_logt::float, r.refine_wgs84_lat::float), 4326)::geography
-        )                                                 AS distance_meters
-    FROM   locallink.gg_restaurant_info r
-    WHERE
-        -- 폐업·정지 업소 제외
-        r.bsn_state_nm = '영업'
-        AND r.refine_wgs84_lat  IS NOT NULL
-        AND r.refine_wgs84_logt IS NOT NULL
-        AND ST_DWithin(
-            ST_SetSRID(ST_MakePoint(:user_lng, :user_lat), 4326)::geography,
-            ST_SetSRID(ST_MakePoint(r.refine_wgs84_logt::float, r.refine_wgs84_lat::float), 4326)::geography,
-            :radius_m
-        )
-),
-
--- 4. 관광지 후보에 리뷰 임베딩 조인 (벡터 유사도용)
-AttractionWithEmbedding AS (
+-- 3. 대표 리뷰 스니펫 조인
+AttractionWithReview AS (
     SELECT
         ac.*,
-        -- AttractionFiltered 에서 날씨 필터 완료된 후보만 사용
-        -- 리뷰 임베딩 중 사용자 쿼리와 가장 유사한 것 선택
-        MIN(ar.embedding <-> :query_vector::vector)       AS vector_distance,
-        COUNT(ar.id)                                      AS review_count,
-        -- 대표 리뷰 스니펫 (최신 1건)
         (
-            SELECT ar2.description
-            FROM   locallink.attraction_reviews ar2
-            WHERE  ar2.attraction_name = ac.place_name
-            ORDER  BY ar2.post_date DESC NULLS LAST
+            SELECT ar.description
+            FROM   locallink.attraction_reviews ar
+            WHERE  ar.attraction_name = ac.place_name
+            ORDER  BY ar.post_date DESC NULLS LAST
             LIMIT  1
         )                                                 AS review_snippet
     FROM   AttractionFiltered ac
-    LEFT   JOIN locallink.attraction_reviews ar
-           ON  ar.attraction_name = ac.place_name
-           AND ar.embedding IS NOT NULL
-    GROUP  BY
-        ac.place_name, ac.place_name_en, ac.road_address, ac.road_address_en,
-        ac.sigun_nm, ac.lat, ac.lng, ac.is_indoor, ac.place_type, ac.distance_meters
-),
-
--- 5. 음식점은 리뷰 임베딩 없으므로 거리 기반 점수만 부여
-RestaurantScored AS (
-    SELECT
-        rc.*,
-        NULL::float                                       AS vector_distance,
-        0                                                 AS review_count,
-        NULL::text                                        AS review_snippet
-    FROM   RestaurantCandidates rc
-),
-
--- 6. 관광지 + 음식점 통합
-AllCandidates AS (
-    SELECT * FROM AttractionWithEmbedding
-    UNION ALL
-    SELECT * FROM RestaurantScored
 )
 
--- 7. 최종 정렬 및 상위 K개 반환
+-- 4. 최종 정렬 및 상위 K개 반환
+-- (음식점은 별도 알고리즘으로 분리)
 SELECT
     place_name,
     place_name_en,
@@ -193,16 +114,7 @@ SELECT
     place_type,
     is_indoor,
     ROUND(distance_meters::numeric, 0)                   AS distance_m,
-    ROUND(vector_distance::numeric, 4)                   AS similarity_score,
-    review_count,
     review_snippet
-FROM   AllCandidates
-ORDER BY
-    -- [하이브리드 정렬]
-    -- 임베딩 있는 관광지: 벡터 거리 우선
-    -- 임베딩 없는 음식점: 거리 우선
-    CASE WHEN vector_distance IS NOT NULL
-         THEN vector_distance * 0.7 + (distance_meters / :radius_m) * 0.3
-         ELSE (distance_meters / :radius_m)
-    END ASC
+FROM   AttractionWithReview
+ORDER BY distance_meters ASC
 LIMIT  :top_k;
