@@ -6,60 +6,22 @@ import psycopg2
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
 from openai import AzureOpenAI
 from config.vault_manager import vault
 
 # ==============================================================================
-# 0. 환경 설정 및 시크릿 로드
+# 0. 환경 설정 및 시크릿 로드 (vault_manager 통일)
 # ==============================================================================
 load_dotenv()
 
-_secret_cache = {}
-_vault_client = None
-_vault_disabled = False
+# DB 연결: vault.get_db_dsn() 사용
+NAVER_CLIENT_ID     = vault.get_secret("naver-client-id")
+NAVER_CLIENT_SECRET = vault.get_secret("naver-client-secret")
 
-def _get_vault_client():
-    global _vault_client, _vault_disabled
-    if _vault_disabled: return None
-    if _vault_client is not None: return _vault_client
-    vault_url = os.getenv("KEY_VAULT_URL")
-    if not vault_url:
-        _vault_disabled = True
-        return None
-    try:
-        credential = DefaultAzureCredential()
-        _vault_client = SecretClient(vault_url=vault_url, credential=credential)
-        return _vault_client
-    except Exception:
-        _vault_disabled = True
-        return None
-
-def _get_secret(name: str) -> str:
-    global _vault_disabled
-    if name in _secret_cache: return _secret_cache[name]
-    client = _get_vault_client()
-    if client is not None:
-        try:
-            value = client.get_secret(name).value
-            _secret_cache[name] = value
-            return value
-        except Exception:
-            _vault_disabled = True
-    env_value = os.getenv(name.upper().replace("-", "_"))
-    _secret_cache[name] = env_value
-    return env_value
-
-# DB 연결: vault.get_db_dsn() 사용 (vault_manager 통일)
-
-NAVER_CLIENT_ID = _get_secret("naver-client-id")
-NAVER_CLIENT_SECRET = _get_secret("naver-client-secret")
-
-AZURE_OPENAI_ENDPOINT = _get_secret("azure-openai-endpoint")
-AZURE_OPENAI_KEY = _get_secret("azure-openai-key")
-AZURE_OPENAI_DEPLOYMENT = _get_secret("azure-openai-deployment-name")
-AZURE_OPENAI_VERSION = _get_secret("azure-openai-version")
+AZURE_OPENAI_ENDPOINT   = vault.get_secret("azure-openai-endpoint")
+AZURE_OPENAI_KEY        = vault.get_secret("azure-openai-key")
+AZURE_OPENAI_DEPLOYMENT = vault.get_secret("azure-openai-deployment-name")
+AZURE_OPENAI_VERSION    = vault.get_secret("azure-openai-version")
 
 # ==============================================================================
 # 1. [2단계] 가중치 부여 및 랭킹 도출 (View 활용 최적화)

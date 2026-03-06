@@ -7,34 +7,21 @@ import psycopg2
 from datetime import datetime
 from dotenv import load_dotenv
 from openai import AzureOpenAI
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
 from config.vault_manager import vault
 
 # ==============================================================================
-# 0. Key Vault 및 인프라 설정
+# 0. Key Vault에서 시크릿 로드 (vault_manager 통일)
 # ==============================================================================
 load_dotenv()
 
-_vault_url = os.getenv("KEY_VAULT_URL")
-if not _vault_url:
-    raise ValueError("❌ .env에 KEY_VAULT_URL이 설정되지 않았습니다.")
-
-_credential = DefaultAzureCredential()
-_kv_client = SecretClient(vault_url=_vault_url, credential=_credential)
-
-def _get_secret(name: str) -> str:
-    return _kv_client.get_secret(name).value
-
-# 모든 시크릿 로드
-NAVER_CLIENT_ID     = _get_secret("naver-client-id")
-NAVER_CLIENT_SECRET = _get_secret("naver-client-secret")
-AZURE_OPENAI_ENDPOINT   = _get_secret("azure-openai-endpoint")
-AZURE_OPENAI_KEY        = _get_secret("azure-openai-key")
-AZURE_OPENAI_DEPLOYMENT  = _get_secret("azure-openai-deployment-name")
-AZURE_OPENAI_VERSION    = _get_secret("azure-openai-version")
-EMBEDDING_DEPLOYMENT_NAME = _get_secret("azure-openai-embedding-deployment-name")
-EMBEDDING_API_VERSION     = _get_secret("azure-openai-embedding-api-version")
+NAVER_CLIENT_ID           = vault.get_secret("naver-client-id")
+NAVER_CLIENT_SECRET       = vault.get_secret("naver-client-secret")
+AZURE_OPENAI_ENDPOINT     = vault.get_secret("azure-openai-endpoint")
+AZURE_OPENAI_KEY          = vault.get_secret("azure-openai-key")
+AZURE_OPENAI_DEPLOYMENT   = vault.get_secret("azure-openai-deployment-name")
+AZURE_OPENAI_VERSION      = vault.get_secret("azure-openai-version")
+EMBEDDING_DEPLOYMENT_NAME = vault.get_secret("azure-openai-embedding-deployment-name")
+EMBEDDING_API_VERSION     = vault.get_secret("azure-openai-embedding-api-version")
 
 # DB 연결: vault.get_db_dsn() 사용 (vault_manager 통일)
 

@@ -3,8 +3,6 @@ import time
 import urllib.parse
 import psycopg2
 from dotenv import load_dotenv
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -17,21 +15,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 load_dotenv()
 
-# DB 및 Key Vault 설정
-_vault_url = os.getenv("KEY_VAULT_URL")
-_kv_client = SecretClient(vault_url=_vault_url, credential=DefaultAzureCredential())
-
-def _get_secret(name: str) -> str:
-    return _kv_client.get_secret(name).value
-
-DB_CONFIG = {
-    "host": _get_secret("lala-db-host"),
-    "port": int(_get_secret("lala-db-port")),
-    "database": _get_secret("lala-db-name"),
-    "user": _get_secret("lala-db-user"),
-    "password": _get_secret("lala-db-password"),
-    "sslmode": "require"
-}
+from config.vault_manager import vault  # noqa: E402
 
 def init_driver():
     opts = Options()
@@ -42,7 +26,7 @@ def init_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
 
 def main():
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = psycopg2.connect(vault.get_db_dsn())
     cur = conn.cursor()
     driver = init_driver()
     wait = WebDriverWait(driver, 8)

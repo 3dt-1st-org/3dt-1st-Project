@@ -2,35 +2,20 @@ import os
 import psycopg2
 from openai import AzureOpenAI
 import azure.cognitiveservices.speech as speechsdk
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
 from dotenv import load_dotenv
 from config.vault_manager import vault
 
 # ==============================================================================
-# 0. 환경 설정 및 리소스 로드
+# 0. 환경 설정 및 리소스 로드 (vault_manager 통일)
 # ==============================================================================
 load_dotenv()
 
-_vault_url = os.getenv("KEY_VAULT_URL")
-if not _vault_url:
-    raise ValueError("❌ .env에 KEY_VAULT_URL이 설정되지 않았습니다.")
-
-_credential = DefaultAzureCredential()
-_kv_client = SecretClient(vault_url=_vault_url, credential=_credential)
-
-def _get_secret(name: str) -> str:
-    """Key Vault에서 시크릿 값을 가져오는 헬퍼 함수"""
-    return _kv_client.get_secret(name).value
-
-# 모든 시크릿 로드
-AZURE_OPENAI_KEY = _get_secret("azure-openai-key")
-AZURE_OPENAI_ENDPOINT = _get_secret("azure-openai-endpoint")
-AZURE_OPENAI_VERSION = _get_secret("azure-openai-version")
-AZURE_OPENAI_ATTRACTION_DEPLOYMENT = _get_secret("azure-openai-deployment-name")
-
-AZURE_SPEECH_KEY = _get_secret("azure-speech-key")
-AZURE_SPEECH_REGION = _get_secret("azure-speech-region")
+AZURE_OPENAI_KEY                     = vault.get_secret("azure-openai-key")
+AZURE_OPENAI_ENDPOINT                = vault.get_secret("azure-openai-endpoint")
+AZURE_OPENAI_VERSION                 = vault.get_secret("azure-openai-version")
+AZURE_OPENAI_ATTRACTION_DEPLOYMENT   = vault.get_secret("azure-openai-deployment-name")
+AZURE_SPEECH_KEY                     = vault.get_secret("azure-speech-key")
+AZURE_SPEECH_REGION                  = vault.get_secret("azure-speech-region")
 
 BASIC_REVIEW_COUNT = 5
 
@@ -103,22 +88,13 @@ def pick_story_reviews(reviews, max_items=5):
     return (prioritized + remaining)[:max_items]
 
 def get_db_and_llm_resources():
-    """Key Vault 및 .env에서 리소스를 로드하고 Azure 클라이언트를 생성합니다."""
-    # 1. Key Vault에서 비밀 정보 로드
-    db_password = _get_secret("lala-db-password")
-    azure_api_key = AZURE_OPENAI_KEY
-    
-    # 2. Azure OpenAI 설정
-    endpoint = AZURE_OPENAI_ENDPOINT
-    api_version = AZURE_OPENAI_VERSION
-    
+    """Azure OpenAI 클라이언트를 생성합니다 (vault_manager 통일)."""
     azure_client = AzureOpenAI(
-        azure_endpoint=endpoint,
-        api_key=azure_api_key,
-        api_version=api_version
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        api_key=AZURE_OPENAI_KEY,
+        api_version=AZURE_OPENAI_VERSION,
     )
-    
-    return azure_client, db_password
+    return azure_client
 
 # ==============================================================================
 # 2. TTS & STT 서비스
@@ -165,7 +141,7 @@ def listen_for_confirmation():
 # 3. 대본 생성 로직
 # ==============================================================================
 def generate_docent_script(attraction_name, mode="basic", language="English"):
-    azure_client, _db_password = get_db_and_llm_resources()
+    azure_client = get_db_and_llm_resources()
     deployment_name = AZURE_OPENAI_ATTRACTION_DEPLOYMENT
     
     # 데이터 먼저 로드

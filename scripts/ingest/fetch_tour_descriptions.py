@@ -4,8 +4,6 @@ import urllib.parse
 import psycopg2
 import wikipediaapi
 from dotenv import load_dotenv
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
 
 # Selenium 관련 라이브러리
 from selenium import webdriver
@@ -20,20 +18,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 load_dotenv()
 urllib3_warnings = False # 경고 무시 설정
 
-_vault_url = os.getenv("KEY_VAULT_URL")
-_credential = DefaultAzureCredential()
-_kv_client = SecretClient(vault_url=_vault_url, credential=_credential)
-
-def _get_secret(name: str) -> str:
-    return _kv_client.get_secret(name).value
-
-DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", "5433")),
-    "database": os.getenv("DB_NAME", "postgres"),
-    "user": os.getenv("DB_USER", "admin_user"),
-    "password": _get_secret("db-password"),
-}
+from config.vault_manager import vault  # noqa: E402
 
 # 2. 위키백과 API 설정
 wiki = wikipediaapi.Wikipedia(
@@ -146,7 +131,7 @@ def crawl_ggtour_selenium(driver, original_nm):
         return None
 
 def main():
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = psycopg2.connect(vault.get_db_dsn())
     cur = conn.cursor()
     driver = init_driver()
 

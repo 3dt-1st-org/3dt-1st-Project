@@ -106,12 +106,12 @@ class TestLoadReviewPipelineImport(unittest.TestCase):
     """load_review_pipeline.py가 vault_manager를 통해 시크릿을 가져오는지 검증."""
 
     def _get_required_secrets(self) -> list[str]:
-        """파이프라인 소스코드에서 _secrets["..."] 패턴을 자동 추출한다."""
+        """파이프라인 소스코드에서 vault.get_secret(\"...\") 패턴을 자동 추출한다."""
         import re
         pipeline_path = ROOT_DIR / "src" / "collectors" / "load_review_pipeline.py"
         source = pipeline_path.read_text(encoding="utf-8")
-        # _secrets["azure-openai-key"] 형태에서 키 이름 자동 추출
-        return re.findall(r'_secrets\["([^"]+)"\]', source)
+        # vault.get_secret("azure-openai-key") 형태에서 키 이름 자동 추출
+        return re.findall(r'vault\.get_secret\(["\']([^"\']+)["\']\)', source)
 
     def _make_fake_secrets(self) -> dict[str, str]:
         return {name: f"fake-value-for-{name}" for name in self._get_required_secrets()}
@@ -120,18 +120,18 @@ class TestLoadReviewPipelineImport(unittest.TestCase):
         """vault_manager를 mock하면 파이프라인 모듈이 에러 없이 임포트되어야 한다."""
         fake_secrets = self._make_fake_secrets()
 
-        mock_manager = MagicMock()
-        mock_manager.get_all_secrets.return_value = fake_secrets
+        mock_vault = MagicMock()
+        mock_vault.get_secret.side_effect = lambda name: fake_secrets.get(name, f"fake-value-for-{name}")
 
         # 이미 import된 모듈 캐시 제거
         sys.modules.pop("src.collectors.load_review_pipeline", None)
 
-        with patch("config.vault_manager.get_vault_manager", return_value=mock_manager):
+        with patch("config.vault_manager.vault", mock_vault):
             try:
                 import src.collectors.load_review_pipeline as pipeline
                 self.assertTrue(hasattr(pipeline, "NAVER_CLIENT_ID"))
                 self.assertTrue(hasattr(pipeline, "AZURE_OPENAI_KEY"))
-                self.assertEqual(pipeline.NAVER_CLIENT_ID, f"fake-value-for-naver-client-id")
+                self.assertEqual(pipeline.NAVER_CLIENT_ID, "fake-value-for-naver-client-id")
             finally:
                 sys.modules.pop("src.collectors.load_review_pipeline", None)
 
@@ -172,9 +172,14 @@ class TestNoHardcodedSecrets(unittest.TestCase):
             if scan_path.exists():
                 targets.extend(scan_path.rglob("*.py"))
 
-        # 제외 파일 필터링
+        # 제외 파일 및 경로 필터링 (.venv, __pycache__, .python_packages 등 제외)
         exclude = {ROOT_DIR / f for f in self.EXCLUDE_FILES}
-        return [f for f in targets if f not in exclude]
+        exclude_dirs = {".venv", "__pycache__", ".python_packages", "node_modules"}
+        return [
+            f for f in targets
+            if f not in exclude
+            and not any(part in exclude_dirs for part in f.parts)
+        ]
 
     def test_no_hardcoded_secrets(self):
         findings = []
