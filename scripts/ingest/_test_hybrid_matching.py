@@ -16,11 +16,18 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import psycopg2
+from config.vault_manager import get_vault_manager
 
-DSN = (
-    "host=lala-db.postgres.database.azure.com port=5432 "
-    "dbname=postgres user=admin_user password=Aremarem2 sslmode=require"
-)
+
+def get_dsn() -> str:
+    vm = get_vault_manager()
+    return (
+        f"host={vm.get_secret('lala-db-host')} port=5432 "
+        f"dbname={vm.get_secret('lala-db-name')} "
+        f"user={vm.get_secret('lala-db-user')} "
+        f"password={vm.get_secret('lala-db-password')} "
+        "sslmode=require"
+    )
 
 # 테스트 파라미터 ─ 수원화성 좌표 (리뷰 보유 관광지 밀집 지역)
 # 날씨 DB 도시는 '화성'이 가장 근접 (DB에 '수원' 없음)
@@ -81,7 +88,7 @@ def run_scenario(label: str, radius_m: int, override_weather: dict | None = None
 
     sql, _ = make_sql(radius_m, override_weather)
 
-    conn = psycopg2.connect(DSN)
+    conn = psycopg2.connect(get_dsn())
     cur  = conn.cursor()
     try:
         cur.execute(sql)
