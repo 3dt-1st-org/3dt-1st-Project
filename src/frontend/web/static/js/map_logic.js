@@ -942,7 +942,7 @@
   async function fetchDailyPlan(lat, lng) {
     openSheet('planner-sheet');
     const slotsEl = document.getElementById('planner-slots');
-    slotsEl.innerHTML = '<div class="planner-skeleton">일정을 불러오는 중…</div>';
+    slotsEl.innerHTML = '<div class="planner-skeleton">일정을 생성하는 중…<br><small style="opacity:.6;font-size:.75rem">처음 방문하는 장소는 최대 30~60초 소요돼요</small></div>';
     document.getElementById('planner-location').textContent = '';
     document.getElementById('planner-weather').textContent = '';
 

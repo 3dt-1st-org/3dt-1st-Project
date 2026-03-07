@@ -34,7 +34,7 @@ def create_daily_plan_payload(
     lat: float,
     lng: float,
     language: str = "English",
-    timeout_sec: int = 30,
+    timeout_sec: int = 90,
 ) -> tuple[dict[str, Any], int]:
     """
     DailyTravelPlanner.create_daily_plan()을 최대 timeout_sec 초 안에 실행한다.

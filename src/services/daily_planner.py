@@ -13,6 +13,7 @@ from typing import List, Dict, Optional
 import os
 import math
 import re
+import concurrent.futures
 
 # 프로젝트 루트 설정
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -41,7 +42,7 @@ class DailyTravelPlanner:
         
     def create_daily_plan(self, language="English") -> Dict:
         """하루 전체 여행 일정을 생성합니다."""
-        
+
         # 상태 초기화
         self.used_place_names = []
         self.weather_mentioned = False
@@ -52,56 +53,42 @@ class DailyTravelPlanner:
         sigun = self.weather_planner.get_user_sigun_nm()
         if not sigun:
             return {"error": "위치를 확인할 수 없습니다."}
-        
+
         weather = self.weather_planner.get_current_location_weather()
         if not weather:
             return {"error": "날씨 정보를 가져올 수 없습니다."}
-        
-        # None 값 처리
+
         precipitation_type = weather.get('precipitation_type') or 0
         pm10 = weather.get('pm10') or 0
         pm25 = weather.get('pm25') or 0
-        
         is_rainy = precipitation_type > 0
         is_bad_air = (pm10 > 80 or pm25 > 35)
-        
-        # 2. 시간대별 장소 추천 시작
+
+        # 2. 장소 선택 (순차 — anchor 의존)
         time_slots = self._get_time_slots()
-        daily_plan = []
         anchor_lat = self.latitude
         anchor_lng = self.longitude
         morning_attraction_pool = self._build_morning_attraction_pool(
-            sigun=sigun,
-            is_rainy=is_rainy,
-            is_bad_air=is_bad_air,
-            radius_m=8000,
+            sigun=sigun, is_rainy=is_rainy, is_bad_air=is_bad_air, radius_m=8000,
         )
-        
+
+        pending_jobs: List[Dict] = []
+
         for slot in time_slots:
             if slot['period'] == '오전':
-                # 오전: 날씨에 맞는 장소를 먼저 찾은 뒤, 사용자 위치 기준으로 추천
                 places = list(morning_attraction_pool)
             elif slot['period'] == '오후':
-                # 오후: 오전에 찾은 명소 풀을 점심 추천 장소(anchor) 기준으로 재정렬
                 places = self._rank_morning_pool_by_anchor(morning_attraction_pool, anchor_lat, anchor_lng)
             else:
                 places = self._recommend_places_for_slot(
-                    slot,
-                    sigun,
-                    is_rainy,
-                    is_bad_air,
-                    radius_m=5000,
-                    center_lat=anchor_lat,
-                    center_lng=anchor_lng,
+                    slot, sigun, is_rainy, is_bad_air,
+                    radius_m=5000, center_lat=anchor_lat, center_lng=anchor_lng,
                 )
-            
-            # 이미 사용된 장소 제외 필터링
+
             available_places = [p for p in places if p['name'] not in self.used_place_names]
-            
             if not available_places:
                 continue
 
-            # 저녁은 음식점+카페 2개, 나머지는 1개 선택
             selected_items = []
             if slot['period'] == '저녁':
                 dinner = next((p for p in available_places if p.get('itinerary_role') == 'dinner'), None)
@@ -110,62 +97,93 @@ class DailyTravelPlanner:
                 if cafe: selected_items.append(cafe)
             else:
                 selected_items = [available_places[0]]
-            
+
             for selected_place in selected_items:
                 self.used_place_names.append(selected_place['name'])
-                
-                # 도슨트 재료 추출
                 alert_type = self._determine_alert_type(is_rainy, is_bad_air, slot['period'])
-                material = self._get_docent_material(
-                    selected_place['name'],
-                    alert_type,
-                    table_type=selected_place.get('source_type', 'attraction'),
-                    sigun_nm=sigun,
+                place_type = selected_place.get('source_type', 'attraction')
+                # weather_mentioned 상태가 순차이므로 instruction은 여기서 확정
+                instruction = self._get_smart_weather_instruction(slot, is_rainy, is_bad_air, place_type)
+                variation_hint = self._get_slot_style_hint(
+                    slot['period'], place_type, selected_place.get('itinerary_role', '')
                 )
-                
-                if material:
-                    # 문맥 인지형 지침 생성
-                    place_type = selected_place.get('source_type', 'attraction')
-                    material['instruction'] = self._get_smart_weather_instruction(slot, is_rainy, is_bad_air, place_type)
-                    material['variation_hint'] = self._get_slot_style_hint(
-                        slot['period'], place_type, selected_place.get('itinerary_role', '')
-                    )
-                    material['avoid_openers'] = self._used_openers[-3:]
-                    material['avoid_closers'] = self._used_closers[-3:]
-                    material['place_type'] = place_type  # 명소/음식점 구분 정보 추가
-                    material['period'] = slot['period']
-                    material['time_range'] = slot['time']
-                    material['itinerary_role'] = selected_place.get('itinerary_role', '')
-                    
-                    script = self._create_daily_docent_script(material, language=language)
-                    
-                    opener, closer = self._extract_edges(script)
-                    if opener: self._used_openers.append(opener)
-                    if closer: self._used_closers.append(closer)
-                else:
-                    script = f"{slot['period']}에는 {selected_place['name']}에 방문해 보시는 걸 어떨까요?"
-                
-                daily_plan.append({
-                    'time': slot['time'],
-                    'period': slot['period'],
+                pending_jobs.append({
+                    'slot': slot,
                     'place': selected_place,
-                    'script': script
+                    'alert_type': alert_type,
+                    'place_type': place_type,
+                    'instruction': instruction,
+                    'variation_hint': variation_hint,
+                    'itinerary_role': selected_place.get('itinerary_role', ''),
                 })
-
-                # 다음 슬롯은 직전 추천 장소를 기준으로 탐색
                 if selected_place.get('lat') is not None and selected_place.get('lng') is not None:
                     anchor_lat = selected_place['lat']
                     anchor_lng = selected_place['lng']
-        
+
+        if not pending_jobs:
+            return {
+                'location': sigun,
+                'weather': {
+                    'outdoor_status': weather.get('outdoor_status', '정보 없음'),
+                    'temperature': weather.get('temperature'),
+                    'precipitation': '비/눈' if is_rainy else '없음',
+                    'air_quality': '나쁨' if is_bad_air else '보통 이상',
+                },
+                'plan': [],
+            }
+
+        # 3. 도슨트 재료 조회 (병렬 — DB 조회 + 리뷰 없으면 크롤링 포함)
+        def _fetch_material(job):
+            return self._get_docent_material(
+                job['place']['name'],
+                job['alert_type'],
+                table_type=job['place'].get('source_type', 'attraction'),
+                sigun_nm=sigun,
+            )
+
+        n = len(pending_jobs)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(n, 5)) as ex:
+            materials = list(ex.map(_fetch_material, pending_jobs))
+
+        # 4. LLM 스크립트 생성 (병렬)
+        def _generate_script(args):
+            job, material = args
+            if not material:
+                return f"{job['slot']['period']}에는 {job['place']['name']}에 방문해 보시는 걸 어떨까요?"
+            mat = dict(material)
+            mat['instruction'] = job['instruction']
+            mat['variation_hint'] = job['variation_hint']
+            mat['avoid_openers'] = []
+            mat['avoid_closers'] = []
+            mat['place_type'] = job['place_type']
+            mat['period'] = job['slot']['period']
+            mat['time_range'] = job['slot']['time']
+            mat['itinerary_role'] = job['itinerary_role']
+            return self._create_daily_docent_script(mat, language=language)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(n, 5)) as ex:
+            scripts = list(ex.map(_generate_script, zip(pending_jobs, materials)))
+
+        # 5. 최종 일정 조합
+        daily_plan = [
+            {
+                'time': job['slot']['time'],
+                'period': job['slot']['period'],
+                'place': job['place'],
+                'script': script,
+            }
+            for job, script in zip(pending_jobs, scripts)
+        ]
+
         return {
             'location': sigun,
             'weather': {
                 'outdoor_status': weather.get('outdoor_status', '정보 없음'),
                 'temperature': weather.get('temperature'),
                 'precipitation': '비/눈' if is_rainy else '없음',
-                'air_quality': '나쁨' if is_bad_air else '보통 이상'
+                'air_quality': '나쁨' if is_bad_air else '보통 이상',
             },
-            'plan': daily_plan
+            'plan': daily_plan,
         }
 
     def _build_morning_attraction_pool(self, sigun: str, is_rainy: bool, is_bad_air: bool, radius_m: int) -> List[Dict]:
