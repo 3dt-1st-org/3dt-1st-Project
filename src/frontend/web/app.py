@@ -1,7 +1,7 @@
 import sys
 import os
 from pathlib import Path
-from flask import Flask
+from flask import Flask, jsonify
 from dotenv import load_dotenv
 
 
@@ -68,6 +68,10 @@ def create_app() -> Flask:
     app.register_blueprint(ios_api_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(planner_bp)
+
+    @app.route("/api/health")
+    def health_check():
+        return jsonify({"status": "ok", "version": app.jinja_env.globals.get("app_version", "unknown")}), 200
 
     return app
 
