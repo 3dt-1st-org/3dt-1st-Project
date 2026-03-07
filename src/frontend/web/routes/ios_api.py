@@ -1075,7 +1075,11 @@ def _fetch_places_by_city(
                 )
                 results.extend(_normalize_place_row(dict(row)) for row in cursor.fetchall())
 
-    results.sort(key=lambda row: row.get("distance_m") or 0)
+    def _sort_key(row):
+        is_ongoing_event = row.get("category") == "event" and row.get("is_ongoing") is True
+        return (0 if is_ongoing_event else 1, row.get("distance_m") or 0)
+
+    results.sort(key=_sort_key)
     if category == "all":
         return results
     return results[: max(limit, 1)]
@@ -1343,7 +1347,11 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                 )
                 results.extend(_normalize_place_row(dict(row)) for row in cursor.fetchall())
 
-    results.sort(key=lambda row: row.get("distance_m") or 0)
+    def _sort_key(row):
+        is_ongoing_event = row.get("category") == "event" and row.get("is_ongoing") is True
+        return (0 if is_ongoing_event else 1, row.get("distance_m") or 0)
+
+    results.sort(key=_sort_key)
     if category == "all":
         return results
     return results[: max(limit, 1)]
