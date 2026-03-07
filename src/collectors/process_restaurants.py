@@ -57,14 +57,38 @@ def get_ranked_restaurants(candidate_list):
     
     try:
         df = pd.read_sql(query, conn, params=(names,))
-        if df.empty: return pd.DataFrame(candidate_list).assign(final_score=0.0)
 
-        for col in ['card_score_raw', 'daangn_score_raw']:
-            mn, mx = df[col].min(), df[col].max()
-            df[f'norm_{col.split("_")[0]}'] = (df[col] - mn) / (mx - mn) if mx > mn else 0
+        if df.empty:
+            df = pd.DataFrame(candidate_list)
+            df['final_score'] = 0.0
+            return df
 
+        # --- [추가된 이상치 보정 로직] ---
+        # IQR Capping 적용: 너무 높은 매출액 데이터가 전체 랭킹을 왜곡하는 것을 방지
+        Q1 = df['card_score_raw'].quantile(0.25)
+        Q3 = df['card_score_raw'].quantile(0.75)
+        IQR = Q3 - Q1
+        upper_bound = Q3 + (1.5 * IQR)
+        df['card_score_raw'] = df['card_score_raw'].clip(upper=upper_bound)
+        # ------------------------------
+
+        # 정규화 (Min-Max Scaling)
+        max_card = df['card_score_raw'].max()
+        min_card = df['card_score_raw'].min()
+        card_range = max_card - min_card
+        df['norm_card'] = (df['card_score_raw'] - min_card) / card_range if card_range > 0 else 0
+
+        max_daangn = df['daangn_score_raw'].max()
+        min_daangn = df['daangn_score_raw'].min()
+        daangn_range = max_daangn - min_daangn
+        df['norm_daangn'] = (df['daangn_score_raw'] - min_daangn) / daangn_range if daangn_range > 0 else 0
+
+        # 최종 가중치 적용 (카드 40% + 당근 60%)
         df['final_score'] = (df['norm_card'] * 0.4) + (df['norm_daangn'] * 0.6)
+
+        # 랭킹 정렬 및 상위 10개 반환
         return df.sort_values(by='final_score', ascending=False).head(10)
+        
     except Exception as e:
         print(f"❌ 랭킹 쿼리 실패: {e}")
         return pd.DataFrame(candidate_list).assign(final_score=0.0)
