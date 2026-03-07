@@ -232,7 +232,7 @@
     places.forEach((place) => {
       const marker = new kakao.maps.Marker({
         position: new kakao.maps.LatLng(place.lat, place.lng),
-        image: makePinSvg(categoryColor(place.category), false),
+        image: makePinSvg((place.category === 'event' && place.is_ongoing === false) ? '#9ca3af' : categoryColor(place.category), false),
         map: APP.map
       });
       kakao.maps.event.addListener(marker, 'click', () => {
@@ -245,15 +245,16 @@
   function syncMarkerState() {
     APP.markers.forEach((item) => {
       const active = APP.selectedPlace && APP.selectedPlace.id === item.placeId;
-      item.marker.setImage(makePinSvg(categoryColor(item.place.category), active));
+      item.marker.setImage(makePinSvg((item.place.category === 'event' && item.place.is_ongoing === false) ? '#9ca3af' : categoryColor(item.place.category), active));
     });
   }
 
   function buildCard(place) {
     const active = APP.selectedPlace && APP.selectedPlace.id === place.id;
+    const isExpiredEvent = place.category === 'event' && place.is_ongoing === false;
     const wrapper = document.createElement('button');
     wrapper.type = 'button';
-    wrapper.className = 'place-card' + (active ? ' active' : '');
+    wrapper.className = 'place-card' + (active ? ' active' : '') + (isExpiredEvent ? ' place-card--expired' : '');
     wrapper.dataset.placeId = place.id;
 
     const image = place.image_url
@@ -265,12 +266,16 @@
     const metaParts = [];
     if (region) metaParts.push(`<span>${escapeHtml(region)}</span>`);
     if (distance) metaParts.push(`<span>${escapeHtml(distance)}</span>`);
+    let categoryLabel = placeCategoryLabel(place);
+    if (place.category === 'event') {
+      categoryLabel += isExpiredEvent ? ' · 종료됨' : ' · 진행중';
+    }
 
     wrapper.innerHTML = `
       <div class="place-card__copy">
         <div class="place-card__name">${escapeHtml(placeName(place))}</div>
         <div class="place-card__category place-card__category--${escapeHtml(category)}">
-          ${escapeHtml(placeCategoryLabel(place))}
+          ${escapeHtml(categoryLabel)}
         </div>
         <div class="place-card__meta">${metaParts.join('')}</div>
       </div>
@@ -436,16 +441,28 @@
     document.getElementById('detail-recommend').textContent = recommendationText(place);
 
     const eventInfoEl = document.getElementById('detail-event-info');
-    const hasEvent = !!(place.event_start_date || place.event_end_date);
+    const hasEvent = place.category === 'event';
     eventInfoEl.style.display = hasEvent ? 'block' : 'none';
     if (hasEvent) {
-      const start = _fmtEventDate(place.event_start_date);
-      const end   = _fmtEventDate(place.event_end_date);
-      let dateText = '🗓️';
-      if (start && end)  dateText += ` ${start} ~ ${end}`;
-      else if (start)    dateText += ` ${start}부터`;
-      else if (end)      dateText += ` ~${end}까지`;
-      document.getElementById('detail-event-dates').textContent = dateText;
+      const isOngoing = place.is_ongoing !== false;
+      const statusEl = document.getElementById('detail-event-status');
+      statusEl.textContent = isOngoing ? '🟢 진행 중' : '⛔ 종료된 행사';
+      statusEl.style.color = isOngoing ? '#2B6CB0' : '#9ca3af';
+
+      const hasDates = !!(place.event_start_date || place.event_end_date);
+      const datesEl = document.getElementById('detail-event-dates');
+      if (hasDates) {
+        const start = _fmtEventDate(place.event_start_date);
+        const end   = _fmtEventDate(place.event_end_date);
+        let dateText = '🗓️';
+        if (start && end)  dateText += ` ${start} ~ ${end}`;
+        else if (start)    dateText += ` ${start}부터`;
+        else if (end)      dateText += ` ~${end}까지`;
+        datesEl.textContent = dateText;
+        datesEl.style.display = 'block';
+      } else {
+        datesEl.style.display = 'none';
+      }
       const linkEl = document.getElementById('detail-event-link');
       if (place.event_url) {
         linkEl.href = place.event_url;

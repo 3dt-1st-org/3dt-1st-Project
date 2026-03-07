@@ -1005,7 +1005,7 @@ def _fetch_places_by_city(
                         SELECT
                             MD5(COALESCE(title, '') || '|' || COALESCE(url, '') || '|' || COALESCE(city, '')) AS id,
                             COALESCE(title, '') AS name,
-                            COALESCE(NULLIF(TRIM(title_en), ''), COALESCE(title, '')) AS name_en,
+                            COALESCE(title, '') AS name_en,
                             COALESCE(inst_nm, '') AS address,
                             COALESCE(inst_nm, '') AS address_en,
                             COALESCE(city, '') AS region,
@@ -1050,12 +1050,14 @@ def _fetch_places_by_city(
                         TRUE AS is_approximate_location,
                         ne.event_start_date::TEXT AS event_start_date,
                         ne.event_end_date::TEXT AS event_end_date,
-                        ne.event_url
+                        ne.event_url,
+                        (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE) AS is_ongoing
                     FROM normalized_events ne
                     LEFT JOIN city_centers cc
                       ON REPLACE(COALESCE(TRIM(cc.city_name), ''), ' ', '') = REPLACE(COALESCE(TRIM(ne.region), ''), ' ', '')
-                    WHERE (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE)
-                    ORDER BY distance_m, ne.event_start_date NULLS LAST
+                    ORDER BY
+                        CASE WHEN (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE) THEN 0 ELSE 1 END,
+                        distance_m, ne.event_start_date NULLS LAST
                     LIMIT %s
                     """,
                     (
@@ -1260,7 +1262,7 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                         SELECT
                             MD5(COALESCE(title, '') || '|' || COALESCE(url, '') || '|' || COALESCE(city, '')) AS id,
                             COALESCE(title, '') AS name,
-                            COALESCE(NULLIF(TRIM(title_en), ''), COALESCE(title, '')) AS name_en,
+                            COALESCE(title, '') AS name_en,
                             COALESCE(inst_nm, '') AS address,
                             COALESCE(inst_nm, '') AS address_en,
                             COALESCE(city, '') AS region,
@@ -1304,12 +1306,12 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                         TRUE AS is_approximate_location,
                         ne.event_start_date::TEXT AS event_start_date,
                         ne.event_end_date::TEXT AS event_end_date,
-                        ne.event_url
+                        ne.event_url,
+                        (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE) AS is_ongoing
                     FROM normalized_events ne
                     LEFT JOIN city_centers cc
                       ON cc.city_name = ne.region
-                    WHERE (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE)
-                      AND ST_DWithin(
+                    WHERE ST_DWithin(
                         ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
                         ST_SetSRID(
                             ST_MakePoint(COALESCE(cc.center_lng, %s), COALESCE(cc.center_lat, %s)),
@@ -1317,7 +1319,7 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                         )::geography,
                         %s
                       )
-                    ORDER BY distance_m
+                    ORDER BY CASE WHEN (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE) THEN 0 ELSE 1 END, distance_m
                     LIMIT %s
                     """,
                     (
