@@ -72,6 +72,7 @@ def test_normalize_place_row_promotes_id_to_place_id():
 
 def test_create_weather_payload_caches_duplicate_requests(monkeypatch):
     ios_api._reset_weather_cache_for_tests()
+    monkeypatch.setattr(ios_api, "_WEATHER_DB_ENABLED", False)
     calls = {"weather": 0, "air": 0}
 
     def _fake_weather(lat: float, lng: float):
@@ -107,6 +108,7 @@ def test_create_weather_payload_caches_duplicate_requests(monkeypatch):
 
 def test_create_weather_payload_reuses_stale_dust_when_air_quality_fails(monkeypatch):
     ios_api._reset_weather_cache_for_tests()
+    monkeypatch.setattr(ios_api, "_WEATHER_DB_ENABLED", False)
     calls = {"weather": 0, "air": 0}
 
     def _fake_weather(lat: float, lng: float):
