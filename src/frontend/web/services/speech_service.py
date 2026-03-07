@@ -35,6 +35,15 @@ def synthesize_speech_mp3(script: str, language: str) -> bytes:
     speech_region = (os.getenv("AZURE_SPEECH_REGION") or "").strip()
 
     if not speech_key or not speech_region:
+        try:
+            from config.vault_manager import get_vault_manager
+            _vm = get_vault_manager()
+            speech_key = speech_key or (_vm.get_secret("azure-speech-key") or "").strip()
+            speech_region = speech_region or (_vm.get_secret("azure-speech-region") or "").strip()
+        except Exception:
+            pass
+
+    if not speech_key or not speech_region:
         raise SpeechSynthesisError("speech configuration is missing", status_code=503)
 
     endpoint = f"https://{speech_region}.tts.speech.microsoft.com/cognitiveservices/v1"

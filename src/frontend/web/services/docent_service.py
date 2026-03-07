@@ -420,6 +420,17 @@ def _generate_with_llm(context: dict[str, Any], category: str, language: str, mo
     ).strip()
 
     if not endpoint or not api_key or not api_version or not deployment:
+        try:
+            from config.vault_manager import get_vault_manager
+            _vm = get_vault_manager()
+            endpoint = endpoint or (_vm.get_secret("azure-openai-endpoint") or "").strip()
+            api_key = api_key or (_vm.get_secret("azure-openai-key") or "").strip()
+            api_version = api_version or (_vm.get_secret("azure-openai-version") or "").strip()
+            deployment = deployment or (_vm.get_secret("azure-openai-deployment-name") or "").strip()
+        except Exception:
+            pass
+
+    if not endpoint or not api_key or not api_version or not deployment:
         raise RuntimeError("azure openai config is missing")
 
     llm_timeout = max(3.0, min(_float_env("DOCENT_LLM_TIMEOUT_SEC", 6.0), 20.0))
