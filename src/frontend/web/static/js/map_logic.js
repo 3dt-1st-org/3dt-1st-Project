@@ -393,9 +393,10 @@
   function renderWeatherSummary(payload) {
     APP.weather = payload;
     const tempText = payload && payload.temp != null && payload.temp !== '' ? payload.temp : '--';
+    const outdoorStatus = payload && payload.outdoor_status ? payload.outdoor_status : '';
+    const tempAndStatus = [outdoorStatus, `${tempText}°C`].filter(Boolean).join(' · ');
     document.getElementById('weather-icon').textContent = payload.icon || '🌡️';
-    document.getElementById('weather-temp').textContent = `${tempText}°C`;
-    document.getElementById('weather-dust').textContent = dustSummaryText(payload.dust);
+    document.getElementById('weather-temp').textContent = tempAndStatus;
   }
 
   function openSheet(id) {
@@ -488,17 +489,16 @@
   function renderWeatherSheet() {
     const wrap = document.getElementById('forecast-chart');
     const nowText = document.getElementById('weather-now');
-    const dustText = document.getElementById('weather-dust-detail');
 
     if (!APP.weather) {
       nowText.textContent = TEXT.weatherEmpty || '';
-      dustText.textContent = '';
       wrap.innerHTML = '';
       return;
     }
 
-    nowText.textContent = `${TEXT.weatherNow || ''} ${APP.weather.temp}°C`;
-    dustText.textContent = dustSummaryText(APP.weather.dust);
+    // 야외활동 상태 표시
+    const outdoorStatus = APP.weather && APP.weather.outdoor_status ? APP.weather.outdoor_status : '';
+    nowText.textContent = [TEXT.weatherNow || '', outdoorStatus, `${APP.weather.temp}°C`].filter(Boolean).join(' ');
 
     const list = Array.isArray(APP.weather.forecast) ? APP.weather.forecast : [];
     if (!list.length) {
@@ -780,11 +780,33 @@
         if (!response.ok) {
           return APP.weather;
         }
+
+        if (!payload.outdoor_status) {
+          try {
+            const res = await fetch(`/api/planner/intervention?lat=${APP.userPosition.lat}&lng=${APP.userPosition.lng}`);
+            const data = await res.json();
+            if (res.ok && data.intervention) {
+              const label = ALERT_LABEL[data.intervention.type];
+              if (label) {
+                let statusText = '';
+                if (label.includes('—')) {
+                  statusText = label.split('—')[1].trim();
+                } else if (label.includes('!')) {
+                  statusText = label.split('!')[1].trim();
+                }
+                if (statusText) {
+                  payload.outdoor_status = statusText;
+                }
+              }
+            }
+          } catch (_) { /* ignore intervention fetch error */ }
+        }
+
         APP.lastWeatherFetchAt = Date.now();
         APP.lastWeatherKey = key;
         APP.lastWeatherPosition = currentWeatherPosition();
         renderWeatherSummary(payload);
-        // 날씨 갱신 직후 개입 알림 체크
+        // 날씨 갱신 직후 개입 알림 체크 (토스트 전용)
         checkIntervention(APP.userPosition.lat, APP.userPosition.lng);
         return payload;
       } catch (_error) {

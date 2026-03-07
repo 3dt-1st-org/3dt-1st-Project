@@ -263,7 +263,7 @@ def _fetch_weather_from_db(lat: float, lng: float) -> tuple[dict, int] | None:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute(
                     """
-                    SELECT temperature, precipitation_type, pm10, pm25
+                    SELECT temperature, precipitation_type, pm10, pm25, outdoor_status
                     FROM locallink.realtime_weather_conditions
                     WHERE location = %s
                       AND record_time > NOW() - INTERVAL '70 minutes'
@@ -294,6 +294,7 @@ def _fetch_weather_from_db(lat: float, lng: float) -> tuple[dict, int] | None:
             "grade_ko": _DUST_GRADE_LABELS.get(grade, _DUST_GRADE_LABELS["unknown"]),
         },
         "forecast": [],
+        "outdoor_status": row["outdoor_status"] or "",
         "source": "db",
         "dust_source": "db",
         "location": location,
@@ -386,6 +387,13 @@ def _weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
         _db_result = _fetch_weather_from_db(lat, lng)
         if _db_result is not None:
             _db_payload, _db_status = _db_result
+            # Open-Meteo에서 예보 데이터 보충 (best-effort)
+            try:
+                _weather_future = _WEATHER_FETCH_EXECUTOR.submit(_fetch_open_meteo_weather, lat, lng)
+                _weather_data = _weather_future.result(timeout=_OPEN_METEO_TIMEOUT_SEC + 0.5)
+                _db_payload["forecast"] = _build_weather_forecast_payload(_weather_data)
+            except Exception:
+                pass  # forecast stays []
             with _WEATHER_CACHE_LOCK:
                 _store_cached_weather_entry(key, _db_payload, _db_status)
                 _current_inflight = _WEATHER_INFLIGHT.pop(key, None)
@@ -446,11 +454,14 @@ def _compute_weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
         except Exception:
             dust_source = "unavailable"
 
+        outdoor_status = _compute_outdoor_status(current.get("weather_code"), dust["grade"])
+
         return {
             "temp": temp,
             "icon": icon,
             "dust": dust,
             "forecast": forecast,
+            "outdoor_status": outdoor_status,
             "source": "open-meteo",
             "dust_source": dust_source,
         }, 200
@@ -546,6 +557,20 @@ def _legacy_weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
         return {"temp": str(temp), "icon": icon}, 200
     except Exception as exc:
         return {"error": str(exc)}, 500
+
+
+def _compute_outdoor_status(weather_code_value, dust_grade: str) -> str:
+    """날씨 코드와 미세먼지 등급을 기반으로 outdoor_status 텍스트를 생성."""
+    code = _safe_float(weather_code_value)
+    if code is not None:
+        c = int(round(code))
+        if c in {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99}:
+            return "비/눈"
+    if dust_grade in {"bad", "very_bad"}:
+        return "미세먼지 나쁨"
+    if code is not None and int(round(code)) in {0, 1, 2} and dust_grade in {"good", "normal", "unknown"}:
+        return "야외활동 쾌적"
+    return "보통"
 
 
 def _safe_float(value) -> float | None:
