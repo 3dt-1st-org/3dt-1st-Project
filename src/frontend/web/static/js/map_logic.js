@@ -725,9 +725,9 @@
       const query = new URLSearchParams({
         lat: String(lat),
         lng: String(lng),
-        radius: '10000',
+        radius: '20000',
         category: APP.selectedCategory,
-        scope: 'city',
+        scope: 'radius',
         limit: '100'
       });
 

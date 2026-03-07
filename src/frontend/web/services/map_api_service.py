@@ -8,7 +8,7 @@ from src.frontend.web.services.db import get_db_connection
 
 DEFAULT_LAT = 37.2636
 DEFAULT_LNG = 127.0286
-DEFAULT_RADIUS = 3000
+DEFAULT_RADIUS = 10000
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
 

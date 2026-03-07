@@ -33,7 +33,7 @@ ios_api_bp = Blueprint("ios_api", __name__)
 
 _DEFAULT_LAT = 37.2636
 _DEFAULT_LNG = 127.0286
-_DEFAULT_RADIUS = 3000
+_DEFAULT_RADIUS = 10000
 _DEFAULT_LIMIT = 50
 _MAX_LIMIT = 100
 
