@@ -256,7 +256,7 @@
     wrapper.dataset.placeId = place.id;
 
     const image = place.image_url
-      ? `<img class="place-card__thumb" src="${escapeHtml(place.image_url)}" alt="${escapeHtml(placeName(place))}" />`
+      ? `<img class="place-card__thumb" src="${escapeHtml(place.image_url)}" alt="${escapeHtml(placeName(place))}" onerror="this.style.display='none'" />`
       : `<div class="place-card__thumb" aria-hidden="true"></div>`;
     const distance = placeDistance(place);
     const region = placeRegion(place);
@@ -277,10 +277,8 @@
     `;
 
     wrapper.addEventListener('click', () => {
-      selectPlace(place, { from: 'card', openDetail: false });
-    });
-    wrapper.addEventListener('dblclick', () => {
-      selectPlace(place, { from: 'card', openDetail: true });
+      const alreadySelected = APP.selectedPlace && APP.selectedPlace.id === place.id;
+      selectPlace(place, { from: 'card', openDetail: !alreadySelected });
     });
     return wrapper;
   }
@@ -395,6 +393,11 @@
   function openSheet(id) {
     document.getElementById('sheet-backdrop').classList.add('active');
     document.getElementById(id).classList.add('active');
+    // [UX개선] 시트가 열리면 카드 패널 + 자막 패널 숨기기 (Google Maps 방식)
+    const cardPanel = document.getElementById('card-panel');
+    if (cardPanel) cardPanel.classList.add('hidden');
+    const subtitlePanel = document.getElementById('status-panel');
+    if (subtitlePanel) subtitlePanel.classList.add('hidden');
   }
 
   function closeSheets() {
@@ -402,6 +405,11 @@
     document.querySelectorAll('.bottom-sheet').forEach((sheet) => {
       sheet.classList.remove('active');
     });
+    // [UX개선] 시트가 닫히면 카드 패널 + 자막 패널 복원
+    const cardPanel = document.getElementById('card-panel');
+    if (cardPanel) cardPanel.classList.remove('hidden');
+    const subtitlePanel = document.getElementById('status-panel');
+    if (subtitlePanel) subtitlePanel.classList.remove('hidden');
   }
 
   function renderDetailSheet(place) {
@@ -474,9 +482,11 @@
   function setAutoButtonState() {
     const autoBtn = document.getElementById('auto-btn');
     const label = document.getElementById('auto-label');
+    const iconSpan = autoBtn.querySelector('span:first-child');
     autoBtn.classList.toggle('active', APP.isAutoDocentEnabled);
     autoBtn.classList.toggle('secondary', !APP.isAutoDocentEnabled);
     label.textContent = APP.isAutoDocentEnabled ? 'ON' : 'OFF';
+    if (iconSpan) iconSpan.textContent = APP.isAutoDocentEnabled ? '✨' : '⏸';
     S.setBool(S.keys.isAutoDocentEnabled, APP.isAutoDocentEnabled);
   }
 

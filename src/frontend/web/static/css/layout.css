@@ -342,28 +342,58 @@ body {
   pointer-events: none;
 }
 
+/* [UX개선] 도슨트 자막 패널 — 배경 불투명화 + 좌측 강조 보더로 시선 유도 */
 .map-subtitle-panel {
   width: min(460px, calc(100vw - 24px));
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.98);
   border-radius: 16px;
-  padding: 12px;
-  box-shadow: 0 8px 28px rgba(18, 31, 45, 0.16);
-  max-height: min(26dvh, 220px);
+  border-left: 4px solid var(--obang-east);
+  padding: 14px 14px 14px 16px;
+  box-shadow: 0 8px 32px rgba(18, 31, 45, 0.22);
+  pointer-events: auto;
+  transition: opacity 0.22s ease, visibility 0.22s;
+}
+
+/* 바텀시트가 열릴 때 자막 패널 숨기기 */
+.map-subtitle-panel.hidden {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+/* [UX개선] 도슨트 자막 텍스트 — 5줄 초과 시 스크롤, 버튼은 항상 표시 */
+.map-subtitle-text {
+  font-size: 0.93rem;
+  line-height: 1.6;
+  color: #111827;
+  font-weight: 500;
+  max-height: calc(1.6em * 5);
   overflow-y: auto;
   overscroll-behavior: contain;
-  pointer-events: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.4) transparent;
+  padding-right: 4px;
+  margin: 0;
 }
 
-.map-subtitle-text {
-  font-size: 0.87rem;
-  line-height: 1.55;
-  color: #1f2937;
-}
-
+/* [UX개선] 자막 하단 CTA 영역 */
 .map-subtitle-actions {
-  margin-top: 10px;
+  margin-top: 12px;
   display: flex;
   gap: 8px;
+}
+
+/* [UX개선] "정보 더 듣기" Primary CTA — 어두운 배경+흰 글씨로 클릭 유도 강화 */
+#more-info-btn {
+  background: var(--obang-north);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 800;
+  border-radius: 10px;
+  padding: 10px 18px;
+  box-shadow: 0 4px 14px rgba(16, 24, 40, 0.3);
+  letter-spacing: 0.01em;
 }
 
 .map-fab-row {
@@ -377,15 +407,16 @@ body {
   justify-content: space-between;
 }
 
+/* [UX개선] FAB 버튼 — 흰 테두리 링 + 그림자 강화로 지도 위 인식률 향상 */
 .fab-circle {
-  width: 48px;
-  height: 48px;
-  border: 0;
+  width: 52px;
+  height: 52px;
+  border: 2.5px solid rgba(255, 255, 255, 0.9);
   border-radius: 50%;
   background: var(--obang-east);
   color: #fff;
-  font-size: 1.15rem;
-  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.25);
+  font-size: 1.2rem;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.18), 0 10px 28px rgba(16, 24, 40, 0.32);
   cursor: pointer;
 }
 
@@ -393,9 +424,10 @@ body {
   background: rgba(26, 32, 44, 0.84);
 }
 
+/* [UX개선] 자동 도슨트 FAB — 크기+강조 유지 */
 .fab-circle.auto {
-  width: 74px;
-  height: 74px;
+  width: 78px;
+  height: 78px;
   font-size: 0.88rem;
   font-weight: 800;
   display: flex;
@@ -403,25 +435,30 @@ body {
   justify-content: center;
   flex-direction: column;
   gap: 2px;
+  transition: background 0.25s ease, box-shadow 0.25s ease, transform 0.18s ease;
 }
 
 .fab-circle.auto.active {
   background: var(--obang-east);
+  box-shadow: 0 0 0 4px rgba(var(--obang-east-rgb, 59,130,246), 0.28),
+              0 6px 20px rgba(16, 24, 40, 0.38);
+  transform: scale(1.06);
 }
 
+/* [UX개선] 장소 카드가 시선을 독점하지 않도록 시각 무게 경량화 */
 .map-card-panel {
   width: var(--map-top-stack-width);
-  min-height: 146px;
-  max-height: 146px;
-  background: rgba(255, 255, 255, 0.98);
+  min-height: 130px;
+  max-height: 130px;
+  background: rgba(255, 255, 255, 0.92);
   border-radius: 20px;
-  box-shadow: 0 12px 26px rgba(18, 31, 45, 0.2);
-  padding: 10px 12px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  box-shadow: 0 4px 12px rgba(18, 31, 45, 0.12);
+  padding: 8px 12px;
   display: flex;
   align-items: stretch;
   gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
   scroll-snap-type: x mandatory;
   overscroll-behavior-x: contain;
   overscroll-behavior-y: none;
@@ -429,6 +466,15 @@ body {
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   pointer-events: auto;
+  transition: opacity 0.22s ease, transform 0.22s ease, visibility 0.22s;  /* 숨김 애니메이션 */
+}
+
+/* [UX개선] 바텀시트가 열렸을 때 카드 패널 숨기기 (Google Maps 방식) */
+.map-card-panel.hidden {
+  opacity: 0;
+  transform: translateY(-12px);
+  pointer-events: none;
+  visibility: hidden;
 }
 
 .map-card-panel::-webkit-scrollbar {
@@ -549,12 +595,18 @@ body {
   flex-shrink: 0;
 }
 
+/* [UX개선] 이미지 로드 실패 시 빈 블록 제거 */
 .detail-sheet__image {
   width: 100%;
   height: 170px;
   border-radius: 14px;
   background: linear-gradient(135deg, rgba(245, 200, 66, 0.4), rgba(43, 108, 176, 0.5));
   object-fit: cover;
+  display: block;
+}
+
+.detail-sheet__image[data-broken] {
+  display: none !important;
 }
 
 .sheet-backdrop {

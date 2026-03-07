@@ -54,7 +54,8 @@
 <section id="detail-sheet" class="bottom-sheet" aria-hidden="true">
   <h3 id="detail-title" class="sheet-title"></h3>
   <p id="detail-sub" class="sheet-sub"></p>
-  <img id="detail-image" class="detail-sheet__image" alt="place" />
+  <img id="detail-image" class="detail-sheet__image" alt="place"
+       onerror="this.setAttribute('data-broken','1'); this.style.display='none';" />
   <p id="detail-recommend" class="info-body" style="margin-top:10px;"></p>
   <div class="btn-row">
     <button id="detail-more-btn" class="btn-primary" style="width:100%;">{{ t('map_more_info') }}</button>

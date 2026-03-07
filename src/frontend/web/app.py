@@ -47,7 +47,6 @@ def create_app() -> Flask:
             kakao_js_key = ""
     app.jinja_env.globals["kakao_js_key"] = kakao_js_key
 
-    # 앱 버전 (모든 템플릿에서 {{ app_version }} 사용 가능)
     app.jinja_env.globals["app_version"] = _read_version()
 
     # i18n: t() 함수와 current_lang 변수를 모든 템플릿에서 사용 가능하게 주입
