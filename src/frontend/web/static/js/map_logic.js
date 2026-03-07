@@ -345,6 +345,8 @@
   function dustSummaryText(dust) {
     const label = APP.selectedLanguage === 'en' ? 'Fine Dust' : '미세먼지';
     const grade = dustGradeLabel(dust);
+    const isNormal = !dust || dust.grade === 'normal' || dust.grade === 'good';
+    if (isNormal) return `${label} ${grade}`;
     const metrics = [];
     if (dust && dust.pm10 != null) metrics.push(`PM10 ${dust.pm10}`);
     if (dust && dust.pm25 != null) metrics.push(`PM2.5 ${dust.pm25}`);
@@ -429,22 +431,22 @@
     const canMore = !APP.hasPlayedDetailForPlace.has(place.id);
     moreBtn.style.display = canMore ? 'inline-block' : 'none';
     moreBtn.onclick = () => {
-      requestDocent(place, 'detail');
       APP.hasPlayedDetailForPlace.add(place.id);
-      moreBtn.style.display = 'none';
+      closeSheets();
+      requestDocent(place, 'detail');
     };
     openSheet('detail-sheet');
   }
 
   function renderWeatherSheet() {
-    const panel = document.getElementById('forecast-list');
+    const wrap = document.getElementById('forecast-chart');
     const nowText = document.getElementById('weather-now');
     const dustText = document.getElementById('weather-dust-detail');
-    panel.innerHTML = '';
 
     if (!APP.weather) {
       nowText.textContent = TEXT.weatherEmpty || '';
       dustText.textContent = '';
+      wrap.innerHTML = '';
       return;
     }
 
@@ -453,23 +455,73 @@
 
     const list = Array.isArray(APP.weather.forecast) ? APP.weather.forecast : [];
     if (!list.length) {
-      const empty = document.createElement('div');
-      empty.className = 'forecast-item';
-      empty.textContent = TEXT.weatherEmpty || '';
-      panel.appendChild(empty);
+      wrap.innerHTML = `<p class="forecast-empty">${escapeHtml(TEXT.weatherEmpty || '')}</p>`;
       return;
     }
 
-    list.forEach((item) => {
-      const row = document.createElement('div');
-      row.className = 'forecast-item';
-      row.innerHTML = `
-        <span>${escapeHtml(formatForecastTime(item.time))}</span>
-        <span>${escapeHtml(item.icon || '')}</span>
-        <strong>${escapeHtml(item.temp || '--')}°C</strong>
-      `;
-      panel.appendChild(row);
+    const COL_W = 56;
+    const SVG_H = 88;
+    const PAD_TOP = 26;
+    const PAD_BOT = 18;
+    const DRAW_H = SVG_H - PAD_TOP - PAD_BOT;
+    const totalW = list.length * COL_W;
+
+    const parsedTemps = list.map(d => { const v = parseFloat(d.temp); return isNaN(v) ? null : v; });
+    const validTemps = parsedTemps.filter(v => v !== null);
+    const tMax = validTemps.length ? Math.max(...validTemps) : 1;
+    const tMin = validTemps.length ? Math.min(...validTemps) : 0;
+    const tRange = tMax - tMin || 1;
+
+    const pts = list.map((item, i) => {
+      const temp = parsedTemps[i];
+      const x = i * COL_W + COL_W / 2;
+      const y = temp !== null
+        ? PAD_TOP + ((tMax - temp) / tRange) * DRAW_H
+        : PAD_TOP + DRAW_H / 2;
+      return { x, y, temp };
     });
+
+    // Smooth cubic bezier curve
+    let pathD = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    for (let i = 1; i < pts.length; i++) {
+      const mx = ((pts[i - 1].x + pts[i].x) / 2).toFixed(1);
+      pathD += ` C ${mx} ${pts[i - 1].y.toFixed(1)}, ${mx} ${pts[i].y.toFixed(1)}, ${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
+    }
+
+    const svgContent = [
+      `<path d="${pathD}" fill="none" stroke="#c8c8cc" stroke-width="2.5" stroke-linecap="round"/>`,
+      ...pts.map(p => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#9ca3af"/>`),
+      ...pts.map((p, i) => {
+        const label = p.temp !== null ? `${Math.round(p.temp)}°` : '--';
+        return `<text x="${p.x.toFixed(1)}" y="${(p.y - 10).toFixed(1)}" text-anchor="middle" class="forecast-temp-lbl">${escapeHtml(label)}</text>`;
+      }),
+    ].join('');
+
+    const iconCells = list.map(item =>
+      `<div class="forecast-icon-cell">${escapeHtml(item.icon || '')}</div>`
+    ).join('');
+    const timeCells = list.map(item =>
+      `<div class="forecast-time-cell">${escapeHtml(_chartHourLabel(item.time))}</div>`
+    ).join('');
+
+    wrap.innerHTML = `
+      <div class="forecast-chart-inner" style="width:${totalW}px">
+        <svg class="forecast-svg" width="${totalW}" height="${SVG_H}" viewBox="0 0 ${totalW} ${SVG_H}">
+          ${svgContent}
+        </svg>
+        <div class="forecast-icon-row">${iconCells}</div>
+        <div class="forecast-time-row">${timeCells}</div>
+      </div>`;
+  }
+
+  function _chartHourLabel(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const m = raw.match(/T(\d{2}):/);
+    if (m) return `${m[1]}시`;
+    const date = new Date(/[zZ+]/.test(raw) ? raw : raw + '+09:00');
+    if (isNaN(date.getTime())) return raw;
+    return `${String(date.getHours()).padStart(2, '0')}시`;
   }
 
   function setVoiceButtonState() {

@@ -658,30 +658,50 @@ body {
   color: #1f2937;
 }
 
-.forecast-list {
+.forecast-chart-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin: 12px -16px 0;
+  padding: 0 16px;
+}
+.forecast-chart-wrap::-webkit-scrollbar {
+  display: none;
+}
+.forecast-chart-inner {
+  position: relative;
+}
+.forecast-svg {
+  display: block;
+}
+.forecast-temp-lbl {
+  font-size: 11px;
+  font-weight: 700;
+  fill: #374151;
+}
+.forecast-icon-row,
+.forecast-time-row {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
 }
-
-.forecast-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px auto;
-  align-items: center;
-  column-gap: 10px;
-  background: #f8fafc;
-  border-radius: 10px;
-  padding: 9px 10px;
-  font-size: 0.82rem;
+.forecast-icon-cell {
+  flex: 0 0 56px;
+  text-align: center;
+  font-size: 1.3rem;
+  line-height: 1;
+  padding: 4px 0;
 }
-
-.forecast-item span:first-child {
-  min-width: 0;
+.forecast-time-cell {
+  flex: 0 0 56px;
+  text-align: center;
+  font-size: 0.7rem;
+  color: #9ca3af;
+  padding-bottom: 4px;
 }
-
-.forecast-item strong {
-  justify-self: end;
+.forecast-empty {
+  color: #9ca3af;
+  font-size: 0.85rem;
+  padding: 16px 0;
 }
 
 .location-overlay {
