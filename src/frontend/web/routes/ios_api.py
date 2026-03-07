@@ -1012,6 +1012,8 @@ def _fetch_places_by_city(
                             COALESCE(city, '') AS region_en,
                             COALESCE(url, '') AS event_url,
                             COALESCE(NULLIF(TRIM(image_url), ''), NULL) AS image_url,
+                            lat,
+                            lng,
                             CASE
                                 WHEN begin_de ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$' THEN begin_de::DATE
                                 ELSE NULL
@@ -1029,8 +1031,8 @@ def _fetch_places_by_city(
                         ne.id,
                         ne.name,
                         ne.name_en,
-                        COALESCE(cc.center_lat, %s) AS lat,
-                        COALESCE(cc.center_lng, %s) AS lng,
+                        COALESCE(ne.lat, cc.center_lat, %s) AS lat,
+                        COALESCE(ne.lng, cc.center_lng, %s) AS lng,
                         'event' AS category,
                         ne.address,
                         ne.address_en,
@@ -1040,14 +1042,14 @@ def _fetch_places_by_city(
                             ST_Distance(
                                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
                                 ST_SetSRID(
-                                    ST_MakePoint(COALESCE(cc.center_lng, %s), COALESCE(cc.center_lat, %s)),
+                                    ST_MakePoint(COALESCE(ne.lng, cc.center_lng, %s), COALESCE(ne.lat, cc.center_lat, %s)),
                                     4326
                                 )::geography
                             )::NUMERIC,
                             0
                         )::INT AS distance_m,
                         ne.image_url AS image_url,
-                        TRUE AS is_approximate_location,
+                        (ne.lat IS NULL) AS is_approximate_location,
                         ne.event_start_date::TEXT AS event_start_date,
                         ne.event_end_date::TEXT AS event_end_date,
                         ne.event_url,
@@ -1269,6 +1271,8 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                             COALESCE(city, '') AS region_en,
                             COALESCE(url, '') AS event_url,
                             COALESCE(NULLIF(TRIM(image_url), ''), NULL) AS image_url,
+                            lat,
+                            lng,
                             CASE
                                 WHEN begin_de ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN begin_de::DATE
                                 ELSE NULL
@@ -1285,8 +1289,8 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                         ne.id,
                         ne.name,
                         ne.name_en,
-                        COALESCE(cc.center_lat, %s) AS lat,
-                        COALESCE(cc.center_lng, %s) AS lng,
+                        COALESCE(ne.lat, cc.center_lat, %s) AS lat,
+                        COALESCE(ne.lng, cc.center_lng, %s) AS lng,
                         'event' AS category,
                         ne.address,
                         ne.address_en,
@@ -1296,14 +1300,14 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                             ST_Distance(
                                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
                                 ST_SetSRID(
-                                    ST_MakePoint(COALESCE(cc.center_lng, %s), COALESCE(cc.center_lat, %s)),
+                                    ST_MakePoint(COALESCE(ne.lng, cc.center_lng, %s), COALESCE(ne.lat, cc.center_lat, %s)),
                                     4326
                                 )::geography
                             )::NUMERIC,
                             0
                         )::INT AS distance_m,
                         ne.image_url AS image_url,
-                        TRUE AS is_approximate_location,
+                        (ne.lat IS NULL) AS is_approximate_location,
                         ne.event_start_date::TEXT AS event_start_date,
                         ne.event_end_date::TEXT AS event_end_date,
                         ne.event_url,
@@ -1314,7 +1318,7 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                     WHERE ST_DWithin(
                         ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
                         ST_SetSRID(
-                            ST_MakePoint(COALESCE(cc.center_lng, %s), COALESCE(cc.center_lat, %s)),
+                            ST_MakePoint(COALESCE(ne.lng, cc.center_lng, %s), COALESCE(ne.lat, cc.center_lat, %s)),
                             4326
                         )::geography,
                         %s
