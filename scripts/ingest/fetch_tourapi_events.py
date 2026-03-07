@@ -31,7 +31,12 @@ import re
 import sys
 import time
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
+
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 import requests
 
@@ -142,7 +147,6 @@ def _fetch_page(service_key: str, page_no: int, event_start_date: str) -> dict:
         "MobileOS":        MOBILE_OS,
         "MobileApp":       MOBILE_APP,
         "_type":           "json",
-        "listYN":          "Y",
         "arrange":         "D",       # 수정일 내림차순
         "areaCode":        AREA_CODE,
         "eventStartDate":  event_start_date,
