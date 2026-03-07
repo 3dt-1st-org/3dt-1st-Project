@@ -256,9 +256,9 @@ def run_review_pipeline(target_attraction):
     if search_attraction != target_attraction:
         print(f"🔍 검색어 정규화: '{target_attraction}' → '{search_attraction}'")
 
-    # [STEP 1] 네이버 블로그 API 호출 (최대 100개) - 정규화된 이름으로 검색
+    # [STEP 1] 네이버 블로그 API 호출 (최대 50개) - 정규화된 이름으로 검색
     search_word = urllib.parse.quote(f"{search_attraction} 설명")
-    url = f"https://openapi.naver.com/v1/search/blog?query={search_word}&display=100&sort=sim"
+    url = f"https://openapi.naver.com/v1/search/blog?query={search_word}&display=50&sort=sim"
     
     request = urllib.request.Request(url)
     request.add_header("X-Naver-Client-Id", NAVER_CLIENT_ID)

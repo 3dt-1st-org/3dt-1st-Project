@@ -105,7 +105,7 @@ def has_existing_restaurant_reviews(restaurant_name: str) -> bool:
 # ==============================================================================
 # 3. 메인 파이프라인
 # ==============================================================================
-def run_restaurant_pipeline(target_restaurant):
+def run_restaurant_pipeline(target_restaurant, sigun_nm):
     print(f"🚀 [{target_restaurant}] 리뷰 수집 및 분석 시작...")
 
     if has_existing_restaurant_reviews(target_restaurant):
@@ -113,8 +113,8 @@ def run_restaurant_pipeline(target_restaurant):
         return
 
     # [STEP 1] 네이버 API 호출
-    search_word = urllib.parse.quote(f"{target_restaurant} 후기")
-    url = f"https://openapi.naver.com/v1/search/blog?query={search_word}&display=30&sort=sim"
+    search_word = urllib.parse.quote(f"{sigun_nm} {target_restaurant} 후기".strip())
+    url = f"https://openapi.naver.com/v1/search/blog?query={search_word}&display=50&sort=sim"
     
     request = urllib.request.Request(url)
     request.add_header("X-Naver-Client-Id", NAVER_CLIENT_ID)
