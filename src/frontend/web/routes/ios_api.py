@@ -387,13 +387,24 @@ def _weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
         _db_result = _fetch_weather_from_db(lat, lng)
         if _db_result is not None:
             _db_payload, _db_status = _db_result
-            # Open-Meteo에서 예보 데이터 보충 (best-effort)
+            # Open-Meteo에서 예보 + 누락된 온도 보충 (best-effort)
             try:
                 _weather_future = _WEATHER_FETCH_EXECUTOR.submit(_fetch_open_meteo_weather, lat, lng)
                 _weather_data = _weather_future.result(timeout=_OPEN_METEO_TIMEOUT_SEC + 0.5)
                 _db_payload["forecast"] = _build_weather_forecast_payload(_weather_data)
+                # DB 온도가 NULL인 경우 Open-Meteo 현재 온도로 보충
+                if _db_payload.get("temp") == "--":
+                    _om_current = _weather_data.get("current") or {}
+                    _om_temp = _format_temp_value(_om_current.get("temperature_2m"))
+                    if _om_temp != "--":
+                        _db_payload["temp"] = _om_temp
+                        _db_payload["icon"] = _wmo_weather_icon(_om_current.get("weather_code"))
+                        _db_payload["outdoor_status"] = _compute_outdoor_status(
+                            _om_current.get("weather_code"),
+                            (_db_payload.get("dust") or {}).get("grade", "unknown"),
+                        )
             except Exception:
-                pass  # forecast stays []
+                pass  # forecast stays [], temp stays "--"
             with _WEATHER_CACHE_LOCK:
                 _store_cached_weather_entry(key, _db_payload, _db_status)
                 _current_inflight = _WEATHER_INFLIGHT.pop(key, None)

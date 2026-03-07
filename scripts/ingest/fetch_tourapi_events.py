@@ -6,6 +6,13 @@
     python scripts/ingest/fetch_tourapi_events.py --start 20260101  # 시작일 지정
     python scripts/ingest/fetch_tourapi_events.py --dry-run          # DB 미적재, 결과만 출력
 
+[NOTE] 수원시 일부 행사 데이터는 수동으로 직접 INSERT 되었습니다.
+       사유: 본 스크립트 최초 실행 시점(2026-03-08) 기준 실제 진행 중인 행사가 없어
+             웹앱 지도에 행사 핀이 전혀 표시되지 않는 문제가 있었습니다.
+             이를 확인 및 시연 목적으로 begin_de/end_de 범위를 현재 날짜로 맞춘
+             테스트성 행사 레코드를 수동 삽입하였습니다.
+             실제 서비스 시에는 해당 레코드를 삭제하거나 이 스크립트로 재수집 후 대체하세요.
+
 소스: 한국관광공사 TourAPI 4.0
   Base URL : https://apis.data.go.kr/B551011/KorService2
   Endpoint : GET /searchFestival2
