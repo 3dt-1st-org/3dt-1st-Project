@@ -64,6 +64,13 @@
   <img id="detail-image" class="detail-sheet__image" alt="place"
        onerror="this.setAttribute('data-broken','1'); this.style.display='none';" />
   <p id="detail-recommend" class="info-body" style="margin-top:10px;"></p>
+  <div id="detail-event-info" style="display:none;">
+    <p id="detail-event-dates" class="sheet-sub" style="font-size:.82rem; margin-top:8px;"></p>
+    <a id="detail-event-link" href="#" target="_blank" rel="noopener noreferrer"
+       class="btn-primary"
+       style="display:block; text-align:center; margin-top:8px; text-decoration:none;">행사 상세 보기 →</a>
+    <p id="detail-event-approx" style="display:none; font-size:.75rem; color:#aaa; margin-top:6px;">📍 정확한 위치 정보가 없어 시 중심 위치로 표시돼요</p>
+  </div>
   <div class="btn-row">
     <button id="detail-more-btn" class="btn-primary" style="width:100%;">{{ t('map_more_info') }}</button>
   </div>

@@ -415,6 +415,13 @@
     if (subtitlePanel) subtitlePanel.classList.remove('hidden');
   }
 
+  function _fmtEventDate(dateStr) {
+    if (!dateStr) return '';
+    const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return dateStr;
+    return `${m[1]}년 ${m[2]}월 ${m[3]}일`;
+  }
+
   function renderDetailSheet(place) {
     document.getElementById('detail-title').textContent = placeName(place);
     const sub = [place.category || '', placeRegion(place), placeDistance(place)].filter(Boolean).join(' · ');
@@ -427,6 +434,28 @@
       detailImage.style.display = 'none';
     }
     document.getElementById('detail-recommend').textContent = recommendationText(place);
+
+    const eventInfoEl = document.getElementById('detail-event-info');
+    const hasEvent = !!(place.event_start_date || place.event_end_date);
+    eventInfoEl.style.display = hasEvent ? 'block' : 'none';
+    if (hasEvent) {
+      const start = _fmtEventDate(place.event_start_date);
+      const end   = _fmtEventDate(place.event_end_date);
+      let dateText = '🗓️';
+      if (start && end)  dateText += ` ${start} ~ ${end}`;
+      else if (start)    dateText += ` ${start}부터`;
+      else if (end)      dateText += ` ~${end}까지`;
+      document.getElementById('detail-event-dates').textContent = dateText;
+      const linkEl = document.getElementById('detail-event-link');
+      if (place.event_url) {
+        linkEl.href = place.event_url;
+        linkEl.style.display = 'block';
+      } else {
+        linkEl.style.display = 'none';
+      }
+      const approxEl = document.getElementById('detail-event-approx');
+      approxEl.style.display = place.is_approximate_location ? 'block' : 'none';
+    }
 
     const moreBtn = document.getElementById('detail-more-btn');
     const canMore = !APP.hasPlayedDetailForPlace.has(place.id);
