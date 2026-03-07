@@ -37,8 +37,15 @@ def create_app() -> Flask:
     )
     app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
 
-    # 카카오맵 키를 Jinja2 전역 변수로 주입
-    app.jinja_env.globals["kakao_js_key"] = os.getenv("KAKAO_JS_KEY", "")
+    # 카카오맵 키: 환경변수 우선, 없으면 Key Vault에서 자동 조회
+    kakao_js_key = os.getenv("KAKAO_JS_KEY", "").strip()
+    if not kakao_js_key:
+        try:
+            from config.vault_manager import get_vault_manager
+            kakao_js_key = get_vault_manager().get_secret("kakao-js-key") or ""
+        except Exception:
+            kakao_js_key = ""
+    app.jinja_env.globals["kakao_js_key"] = kakao_js_key
 
     # 앱 버전 (모든 템플릿에서 {{ app_version }} 사용 가능)
     app.jinja_env.globals["app_version"] = _read_version()
@@ -53,11 +60,13 @@ def create_app() -> Flask:
     from src.frontend.web.routes.main_map import main_map_bp
     from src.frontend.web.routes.settings import settings_bp
     from src.frontend.web.routes.ios_api import ios_api_bp
+    from src.frontend.web.routes.dashboard import dashboard_bp
 
     app.register_blueprint(onboarding_bp)
     app.register_blueprint(main_map_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(ios_api_bp)
+    app.register_blueprint(dashboard_bp)
 
     return app
 

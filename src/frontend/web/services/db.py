@@ -7,9 +7,18 @@ import psycopg2
 
 def get_db_dsn() -> str:
     db_dsn = (os.getenv("DB_DSN") or "").strip()
-    if not db_dsn:
-        raise RuntimeError("DB_DSN is required.")
-    return db_dsn
+    if db_dsn:
+        return db_dsn
+    # DB_DSN 환경변수 없으면 Key Vault에서 자동 조회 (로컬 개발 시 az login 필요)
+    try:
+        from config.vault_manager import get_vault_manager
+        return get_vault_manager().get_db_dsn()
+    except Exception as e:
+        raise RuntimeError(
+            "DB_DSN 환경변수가 없고 Key Vault 조회도 실패했습니다. "
+            "DB_DSN 환경변수를 설정하거나 Key Vault(KEY_VAULT_URL)를 구성하세요. "
+            f"원인: {e}"
+        ) from e
 
 
 def get_db_connection():
