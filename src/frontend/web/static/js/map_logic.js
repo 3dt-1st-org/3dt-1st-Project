@@ -37,7 +37,8 @@
     lastWeatherPosition: null,
     currentAudio: null,
     watchId: null,
-    hasPlayedDetailForPlace: new Set()
+    hasPlayedDetailForPlace: new Set(),
+    dailyPlan: null
   };
 
   function guardRoute() {
@@ -348,8 +349,8 @@
     const isNormal = !dust || dust.grade === 'normal' || dust.grade === 'good';
     if (isNormal) return `${label} ${grade}`;
     const metrics = [];
-    if (dust && dust.pm10 != null) metrics.push(`PM10 ${dust.pm10}`);
-    if (dust && dust.pm25 != null) metrics.push(`PM2.5 ${dust.pm25}`);
+    if (dust.pm10 != null) metrics.push(`PM10 ${dust.pm10}`);
+    if (dust.pm25 != null) metrics.push(`PM2.5 ${dust.pm25}`);
     if (!metrics.length) {
       return `${label} ${grade}`;
     }
@@ -737,6 +738,8 @@
         APP.lastWeatherKey = key;
         APP.lastWeatherPosition = currentWeatherPosition();
         renderWeatherSummary(payload);
+        // 날씨 갱신 직후 개입 알림 체크
+        checkIntervention(APP.userPosition.lat, APP.userPosition.lng);
         return payload;
       } catch (_error) {
         return APP.weather;
@@ -881,6 +884,26 @@
         loadPlaces();
       });
     });
+
+    document.getElementById('planner-btn').addEventListener('click', () => {
+      if (APP.dailyPlan) {
+        // 기존 계획 있으면 바로 시트를 열고, 재생성 여부를 확인
+        openSheet('planner-sheet');
+        renderPlannerSheet(APP.dailyPlan);
+        // 헤더에 재생성 버튼 표시
+        _showPlannerRefreshBtn();
+        return;
+      }
+      const center = APP.map ? APP.map.getCenter() : null;
+      const lat = center ? center.getLat() : APP.userPosition?.lat;
+      const lng = center ? center.getLng() : APP.userPosition?.lng;
+      if (!lat || !lng) return;
+      fetchDailyPlan(lat, lng);
+    });
+
+    document.getElementById('intervention-toast-close').addEventListener('click', () => {
+      document.getElementById('intervention-toast').style.display = 'none';
+    });
   }
 
   function startGeolocationWatch() {
@@ -905,6 +928,123 @@
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 120000 }
     );
+  }
+
+  // ── 하루 일정 플래너 ────────────────────────────────────────────────────
+
+  const PERIOD_ICON = { '오전': '🌅', '오후': '☀️', '저녁': '🌙' };
+  const ALERT_LABEL = {
+    rain_alert: '☔ 비가 옵니다 — 실내 장소를 추천해요',
+    pm_alert: '😷 미세먼지가 나빠요 — 실내 장소를 추천해요',
+    clear_sky_alert: '☀️ 날씨가 맑아요! 야외 활동하기 좋아요',
+  };
+
+  async function fetchDailyPlan(lat, lng) {
+    openSheet('planner-sheet');
+    const slotsEl = document.getElementById('planner-slots');
+    slotsEl.innerHTML = '<div class="planner-skeleton">일정을 불러오는 중…</div>';
+    document.getElementById('planner-location').textContent = '';
+    document.getElementById('planner-weather').textContent = '';
+
+    try {
+      const res = await fetch('/api/planner/daily-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lng, language: APP.selectedLanguage || 'Korean' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'planner error');
+      APP.dailyPlan = data;
+      renderPlannerSheet(data);
+      _showPlannerRefreshBtn();
+    } catch (err) {
+      slotsEl.innerHTML = `<p class="planner-error">일정을 가져오지 못했어요. 다시 시도해주세요.</p>`;
+    }
+  }
+
+  function _showPlannerRefreshBtn() {
+    const header = document.querySelector('#planner-sheet .planner-sheet__header');
+    if (!header) return;
+    let btn = header.querySelector('.planner-refresh-btn');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.className = 'map-pill-btn planner-refresh-btn';
+      btn.textContent = '🔄 일정 재생성';
+      btn.addEventListener('click', () => {
+        if (!confirm('하루 일정을 다시 생성할까요?\n현재 지도의 위치를 기준으로 새 일정이 만들어집니다.')) return;
+        APP.dailyPlan = null;
+        const center = APP.map ? APP.map.getCenter() : null;
+        const lat = center ? center.getLat() : APP.userPosition?.lat;
+        const lng = center ? center.getLng() : APP.userPosition?.lng;
+        if (!lat || !lng) return;
+        fetchDailyPlan(lat, lng);
+      });
+      header.appendChild(btn);
+    }
+  }
+
+  function renderPlannerSheet(data) {
+    document.getElementById('planner-location').textContent = data.location || '';
+    const w = data.weather || {};
+    const badge = [w.outdoor_status, w.temperature ? `${w.temperature}°C` : null]
+      .filter(Boolean).join('  ');
+    document.getElementById('planner-weather').textContent = badge;
+
+    const slotsEl = document.getElementById('planner-slots');
+    slotsEl.innerHTML = '';
+
+    const plan = data.plan || [];
+    if (!plan.length) {
+      slotsEl.innerHTML = '<p class="planner-error">추천 장소가 없어요.</p>';
+      return;
+    }
+
+    plan.forEach((item) => {
+      const icon = PERIOD_ICON[item.period] || '📍';
+      const place = item.place || {};
+      const card = document.createElement('div');
+      card.className = 'plan-slot-card';
+      card.innerHTML = `
+        <div class="plan-slot-card__period">${icon} <strong>${escapeHtml(item.period)}</strong><span class="plan-slot-card__time">${escapeHtml(item.time || '')}</span></div>
+        <div class="plan-slot-card__name">${escapeHtml(place.name || '')}</div>
+        ${place.road_addr ? `<div class="plan-slot-card__addr">${escapeHtml(place.road_addr)}</div>` : ''}
+        ${item.script ? `<p class="plan-slot-card__script">${escapeHtml(item.script)}</p>` : ''}
+      `;
+      // 지도 이동
+      if (place.lat && place.lng) {
+        card.addEventListener('click', () => {
+          closeSheets();
+          if (APP.map) {
+            APP.map.setCenter(new kakao.maps.LatLng(place.lat, place.lng));
+            APP.map.setLevel(4);
+          }
+        });
+        card.style.cursor = 'pointer';
+      }
+      slotsEl.appendChild(card);
+    });
+  }
+
+  // ── 날씨 개입 알림 ────────────────────────────────────────────────────────
+
+  async function checkIntervention(lat, lng) {
+    try {
+      const res = await fetch(`/api/planner/intervention?lat=${lat}&lng=${lng}`);
+      const data = await res.json();
+      if (!res.ok || !data.intervention) return;
+      showInterventionToast(data.intervention);
+    } catch (_) {
+      // 개입 알림 실패는 무시
+    }
+  }
+
+  function showInterventionToast(intervention) {
+    const label = ALERT_LABEL[intervention.type] || '날씨가 바뀌었어요';
+    const toast = document.getElementById('intervention-toast');
+    document.getElementById('intervention-toast-text').textContent = label;
+    toast.style.display = 'flex';
+    // 8초 후 자동 닫기
+    setTimeout(() => { toast.style.display = 'none'; }, 8000);
   }
 
   function escapeHtml(value) {

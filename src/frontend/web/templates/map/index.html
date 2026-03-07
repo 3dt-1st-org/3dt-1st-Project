@@ -16,6 +16,8 @@
     <button class="map-chip" data-category="event">{{ t('map_filter_event') }}</button>
   </div>
 
+  <button id="planner-btn" class="map-pill-btn map-planner-btn" aria-label="하루 일정">🗓️ 하루 일정</button>
+
   <div class="map-top-stack">
     <div id="card-panel" class="map-card-panel"></div>
     <div class="map-weather-row">
@@ -47,6 +49,11 @@
     </button>
     <button id="loc-btn" class="fab-circle" aria-label="{{ t('map_current_location') }}">◎</button>
   </div>
+
+  <div id="intervention-toast" class="intervention-toast" style="display:none;">
+    <span id="intervention-toast-text"></span>
+    <button id="intervention-toast-close" class="intervention-toast__close" aria-label="닫기">✕</button>
+  </div>
 </div>
 
 <div id="sheet-backdrop" class="sheet-backdrop"></div>
@@ -60,6 +67,15 @@
   <div class="btn-row">
     <button id="detail-more-btn" class="btn-primary" style="width:100%;">{{ t('map_more_info') }}</button>
   </div>
+</section>
+
+<section id="planner-sheet" class="bottom-sheet planner-sheet" aria-hidden="true">
+  <div class="planner-sheet__header">
+    <h3 class="sheet-title">🗓️ 하루 일정</h3>
+    <p id="planner-location" class="sheet-sub"></p>
+    <p id="planner-weather" class="planner-weather-badge"></p>
+  </div>
+  <div id="planner-slots" class="planner-slots"></div>
 </section>
 
 <section id="weather-sheet" class="bottom-sheet" aria-hidden="true">

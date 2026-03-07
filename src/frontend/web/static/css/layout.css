@@ -226,7 +226,7 @@ body {
   position: absolute;
   top: 12px;
   left: 10px;
-  right: 10px;
+  right: 110px;
   z-index: 30;
   display: flex;
   gap: 8px;
@@ -485,11 +485,23 @@ body {
   width: var(--map-top-stack-width);
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
   pointer-events: none;
 }
 
 .map-weather-row .map-weather-btn {
   pointer-events: auto;
+}
+
+.map-planner-btn {
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  z-index: 31;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .place-card {
@@ -835,3 +847,141 @@ body {
     padding: 18px;
   }
 }
+
+/* ── 하루 일정 플래너 시트 ─────────────────────────────────────────────── */
+
+.planner-sheet {
+  max-height: 80dvh;
+}
+
+.planner-sheet__header {
+  margin-bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.planner-refresh-btn {
+  margin-left: auto;
+  font-size: 0.76rem;
+  padding: 4px 10px;
+  opacity: 0.75;
+}
+
+.planner-weather-badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #0f766e;
+  background: #f0fdf4;
+  border-radius: 20px;
+  padding: 2px 10px;
+  margin-top: -4px;
+}
+
+.planner-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 8px;
+}
+
+.plan-slot-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  transition: background 0.15s;
+}
+
+.plan-slot-card:active {
+  background: #e2e8f0;
+}
+
+.plan-slot-card__period {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.plan-slot-card__time {
+  margin-left: auto;
+  font-size: 0.76rem;
+  color: #94a3b8;
+}
+
+.plan-slot-card__name {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #1e293b;
+  margin-bottom: 2px;
+}
+
+.plan-slot-card__addr {
+  font-size: 0.76rem;
+  color: #94a3b8;
+  margin-bottom: 6px;
+}
+
+.plan-slot-card__script {
+  font-size: 0.82rem;
+  color: #475569;
+  line-height: 1.55;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.planner-skeleton {
+  text-align: center;
+  padding: 32px 0;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.planner-error {
+  text-align: center;
+  padding: 24px 0;
+  color: #ef4444;
+  font-size: 0.88rem;
+}
+
+/* ── 날씨 개입 토스트 ──────────────────────────────────────────────────── */
+
+.intervention-toast {
+  position: fixed;
+  top: calc(60px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  background: rgba(15, 23, 42, 0.9);
+  color: #fff;
+  border-radius: 24px;
+  padding: 10px 16px 10px 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  max-width: calc(100% - 32px);
+  white-space: nowrap;
+}
+
+.intervention-toast__close {
+  background: none;
+  border: none;
+  color: #cbd5e1;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
