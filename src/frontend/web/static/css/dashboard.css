@@ -1,0 +1,349 @@
+/* ================================================================
+   Dashboard — 수도권 실시간 대기질 대시보드
+   ================================================================ */
+
+/* ── 캔버스 배경 ─────────────────────────────────────────────────── */
+.db-canvas {
+  background: #F3F4F6;
+  min-height: calc(100vh - var(--gnb-height));
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  box-sizing: border-box;
+}
+
+/* ── 카드 기본 ───────────────────────────────────────────────────── */
+.db-card {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  padding: 1rem 1.25rem;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.db-card__title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #718096;
+  margin: 0 0 0.6rem 0;
+}
+
+/* ── Row 1: 헤더 ─────────────────────────────────────────────────── */
+.db-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.9rem 1.25rem;
+}
+
+.db-header__title h1 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #1A202C;
+  margin: 0 0 0.15rem 0;
+}
+
+.db-header__title p {
+  font-size: 0.75rem;
+  color: #718096;
+  margin: 0;
+}
+
+.db-header__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.db-select {
+  border: 1px solid #CBD5E0;
+  border-radius: 6px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
+  color: #2D3748;
+  background: #fff;
+  cursor: pointer;
+  outline: none;
+  min-width: 148px;
+}
+.db-select:focus { border-color: #2B6CB0; }
+
+.db-refresh-btn {
+  border: 1px solid #BEE3F8;
+  border-radius: 6px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+  color: #2B6CB0;
+  background: #EBF8FF;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.db-refresh-btn:hover { background: #BEE3F8; }
+.db-refresh-btn.loading { opacity: 0.6; cursor: not-allowed; }
+
+.db-last-refreshed {
+  font-size: 0.7rem;
+  color: #A0AEC0;
+  white-space: nowrap;
+}
+
+/* ── Row 2: KPI 카드 ─────────────────────────────────────────────── */
+.db-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 900px) {
+  .db-kpi-row { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 500px) {
+  .db-kpi-row { grid-template-columns: 1fr 1fr; }
+}
+
+.db-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 1rem 1.25rem 0.85rem;
+}
+
+.db-kpi-card__value {
+  font-size: 2.1rem;
+  font-weight: 700;
+  line-height: 1.1;
+  transition: color 0.3s;
+}
+
+.db-kpi-card__unit {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: #718096;
+  margin-top: -0.1rem;
+}
+
+.db-kpi-card__delta {
+  font-size: 0.75rem;
+  font-weight: 600;
+  min-height: 1rem;
+}
+
+/* 등급 색상 */
+.db-kpi--good    { color: #38A169; }
+.db-kpi--normal  { color: #D69E2E; }
+.db-kpi--bad     { color: #E53E3E; }
+.db-kpi--very_bad { color: #C53030; }
+.db-kpi--neutral { color: #2B6CB0; }
+.db-kpi--unknown { color: #A0AEC0; }
+
+/* 증감 화살표 */
+.db-kpi-card__delta.delta-up   { color: #E53E3E; } /* 미세먼지·기온 상승 = 주의 */
+.db-kpi-card__delta.delta-down { color: #38A169; }
+.db-kpi-card__delta.delta-flat { color: #A0AEC0; }
+
+/* ── Row 3: 본체 (지도 + 우측 컬럼) ──────────────────────────────── */
+.db-main-body {
+  display: grid;
+  grid-template-columns: 6fr 4fr;
+  gap: 1rem;
+}
+
+@media (max-width: 1100px) {
+  .db-main-body { grid-template-columns: 1fr; }
+}
+
+.db-map-card {
+  position: relative;
+  min-height: 420px;
+  padding: 1rem;
+}
+
+#db-map {
+  width: 100%;
+  height: calc(100% - 1.6rem);
+  min-height: 380px;
+  border-radius: 8px;
+}
+
+.db-right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Smart Narrative */
+.db-narrative-card {
+  font-size: 0.85rem;
+  line-height: 1.7;
+  color: #2D3748;
+  border-left: 3px solid #2B6CB0;
+  padding-left: 0.75rem;
+  min-height: 2.5rem;
+}
+
+.db-narrative-spinner {
+  display: inline-block;
+  animation: db-spin 1s linear infinite;
+}
+
+@keyframes db-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 도넛 / 막대 차트 래퍼 */
+.db-donut-wrap {
+  height: 170px;
+  position: relative;
+}
+
+.db-bar-wrap {
+  height: 155px;
+}
+
+/* ── Row 4: 트렌드 + 테이블 ───────────────────────────────────────── */
+.db-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 900px) {
+  .db-details { grid-template-columns: 1fr; }
+}
+
+.db-trend-title {
+  margin: 0 0 0.45rem 0;
+}
+
+.db-trend-wrap {
+  height: 180px;
+}
+
+/* Raw data 테이블 */
+.db-table-wrap {
+  overflow-y: auto;
+  max-height: 220px;
+}
+
+.db-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.77rem;
+}
+
+.db-table th {
+  position: sticky;
+  top: 0;
+  background: #EDF2F7;
+  color: #4A5568;
+  font-weight: 600;
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid #CBD5E0;
+  white-space: nowrap;
+}
+
+.db-table td {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid #F7FAFC;
+  color: #2D3748;
+  white-space: nowrap;
+}
+
+.db-table tr:hover td { background: #F7FAFC; }
+
+.db-table__empty {
+  text-align: center;
+  color: #A0AEC0;
+  padding: 1.2rem;
+}
+
+/* 지도 없음 플레이스홀더 */
+.db-map-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 380px;
+  color: #A0AEC0;
+  font-size: 0.85rem;
+}
+
+/* 상태 뱃지 */
+.db-badge {
+  display: inline-block;
+  padding: 0.12rem 0.45rem;
+  border-radius: 99px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.db-badge--good   { background: #C6F6D5; color: #276749; }
+.db-badge--normal { background: #FEFCBF; color: #744210; }
+.db-badge--bad    { background: #FED7D7; color: #9B2C2C; }
+.db-badge--rain   { background: #BEE3F8; color: #2C5282; }
+.db-badge--grey   { background: #EDF2F7; color: #4A5568; }
+
+/* ── 카카오맵 버블 오버레이 ─────────────────────────────────────── */
+.db-bubble-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.db-bubble {
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.62rem;
+  text-align: center;
+  opacity: 0.82;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.15s;
+  overflow: hidden;
+  line-height: 1.15;
+  pointer-events: auto;
+}
+
+.db-bubble:hover {
+  opacity: 1;
+  transform: scale(1.12);
+  z-index: 9999;
+}
+
+/* 버블 툴팁 */
+.db-bubble-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(26, 32, 44, 0.92);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.75rem;
+  pointer-events: none;
+  z-index: 10000;
+  line-height: 1.6;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  min-width: 110px;
+  white-space: nowrap;
+}
+
+.db-bubble-wrap:hover .db-bubble-tooltip { display: block; }

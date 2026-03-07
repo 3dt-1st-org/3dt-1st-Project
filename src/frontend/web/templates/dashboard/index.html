@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}LALA — 수도권 실시간 대기질 대시보드{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+{% if kakao_js_key %}
+<script type="text/javascript"
+  src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={{ kakao_js_key }}&autoload=false">
+</script>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="db-canvas">
+
+  <!-- ══ Row 1: 헤더 & 컨트롤 ══════════════════════════════════ -->
+  <div class="db-card db-header">
+    <div class="db-header__title">
+      <h1>실시간 현황: 수도권</h1>
+      <p>Metropolitan Real-Time Weather &amp; Air Quality</p>
+    </div>
+    <div class="db-header__controls">
+      <select id="db-location-sel" class="db-select" aria-label="지역 선택">
+        <option value="">전체 수도권</option>
+        <!-- JS가 나머지 옵션 채움 -->
+      </select>
+      <button id="db-refresh-btn" class="db-refresh-btn" aria-label="새로고침">↻ 새로고침</button>
+      <span id="db-last-refreshed" class="db-last-refreshed"></span>
+    </div>
+  </div>
+
+  <!-- ══ Row 2: KPI 카드 ══════════════════════════════════════ -->
+  <div class="db-kpi-row">
+
+    <div class="db-card db-kpi-card" id="kpi-temperature">
+      <div class="db-card__title">현재 기온</div>
+      <div class="db-kpi-card__value db-kpi--neutral">--</div>
+      <div class="db-kpi-card__unit">°C</div>
+      <div class="db-kpi-card__delta delta-flat"></div>
+    </div>
+
+    <div class="db-card db-kpi-card" id="kpi-pm10">
+      <div class="db-card__title">PM10 (미세먼지)</div>
+      <div class="db-kpi-card__value db-kpi--neutral">--</div>
+      <div class="db-kpi-card__unit">㎍/㎥</div>
+      <div class="db-kpi-card__delta delta-flat"></div>
+    </div>
+
+    <div class="db-card db-kpi-card" id="kpi-pm25">
+      <div class="db-card__title">PM2.5 (초미세먼지)</div>
+      <div class="db-kpi-card__value db-kpi--neutral">--</div>
+      <div class="db-kpi-card__unit">㎍/㎥</div>
+      <div class="db-kpi-card__delta delta-flat"></div>
+    </div>
+
+    <div class="db-card db-kpi-card" id="kpi-wind">
+      <div class="db-card__title">풍속</div>
+      <div class="db-kpi-card__value db-kpi--neutral">--</div>
+      <div class="db-kpi-card__unit">m/s</div>
+      <div class="db-kpi-card__delta delta-flat"></div>
+    </div>
+
+  </div>
+
+  <!-- ══ Row 3: 지도(6) + 우측 컬럼(4) ══════════════════════ -->
+  <div class="db-main-body">
+
+    <!-- 지도 -->
+    <div class="db-card db-map-card">
+      <div class="db-card__title">수도권 PM10 분포 지도</div>
+      {% if kakao_js_key %}
+        <div id="db-map"></div>
+      {% else %}
+        <div class="db-map-placeholder">
+          지도를 표시하려면 환경변수 <code>KAKAO_JS_KEY</code>를 설정하세요.
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- 우측 컬럼: Smart Narrative + 도넛 + 막대 -->
+    <div class="db-right-col">
+
+      <!-- Smart Narrative -->
+      <div class="db-card">
+        <div class="db-card__title">AI Insight</div>
+        <div class="db-narrative-card" id="db-narrative-text">
+          <span class="db-narrative-spinner">⟳</span> 데이터 로딩 중...
+        </div>
+      </div>
+
+      <!-- 도넛 차트 -->
+      <div class="db-card">
+        <div class="db-card__title">야외활동 상태 분포 (수도권 전체)</div>
+        <div class="db-donut-wrap">
+          <canvas id="db-donut-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- TOP 5 PM10 가로 막대 -->
+      <div class="db-card">
+        <div class="db-card__title">TOP 5 PM10 지역 (㎍/㎥)</div>
+        <div class="db-bar-wrap">
+          <canvas id="db-bar-chart"></canvas>
+        </div>
+      </div>
+
+    </div><!-- /.db-right-col -->
+  </div><!-- /.db-main-body -->
+
+  <!-- ══ Row 4: 트렌드 + Raw Data ════════════════════════════ -->
+  <div class="db-details">
+
+    <!-- 꺾은선 차트 -->
+    <div class="db-card">
+      <div class="db-card__title db-trend-title" id="db-trend-title">
+        최근 12시간 기온 / PM2.5 추이
+      </div>
+      <div class="db-trend-wrap">
+        <canvas id="db-line-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Raw Data 테이블 -->
+    <div class="db-card">
+      <div class="db-card__title">최근 수집 데이터</div>
+      <div class="db-table-wrap">
+        <table class="db-table">
+          <thead>
+            <tr>
+              <th>지역</th>
+              <th>기준시간</th>
+              <th>기온</th>
+              <th>PM10</th>
+              <th>PM2.5</th>
+              <th>풍속</th>
+              <th>상태</th>
+            </tr>
+          </thead>
+          <tbody id="db-table-body">
+            <tr>
+              <td colspan="7" class="db-table__empty">로딩 중...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /.db-details -->
+
+</div><!-- /.db-canvas -->
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}
