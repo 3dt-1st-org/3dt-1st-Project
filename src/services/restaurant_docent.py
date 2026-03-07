@@ -77,7 +77,7 @@ def fetch_top10_context(restaurant_list):
             for name in restaurant_list:
                 query = """
                     SELECT extracted_keywords, clean_text 
-                    FROM locallink.restaurant_reviews 
+                    FROM locallink.restaurant_details 
                     WHERE restaurant_name = %s
                     LIMIT 2;
                 """

@@ -147,8 +147,28 @@ def analyze_reviews_with_llm(restaurant_name, reviews):
     if not reviews or len(reviews) < 3: return None
     client = AzureOpenAI(azure_endpoint=AZURE_OPENAI_ENDPOINT, api_key=AZURE_OPENAI_KEY, api_version=AZURE_OPENAI_VERSION)
     combined_text = "\n".join(reviews[:20])
-    system_prompt = """당신은 외국인 관광객을 위한 '한국 맛집 전문 가이드 AI'입니다. JSON 형식으로 추출하세요.
-    {"summary_ko": "...", "summary_en": "...", "atmosphere": ["..."], "atmosphere_en": ["..."], "tips": "...", "tips_en": "..."}"""
+    system_prompt = """
+    당신은 외국인 관광객을 위한 '한국 맛집 전문 가이드 AI'입니다.
+    제공된 리뷰를 분석하여 다음 정보를 JSON 형식으로 추출하세요. 모든 항목에 대해 영어 번역이 필수입니다.
+    특히 리뷰 내용 중 '어떤 날씨나 계절에 방문하면 가장 좋은지(비 오는 날, 맑은 날, 가을 등)'에 대한 언급이 있다면 tips에 포함하세요.
+    
+    1. summary_ko: 외국인이 이해하기 쉽게 장소의 핵심 특징을 3줄로 요약 (한국어)
+    2. summary_en: A 3-line summary of the place's key features for foreign tourists (English)
+    3. atmosphere: 장소의 분위기를 나타내는 형용사 3~5개 (한국어)
+    4. atmosphere_en: 3-5 adjectives describing the atmosphere (English)
+    5. tips: 방문 시 유용한 실질적인 꿀팁 (주차, 포토존, 웨이팅, 날씨/계절 추천 등 - 한국어)
+    6. tips_en: Practical tips for visitors (English)
+    
+    반드시 아래 JSON 포맷을 지켜주세요.
+    {
+        "summary_ko": "...",
+        "summary_en": "...",
+        "atmosphere": ["...", "..."],
+        "atmosphere_en": ["...", "..."],
+        "tips": "...",
+        "tips_en": "..."
+    }
+    """
     try:
         response = client.chat.completions.create(
             model=AZURE_OPENAI_DEPLOYMENT,
@@ -162,21 +182,49 @@ def analyze_reviews_with_llm(restaurant_name, reviews):
 def save_analysis_result(restaurant_name, analysis_data):
     if not analysis_data: return
     
-    # 요약 정보 기반 임베딩 생성
-    emb_text = f"{analysis_data['summary_ko']} {analysis_data['tips']}"
+    # 프롬프트 결과(JSON)의 핵심 필드를 안전하게 조합
+    summary_ko = analysis_data.get("summary_ko", "")
+    summary_en = analysis_data.get("summary_en", "")
+    tips_ko = analysis_data.get("tips", "")
+    tips_en = analysis_data.get("tips_en", "")
+    atmosphere_ko = ", ".join(analysis_data.get("atmosphere", []) or [])
+    atmosphere_en = ", ".join(analysis_data.get("atmosphere_en", []) or [])
+
+    # 요약/팁 기반 임베딩 텍스트 생성 (한/영 포함)
+    emb_text = f"{summary_ko} {summary_en} {tips_ko} {tips_en}".strip()
     vec = generate_embeddings(emb_text)
 
     conn = psycopg2.connect(**DB_CONFIG)
     cursor = conn.cursor()
     try:
-        # restaurant_reviews 테이블 구조에 맞게 수정 (임베딩 컬럼 포함 가정)
+        # 구조화 컬럼 저장: summary/tips/atmosphere를 개별 컬럼으로 적재
         query = """
-            INSERT INTO locallink.restaurant_reviews 
-            (restaurant_name, title, description, clean_text, extracted_keywords, post_date, embedding)
-            VALUES (%s, 'AI 맛집 분석', 'AI Summary', 'AI Summary', %s, NOW(), %s)
-            ON CONFLICT (restaurant_name) DO UPDATE SET extracted_keywords = EXCLUDED.extracted_keywords, embedding = EXCLUDED.embedding;
+            INSERT INTO locallink.restaurant_details
+            (restaurant_name, summary_ko, summary_en, atmosphere_ko, atmosphere_en, tips_ko, tips_en, embedding, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (restaurant_name) DO UPDATE
+            SET summary_ko = EXCLUDED.summary_ko,
+                summary_en = EXCLUDED.summary_en,
+                atmosphere_ko = EXCLUDED.atmosphere_ko,
+                atmosphere_en = EXCLUDED.atmosphere_en,
+                tips_ko = EXCLUDED.tips_ko,
+                tips_en = EXCLUDED.tips_en,
+                embedding = EXCLUDED.embedding,
+                updated_at = NOW();
         """
-        cursor.execute(query, (restaurant_name, json.dumps(analysis_data, ensure_ascii=False), vec))
+        cursor.execute(
+            query,
+            (
+                restaurant_name,
+                summary_ko,
+                summary_en,
+                atmosphere_ko,
+                atmosphere_en,
+                tips_ko,
+                tips_en,
+                vec,
+            ),
+        )
         conn.commit()
         print(f"💾 [{restaurant_name}] 적재 완료")
     except Exception as e:
@@ -187,7 +235,7 @@ def has_existing_restaurant_analysis(restaurant_name):
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM locallink.restaurant_reviews WHERE restaurant_name = %s", (restaurant_name,))
+        cursor.execute("SELECT COUNT(*) FROM locallink.restaurant_details WHERE restaurant_name = %s", (restaurant_name,))
         exists = cursor.fetchone()[0] > 0
         conn.close()
         return exists
