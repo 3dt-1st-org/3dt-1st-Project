@@ -12,8 +12,9 @@ from azure.eventhub.aio import EventHubProducerClient
 # ==============================================================================
 # 상수
 # ==============================================================================
-WEATHER_API_URL  = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst"
-MISE_API_URL = "https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty"
+WEATHER_API_URL        = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst"
+NEARBY_STATION_API_URL = "https://apis.data.go.kr/B552584/MsrstnInfoInqireSvc/getNearbyMsrstnList"
+MISE_API_URL           = "https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty"
 EVENTHUB_NAME = "weather-air-stream"
 
 # 동시에 실행할 최대 API 호출 수 (공공데이터포털 Rate Limit 대응)
@@ -38,7 +39,18 @@ MISE_API_KEY       = os.getenv("MISE_API_KEY", "").strip()
 EVENT_HUB_CONN_STR = os.getenv("EVENT_HUB_CONN_STR", "").strip()
 
 # ==============================================================================
-# 기상청 초단기실황 조회 (비동기)
+# 좌표 변환 (위도/경도 → TM)  — 인접 측정소 API 파라미터용
+# ==============================================================================
+def _latlon_to_tm(lat: float, lon: float) -> tuple[float, float]:
+    """위도/경도 → TM 좌표 변환 (EPSG:4326 → EPSG:2097)"""
+    from pyproj import Transformer
+    transformer = Transformer.from_crs("epsg:4326", "epsg:2097", always_xy=False)
+    tmy, tmx = transformer.transform(lat, lon)
+    return tmx, tmy
+
+
+# ==============================================================================
+# 기상청 초단기실황 조회 (비동기, 데이터 없으면 최대 2시간 전까지 재시도)
 # ==============================================================================
 KST = timezone(timedelta(hours=9))
 
@@ -50,63 +62,125 @@ async def _fetch_weather(
 ) -> dict | None:
     """기상청 초단기실황 API 비동기 호출 → T1H·RN1·PTY·WSD 추출.
 
+    - 특정 격자(해안·소규모 도시 등)는 특정 시간대에 데이터가 없을 수 있으므로
+      1시간 전 → 2시간 전 순서로 최대 2회 재시도한다.
     Args:
         session: 호출 전체에서 공유되는 aiohttp.ClientSession
         sem: 동시 호출 수를 CONCURRENCY 이하로 제한하는 Semaphore
         nx, ny: 기상청 격자 좌표
     """
-    # 기상청 API는 ~10분 지연 → KST 기준 1시간 전 기준시 사용
-    now = datetime.now(KST) - timedelta(hours=1)
+    timeout = aiohttp.ClientTimeout(total=10)
+    for hours_back in (1, 2):  # 1시간 전 시도 → 없으면 2시간 전으로 재시도
+        now = datetime.now(KST) - timedelta(hours=hours_back)
+        params = {
+            "pageNo":     "1",
+            "numOfRows":  "1000",
+            "dataType":   "JSON",
+            "base_date":  now.strftime("%Y%m%d"),
+            "base_time":  now.strftime("%H00"),
+            "nx":         nx,
+            "ny":         ny,
+            "serviceKey": WEATHER_API_KEY,
+        }
+        try:
+            async with sem:
+                async with session.get(WEATHER_API_URL, params=params, timeout=timeout) as resp:
+                    resp.raise_for_status()
+                    data = await resp.json(content_type=None)
+
+            header = data["response"]["header"]
+            if header["resultCode"] != "00":
+                logging.warning(
+                    f"[WEATHER] API 오류 nx={nx} ny={ny} (back={hours_back}h): "
+                    f"{header['resultCode']} - {header['resultMsg']}"
+                )
+                continue
+
+            item_list = data["response"]["body"]["items"].get("item", [])
+            if not item_list:
+                logging.warning(
+                    f"[WEATHER] 데이터 없음 nx={nx} ny={ny} (back={hours_back}h), 재시도..."
+                )
+                continue
+
+            items = {i["category"]: i["obsrValue"] for i in item_list}
+            return {
+                "t1h": items.get("T1H"),   # 기온(°C)
+                "rn1": items.get("RN1"),   # 1시간 강수량(mm)
+                "pty": items.get("PTY"),   # 강수형태 (0=없음 1=비 2=비/눈 3=눈)
+                "wsd": items.get("WSD"),   # 풍속(m/s)
+            }
+        except Exception as e:
+            logging.warning(f"[WEATHER] 호출 실패 nx={nx} ny={ny} (back={hours_back}h): {e}")
+            continue
+
+    logging.error(f"[WEATHER] 최종 실패 nx={nx} ny={ny}")
+    return None
+
+
+# ==============================================================================
+# 에어코리아 인접 측정소 동적 조회 + 대기오염정보 조회 (비동기)
+# ==============================================================================
+async def _resolve_air_station(
+    session: aiohttp.ClientSession,
+    sem: asyncio.Semaphore,
+    lat: float,
+    lon: float,
+) -> str | None:
+    """위도/경도 → TM 좌표 변환 후 NEARBY_STATION_API 조회 → 가장 가까운 측정소명 반환.
+
+    stations.json의 고정 측정소명 대신 실제 에어코리아 측정망에 등록된
+    측정소명을 동적으로 확인하므로 NULL 반환 문제를 방지한다.
+    """
+    tmx, tmy = _latlon_to_tm(lat, lon)
     params = {
-        "pageNo":     "1",
-        "numOfRows":  "1000",
-        "dataType":   "JSON",
-        "base_date":  now.strftime("%Y%m%d"),
-        "base_time":  now.strftime("%H00"),
-        "nx":         nx,
-        "ny":         ny,
-        "serviceKey": WEATHER_API_KEY,
+        "serviceKey": MISE_API_KEY,
+        "returnType": "json",
+        "tmX": tmx,
+        "tmY": tmy,
     }
-    timeout = aiohttp.ClientTimeout(total=10)  # 10초 초과 시 독립 실패 처리
+    timeout = aiohttp.ClientTimeout(total=10)
     try:
-        async with sem:  # Semaphore: 최대 CONCURRENCY개 요청만 동시에 진입
-            async with session.get(WEATHER_API_URL, params=params, timeout=timeout) as resp:
+        async with sem:
+            async with session.get(NEARBY_STATION_API_URL, params=params, timeout=timeout) as resp:
                 resp.raise_for_status()
                 data = await resp.json(content_type=None)
 
-        header = data["response"]["header"]
-        if header["resultCode"] != "00":
-            logging.warning(f"[WEATHER] API 오류: {header['resultCode']} - {header['resultMsg']}")
+        stations = data.get("response", {}).get("body", {}).get("items", [])
+        if not stations:
+            logging.warning(f"[AIRSTATION] 측정소 없음 lat={lat} lon={lon}")
             return None
 
-        items = {i["category"]: i["obsrValue"]
-                 for i in data["response"]["body"]["items"]["item"]}
-        return {
-            "t1h": items.get("T1H"),   # 기온(°C)
-            "rn1": items.get("RN1"),   # 1시간 강수량(mm)
-            "pty": items.get("PTY"),   # 강수형태 (0=없음 1=비 2=비/눈 3=눈)
-            "wsd": items.get("WSD"),   # 풍속(m/s)
-        }
+        nearest = sorted(stations, key=lambda s: float(s.get("tm", 9999)))[0]
+        station_name = nearest["stationName"]
+        logging.debug(
+            f"[AIRSTATION] lat={lat} lon={lon} → {station_name} "
+            f"(dist={nearest.get('tm')}km)"
+        )
+        return station_name
     except Exception as e:
-        logging.warning(f"[WEATHER] 호출 실패 nx={nx} ny={ny}: {e}")
+        logging.warning(f"[AIRSTATION] 조회 실패 lat={lat} lon={lon}: {e}")
         return None
 
 
-# ==============================================================================
-# 에어코리아 대기오염정보 조회 (비동기)
-# ==============================================================================
 async def _fetch_air(
     session: aiohttp.ClientSession,
     sem: asyncio.Semaphore,
-    station_name: str,
+    lat: float,
+    lon: float,
 ) -> dict | None:
-    """에어코리아 API 비동기 호출 → PM10·PM2.5 추출.
+    """인접 측정소를 동적으로 찾아 에어코리아 API 비동기 호출 → PM10·PM2.5 추출.
 
     Args:
         session: 호출 전체에서 공유되는 aiohttp.ClientSession
         sem: 동시 호출 수를 CONCURRENCY 이하로 제한하는 Semaphore
-        station_name: 에어코리아 측정소명
+        lat, lon: 도시 중심 위도/경도 (stations.json 기준)
     """
+    station_name = await _resolve_air_station(session, sem, lat, lon)
+    if not station_name:
+        logging.warning(f"[AIR] 인접 측정소를 찾을 수 없음 lat={lat} lon={lon}")
+        return None
+
     params = {
         "serviceKey":  MISE_API_KEY,
         "returnType":  "json",
@@ -116,9 +190,9 @@ async def _fetch_air(
         "dataTerm":    "DAILY",
         "ver":         "1.3",
     }
-    timeout = aiohttp.ClientTimeout(total=10)  # 10초 초과 시 독립 실패 처리
+    timeout = aiohttp.ClientTimeout(total=10)
     try:
-        async with sem:  # Semaphore: 최대 CONCURRENCY개 요청만 동시에 진입
+        async with sem:
             async with session.get(MISE_API_URL, params=params, timeout=timeout) as resp:
                 resp.raise_for_status()
                 data = await resp.json(content_type=None)
@@ -157,11 +231,12 @@ async def _collect_city(
     - 다른 도시의 수집에 절대 영향을 주지 않는 독립 실행 단위
     """
     city = station["city"]
+    lat, lon = station["lat"], station["lon"]
     try:
-        # 기상 + 대기 2개 API 를 동시에 던지고 둘 다 완료될 때까지 대기
+        # 기상(1회) + 대기(인접측정소 조회→데이터 2회) API 를 동시에 던지고 완료 대기
         weather, air = await asyncio.gather(
             _fetch_weather(session, sem, station["nx"], station["ny"]),
-            _fetch_air(session, sem, station["air_station"]),
+            _fetch_air(session, sem, lat, lon),
         )
         logging.info(f"[{city}] weather={weather} | air={air}")
         return {
