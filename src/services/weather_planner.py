@@ -2,13 +2,19 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from config.vault_manager import get_vault_manager
 from openai import AzureOpenAI
+import json
+from pathlib import Path
 
 class WeatherTravelPlanner:
+    WEATHER_STATE_CACHE = Path(__file__).resolve().parents[2] / ".weather_state_cache.json"
+    
     def __init__(self, user_lat, user_lng):
         self.lat = user_lat
         self.lng = user_lng
         self.dsn = self._get_dsn()
-        self.last_weather_state = None
+        # 파일에서 이전 상태 로드
+        self.last_weather_state = self._load_cached_state()
+        self.last_alert_reasons = []
 
     def _get_dsn(self):
         vm = get_vault_manager()
@@ -32,6 +38,84 @@ class WeatherTravelPlanner:
     def _get_openai_deployment_name(self):
         vm = get_vault_manager()
         return vm.get_secret("azure-openai-deployment-name")
+
+    def _load_cached_state(self) -> str | None:
+        """파일에서 이전 날씨 상태를 로드합니다."""
+        if not self.WEATHER_STATE_CACHE.exists():
+            return None
+        try:
+            with open(self.WEATHER_STATE_CACHE, 'r') as f:
+                data = json.load(f)
+                return data.get('state')
+        except Exception as e:
+            print(f"⚠️ 캐시 로드 실패: {e}")
+            return None
+
+    def _save_cached_state(self, state: str) -> None:
+        """현재 날씨 상태를 파일에 저장합니다."""
+        try:
+            with open(self.WEATHER_STATE_CACHE, 'w') as f:
+                json.dump({'state': state}, f)
+        except Exception as e:
+            print(f"⚠️ 캐시 저장 실패: {e}")
+
+    @staticmethod
+    def _to_int(value, default=0):
+        """숫자/문자 혼합 입력을 안전하게 정수로 변환합니다."""
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _to_bool(value, default=False):
+        """bool/int/문자 입력을 안전하게 불리언으로 변환합니다."""
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "t", "y", "yes"}:
+                return True
+            if normalized in {"0", "false", "f", "n", "no"}:
+                return False
+        return default
+
+    def _extract_alert_flags(self, weather_row: dict) -> dict:
+        """날씨 row에서 ASA 플래그(및 폴백)를 bool로 정규화합니다."""
+        precip = self._to_int(weather_row.get('precipitation_type'), 0)
+        temp = float(weather_row.get('temperature') or 0)
+        wind = float(weather_row.get('wind_speed') or 0)
+        pm10 = self._to_int(weather_row.get('pm10'), 0)
+        pm25 = self._to_int(weather_row.get('pm25'), 0)
+
+        return {
+            'is_rain_snow': self._to_bool(weather_row.get('is_rain_snow'), precip > 0),
+            'is_bad_dust': self._to_bool(weather_row.get('is_bad_dust'), pm10 > 80 or pm25 > 35),
+            'is_heatwave': self._to_bool(weather_row.get('is_heatwave'), temp >= 33.0),
+            'is_coldwave': self._to_bool(weather_row.get('is_coldwave'), temp <= -12.0),
+            'is_strong_wind': self._to_bool(weather_row.get('is_strong_wind'), wind >= 4.0),
+        }
+
+    def _get_active_alert_reasons(self, weather_row: dict) -> list[str]:
+        """동시에 활성화된 기상 악화 원인들을 반환합니다."""
+        if not weather_row:
+            return []
+
+        flags = self._extract_alert_flags(weather_row)
+        reasons = []
+        if flags['is_rain_snow']:
+            reasons.append('rain_alert')
+        if flags['is_bad_dust']:
+            reasons.append('pm_alert')
+        if flags['is_coldwave'] or flags['is_strong_wind']:
+            reasons.append('cold_alert')
+        if flags['is_heatwave']:
+            reasons.append('heat_alert')
+        return reasons
 
     # 1. 사용자 위치 기반 시군구명 추출 (공통 메서드)
     def get_user_sigun_nm(self):
@@ -68,19 +152,47 @@ class WeatherTravelPlanner:
                     ORDER BY record_time DESC LIMIT 1
                 """, (f"%{processed_nm}%",))
                 return cur.fetchone()
+    
+    def _get_detailed_alert_type(self, weather_row: dict) -> str | None:
+        """기상 수치를 분석하여 alert_type을 결정합니다."""
+        if not weather_row: return None
 
-    # 3. 아침 전체 계획 생성
-    def get_morning_itinerary(self, radius_m=10000):
-        weather = self.get_current_location_weather()
-        if not weather: return []
-        
-        # None 값 처리
-        precipitation_type = weather.get('precipitation_type') or 0
-        pm10 = weather.get('pm10', 0) or 0
-        is_bad = (precipitation_type > 0) or (pm10 > 80)
-        indoor_filter = "AND is_indoor = TRUE" if is_bad else ""
-        
-        return self._execute_recommendation_query(radius_m, indoor_filter, table_type="attraction")
+        active_reasons = self._get_active_alert_reasons(weather_row)
+        status = (weather_row.get('outdoor_status') or '').strip()
+        has_asa_flags = any(
+            weather_row.get(k) is not None
+            for k in ('is_rain_snow', 'is_bad_dust', 'is_heatwave', 'is_coldwave', 'is_strong_wind')
+        )
+
+        # 2. 실내/실외 판단은 outdoor_status 기준으로 단일화
+        #    - '외출 지양'이면 실내 추천 계열
+        #    - '외출 가능'이면 실외 추천 계열
+        # 3. 대표 alert_type은 기존 호환을 위해 1개만 선택 (이유 상세는 last_alert_reasons 사용)
+        priority = ('rain_alert', 'cold_alert', 'heat_alert', 'pm_alert')
+
+        if status == '외출 지양':
+            for p in priority:
+                if p in active_reasons:
+                    return p
+            # 상태와 플래그가 불일치할 때는 원인 단정 대신 중립 타입 반환
+            return 'bad_weather_alert'
+
+        if status == '외출 가능':
+            return 'clear_sky_alert'
+
+        # outdoor_status 미적재/이상값 대비 폴백
+        for p in priority:
+            if p in active_reasons:
+                return p
+
+        # outdoor_status가 NULL이어도 ASA 플래그가 모두 0이면 쾌적으로 판단
+        if has_asa_flags and not active_reasons:
+            return 'clear_sky_alert'
+
+        if '쾌적' in status:
+            return "clear_sky_alert"
+
+        return None
 
     # 4. 실시간 날씨 변동 선제시 (상황 세분화)
     def check_and_propose_intervention(self, radius_m=10000):
@@ -89,60 +201,110 @@ class WeatherTravelPlanner:
         radius_m: 최대 추천 거리 (기본: 10km)
         """
         new_weather = self.get_current_location_weather()
-        if not new_weather: return None
+        if not new_weather:
+            return None
 
-        # None 값 처리: precipitation_type이 None이면 0으로 취급
-        precipitation_type = new_weather.get('precipitation_type') or 0
-        outdoor_status = new_weather.get('outdoor_status', '')
-        pm10 = new_weather.get('pm10', 0) or 0
+        # 수치 정교화: 소수점 단위 흔들림은 무시하고 정수 단위 변화만 감지합니다.
+        # ASA 플래그가 있으면 플래그를 상태 비교에 포함합니다.
+        wind_value = float(new_weather.get('wind_speed') or 0)
+        temp_value = float(new_weather.get('temperature') or 0)
+        pm10_value = self._to_int(new_weather.get('pm10'), 0)
+        pm25_value = self._to_int(new_weather.get('pm25'), 0)
 
-        # 변동 감지 (이전 상태와 비교)
-        current_state = f"{precipitation_type}_{outdoor_status}"
-        if self.last_weather_state == current_state:
-            return None 
+        is_rain_snow = self._to_bool(new_weather.get('is_rain_snow'), self._to_int(new_weather.get('precipitation_type'), 0) > 0)
+        is_strong_wind = self._to_bool(new_weather.get('is_strong_wind'), wind_value >= 4.0)
+        is_heatwave = self._to_bool(new_weather.get('is_heatwave'), temp_value >= 33.0)
+        is_coldwave = self._to_bool(new_weather.get('is_coldwave'), temp_value <= -12.0)
+        is_bad_dust = self._to_bool(new_weather.get('is_bad_dust'), pm10_value > 80 or pm25_value > 35)
 
-        self.last_weather_state = current_state
-        
-        # 상황 A-a: 비 감지 (실내 대피)
-        if precipitation_type > 0:
-            print("☔ 상황 A-a: 비 감지")
-            indoor_attr = self._execute_recommendation_query(radius_m, "AND is_indoor = TRUE", "attraction")
-            # 비 오는 날은 일반 음식점 제외, 카페만 추천
-            nearby_cafes = self._execute_recommendation_query(
-                radius_m,
-                "AND bizcond_div_nm_info = '까페'",
-                "restaurant"
+        has_asa_flags = any(
+            new_weather.get(k) is not None
+            for k in ("is_rain_snow", "is_bad_dust", "is_heatwave", "is_coldwave", "is_strong_wind")
+        )
+
+        # ASA 플래그가 있으면 플래그만으로 감시해 과민 반응을 줄입니다.
+        # 플래그가 없을 때는 수치를 버킷(온도 5도, 풍속 2m/s)으로 묶어 변화 감지합니다.
+        if has_asa_flags:
+            current_state = (
+                f"{int(is_rain_snow)}_{int(is_strong_wind)}_{int(is_heatwave)}_{int(is_coldwave)}_{int(is_bad_dust)}"
             )
-            combined = sorted(indoor_attr + nearby_cafes, key=lambda x: x['dist'])
-            return combined[:5], "rain_alert"
+        else:
+            temp_bucket = int(temp_value // 5)
+            wind_bucket = int(wind_value // 2)
+            pm10_bucket = int(pm10_value // 20)
+            pm25_bucket = int(pm25_value // 10)
+            current_state = (
+                f"{self._to_int(new_weather.get('precipitation_type'), 0)}_{temp_bucket}_{wind_bucket}_{pm10_bucket}_{pm25_bucket}"
+            )
 
-        # 상황 A-b: 미세먼지 나쁨 감지 (실내 대피)
-        elif '미세먼지 나쁨' in outdoor_status:
-            print("😷 상황 A-b: 미세먼지 나쁨 감지")
-            indoor_attr = self._execute_recommendation_query(radius_m, "AND is_indoor = TRUE", "attraction")
-            nearby_cafes = self._execute_recommendation_query(radius_m, "", "restaurant")
-            combined = sorted(indoor_attr + nearby_cafes, key=lambda x: x['dist'])
-            return combined[:5], "pm_alert"
+        if self.last_weather_state == current_state:
+            return None
+        
+        # 상태 변화 감지됨 → 파일에 저장
+        self.last_weather_state = current_state
+        self._save_cached_state(current_state)
 
-        # 상황 B: 기상 호전 (야외활동 가능)
-        elif outdoor_status == '야외활동 쾌적':
+        # 복수 원인 추출 (예: 비 + 미세먼지)
+        self.last_alert_reasons = self._get_active_alert_reasons(new_weather)
+        if not self.last_alert_reasons:
+            self.last_alert_reasons = []
+
+        # 상세 상황 판단
+        alert_type = self._get_detailed_alert_type(new_weather)
+        if not alert_type:
+            return None
+
+        if alert_type in ("rain_alert", "pm_alert", "cold_alert", "heat_alert", "bad_weather_alert"):
+            status_map = {
+                "rain_alert": "☔ 비/눈 감지",
+                "pm_alert": "😷 미세먼지 나쁨 감지",
+                "cold_alert": "🥶 한파/강풍 감지",
+                "heat_alert": "🥵 폭염 감지",
+                "bad_weather_alert": "⚠️ 외출 지양 상태 감지",
+            }
+            if self.last_alert_reasons:
+                reason_labels = {
+                    'rain_alert': '비/눈',
+                    'pm_alert': '미세먼지',
+                    'cold_alert': '한파/강풍',
+                    'heat_alert': '폭염',
+                }
+                reason_text = ", ".join([reason_labels.get(r, r) for r in self.last_alert_reasons])
+                print(f"⚠️ 복합 원인 감지: {reason_text} -> 실내 대피 코스 가동")
+            recommendations = self._get_indoor_recommendations(radius_m)
+            return recommendations, alert_type
+
+        if alert_type == "clear_sky_alert":
             print("☀️ 상황 B: 날씨 호전 감지")
-            # 야외 명소 우선 조회
-            outdoor_attr = self._execute_recommendation_query(radius_m, "AND is_indoor = FALSE", "attraction")
-            # 야외 명소가 부족하면 전체 명소도 포함
-            if len(outdoor_attr) < 3:
-                all_attr = self._execute_recommendation_query(radius_m, "", "attraction")
-                # 중복 제거하면서 병합
-                seen_names = {attr['name'] for attr in outdoor_attr}
-                for attr in all_attr:
-                    if attr['name'] not in seen_names and len(outdoor_attr) < 5:
-                        outdoor_attr.append(attr)
-                        seen_names.add(attr['name'])
-            # 거리순 정렬
-            combined = sorted(outdoor_attr, key=lambda x: x['dist'])
-            return combined[:5], "clear_sky_alert"
+            recommendations = self._get_outdoor_recommendations(radius_m)
+            return recommendations, alert_type
 
         return None
+
+    def _get_indoor_recommendations(self, radius_m):
+        """기상 악화 시 실내 명소와 카페를 거리순으로 조합합니다."""
+        indoor_attr = self._execute_recommendation_query(radius_m, "AND is_indoor = TRUE", "attraction")
+        nearby_cafes = self._execute_recommendation_query(
+            radius_m,
+            "AND bizcond_div_nm_info = '까페'",
+            "restaurant",
+        )
+        combined = sorted(indoor_attr + nearby_cafes, key=lambda x: x['dist'])
+        return combined[:5]
+
+    def _get_outdoor_recommendations(self, radius_m):
+        """날씨 호전 시 야외 명소를 우선 추천합니다."""
+        outdoor_attr = self._execute_recommendation_query(radius_m, "AND is_indoor = FALSE", "attraction")
+
+        if len(outdoor_attr) < 3:
+            all_attr = self._execute_recommendation_query(radius_m, "", "attraction")
+            seen_names = {attr['name'] for attr in outdoor_attr}
+            for attr in all_attr:
+                if attr['name'] not in seen_names and len(outdoor_attr) < 5:
+                    outdoor_attr.append(attr)
+                    seen_names.add(attr['name'])
+
+        return sorted(outdoor_attr, key=lambda x: x['dist'])[:5]
     
     # 5. DB 쿼리 실행 공통부 (내부용)
     def _execute_recommendation_query(self, radius_m, additional_filter, table_type="attraction"):
@@ -161,10 +323,15 @@ class WeatherTravelPlanner:
                                            ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) as dist
                         FROM locallink.tourist_spot_info t
                         LEFT JOIN locallink.attraction_descriptions d ON t.tourist_nm = d.attraction_name
-                        WHERE 1=1
+                        WHERE ST_DWithin(
+                            ST_SetSRID(ST_MakePoint(t.lng, t.lat), 4326)::geography,
+                            ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                            %s
+                        )
                         {additional_filter}
                         ORDER BY dist ASC LIMIT 10
                     """
+                    params = (self.lng, self.lat, self.lng, self.lat, radius_m)
                 else:
                     query = f"""
                         SELECT bizplc_nm as name, refine_wgs84_lat as lat, refine_wgs84_logt as lng, 
@@ -174,15 +341,48 @@ class WeatherTravelPlanner:
                                            ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) as dist
                         FROM locallink.gg_restaurant_info
                         WHERE bsn_state_nm = '영업'
+                          AND ST_DWithin(
+                              ST_SetSRID(ST_MakePoint(refine_wgs84_logt, refine_wgs84_lat), 4326)::geography,
+                              ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                              %s
+                          )
                         {additional_filter}
                         ORDER BY dist ASC LIMIT 10
                     """
-                cur.execute(query, (self.lng, self.lat))
+                    params = (self.lng, self.lat, self.lng, self.lat, radius_m)
+
+                cur.execute(query, params)
                 results = cur.fetchall()
-                
-                # 결과에서 최대 거리 제한 적용 (너무 먼 곳 제외)
-                filtered = [r for r in results if r['dist'] <= radius_m]
-                return filtered if filtered else results[:5]  # 조건에 맞는 게 없으면 가까운 순 5개
+                if results:
+                    return results
+
+                # 반경 내 후보가 없을 때만 가까운 순 폴백
+                if table_type == "attraction":
+                    fallback_query = f"""
+                        SELECT t.tourist_nm as name, t.lat, t.lng, t.is_indoor, t.road_addr,
+                               'attraction'::text as source_type,
+                               ST_Distance(ST_SetSRID(ST_MakePoint(t.lng, t.lat), 4326)::geography,
+                                           ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) as dist
+                        FROM locallink.tourist_spot_info t
+                        LEFT JOIN locallink.attraction_descriptions d ON t.tourist_nm = d.attraction_name
+                        WHERE 1=1
+                        {additional_filter}
+                        ORDER BY dist ASC LIMIT 5
+                    """
+                else:
+                    fallback_query = f"""
+                        SELECT bizplc_nm as name, refine_wgs84_lat as lat, refine_wgs84_logt as lng,
+                               TRUE as is_indoor, refine_roadnm_addr as road_addr,
+                               'restaurant'::text as source_type,
+                               ST_Distance(ST_SetSRID(ST_MakePoint(refine_wgs84_logt, refine_wgs84_lat), 4326)::geography,
+                                           ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) as dist
+                        FROM locallink.gg_restaurant_info
+                        WHERE bsn_state_nm = '영업'
+                        {additional_filter}
+                        ORDER BY dist ASC LIMIT 5
+                    """
+                cur.execute(fallback_query, (self.lng, self.lat))
+                return cur.fetchall()
 
     # 6. 도슨트용 데이터 추출
     def get_docent_material(self, name, alert_type=None, table_type="attraction"):
@@ -218,8 +418,11 @@ class WeatherTravelPlanner:
             res["instruction"] = {
                 "rain_alert": "비가 내리기 시작했다는 것을 감성적으로 언급하며, 실내로 이동해 비 오는 날의 특별한 분위기를 즐기자고 친근하게 제안하세요. 갑자기 변한 날씨 때문에 추천하는 것임을 자연스럽게 표현하세요.",
                 "pm_alert": "미세먼지가 나빠졌다는 것을 부드럽게 언급하며, 실내로 이동해 쾌적한 환경에서 시간을 보내자고 친근하게 제안하세요. 날씨 변화에 대응하는 것임을 자연스럽게 표현하세요.",
+                "cold_alert": "기온이 급락하거나 바람이 강해 무척 춥다는 점을 언급하며, 따뜻한 실내에서 몸을 녹이자고 제안하세요. 갑자기 변한 날씨 때문에 추천하는 것임을 자연스럽게 표현하세요.",
+                "heat_alert": "야외 활동을 하기엔 날씨가 너무 뜨거워졌음을 언급하며, 시원한 실내에서 열기를 식히자고 제안하세요. 갑자기 변한 날씨 때문에 추천하는 것임을 자연스럽게 표현하세요.",
+                "bad_weather_alert": "현재는 야외활동을 지양하는 상태임을 부드럽게 언급하고, 특정 원인을 단정하지 말고 쾌적한 실내에서 시작하자고 친근하게 제안하세요.",
                 "clear_sky_alert": "날씨가 맑아졌다는 것을 반갑게 언급하며, 야외로 나가 햇살과 풍경을 즐기자고 친근하게 제안하세요. 날씨가 좋아진 기회를 활용하자는 것을 자연스럽게 표현하세요.",
-            }.get(alert_type, "이 장소의 매력을 친근하고 따뜻하게 소개하세요.")
+            }.get(alert_type, "이 장소의 매력을 친근하고 다정하게 소개하세요.")
             res["alert_type"] = alert_type
 
         return res
@@ -229,6 +432,9 @@ class WeatherTravelPlanner:
         weather_keywords = {
             "rain_alert": "비, 빗소리, 창가, 실내, 운치, 젖은, 소나기",
             "pm_alert": "실내, 쾌적, 공기, 깨끗, 안심, 필터",
+            "cold_alert": "따뜻, 실내, 난방, 아늑, 온기, 포근",
+            "heat_alert": "시원, 냉방, 그늘, 쾌적, 휴식, 에어컨",
+            "bad_weather_alert": "실내, 쾌적, 안전, 휴식, 편안",
             "clear_sky_alert": "산책, 맑음, 햇살, 야외, 풍경, 하늘, 피크닉",
         }
         keyword_pattern = weather_keywords.get(alert_type, "추천, 방문, 분위기").replace(", ", "|")
@@ -280,139 +486,7 @@ class WeatherTravelPlanner:
                     res["reviews"] = "관련 리뷰 없음"
                 return res
 
-    # 7. Azure OpenAI 기반 도슨트 스크립트 생성
-    def create_docent_script(self, material, language="English"):
-        """
-        추출된 데이터를 바탕으로 Azure OpenAI가 사용자에게 제공할 도슨트 멘트를 생성합니다.
-        language 예시: Korean, English, Japanese
-        """
-        tags = material.get("tags")
-        tags_text = ", ".join(tags) if isinstance(tags, list) and tags else (tags or "다양한 매력")
-        output_language = language or "English"
-
-        system_prompt = f"""
-        당신은 친근한 여행 가이드 '라라'입니다.
-        사용자와 함께 있는 친구처럼 자연스럽게 대화하며, 갑자기 변한 날씨 상황을 언급하고 그에 맞는 장소를 추천하세요.
-
-        스타일:
-        - 반드시 {output_language}로 작성
-        - 친구에게 말하듯 자연스럽고 따뜻한 톤이되, 존댓말 (~네요, ~같아요, ~어때요?, ~볼까요?)
-        - 2-3문장으로 간결하게
-        - 이모지 사용 금지
-
-        구조:
-        1) 첫 문장: 날씨 변화를 감성적으로 언급 (예: "어, 비가 내리기 시작하네요", "날씨가 갑자기 맑아졌네요", "미세먼지가 좀 나빠진 것 같아요")
-        2) 둘째 문장: 그래서 여기로 이동/방문하면 좋을 것 같다는 자연스러운 제안 + 소개(overview) 또는 리뷰에서 뽑은 구체적 근거 1개
-        3) 셋째 문장(선택): 부드러운 행동 제안
-        4) 마지막 문장은 사용자가 행동으로 옮길 수 있도록 유도 (예: "한번 가볼까요?", "들어가서 분위기 한번 느껴볼까요?")
-
-        중요:
-        - 명소(관광지)의 경우: 반드시 '소개'에 나온 장소의 배경, 역사, 특징을 활용하여 설명하세요
-        - 음식점의 경우: 리뷰에 나온 실제 방문자 경험을 중심으로 설명하세요
-        - 반드시 {output_language}로 작성하세요
-
-        금지사항:
-        - 리뷰나 개요에 없는 구체적 정보(메뉴명, 국가명, 가격, 시설명 등) 절대 만들지 말 것
-        - 홍보성 문구, 과장된 수식어 금지
-        - 형식적인 멘트 금지 ("~를 추천드립니다", "방문해보세요" 같은 딱딱한 표현 피하기)
-            """
-
-        user_prompt = f"""
-        [상황]
-        {material.get('instruction', '이 장소의 매력을 친근하고 따뜻하게 소개하세요.')}
-
-        [추천 장소]
-        - 이름: {material.get('place_name', '')}
-        - 특징: {tags_text}
-        - 소개: {material.get('overview', '')}
-        - 실제 방문자 리뷰: {material.get('reviews', '')}
-
-        [요청]
-        사용자에게 바로 말해줄 도슨트 멘트를 작성하세요.
-        날씨가 갑자기 변했고, 그래서 이 장소를 추천하는 거예요.
-        친구처럼 자연스럽게, "어, 비 오네? 그럼 여기 가볼까?" 같은 느낌으로요.
-        
-        **명소인 경우**: '소개'에 나온 장소의 배경이나 특징을 자연스럽게 언급하세요.
-        **음식점인 경우**: 리뷰에서 언급된 실제 특징 1개를 꼭 포함하세요.
-        """
-
-        try:
-            client = self._get_openai_client()
-            response = client.chat.completions.create(
-                model=self._get_openai_deployment_name(),
-                messages=[
-                    {"role": "system", "content": system_prompt.strip()},
-                    {"role": "user", "content": user_prompt.strip()},
-                ],
-                temperature=0.2,
-                max_tokens=220,
-            )
-
-            script = (response.choices[0].message.content or "").strip()
-            if script:
-                return script
-        except Exception as e:
-            print(f"⚠️ Azure OpenAI 도슨트 생성 실패: {e}")
-
-        # Fallback: 모델 호출 실패 시 최소 안내문 반환
-        return (
-            f"어, 날씨가 좀 변했네요. "
-            f"그럼 {material.get('place_name', '이 장소')} 가보는 건 어때요? "
-            f"{material.get('overview', '분위기 괜찮을 것 같아요.')} "
-            "한번 가볼까요?"
-        )
-
-    # 8. 여러 추천 장소에 대한 도슨트 멘트 일괄 생성
-    def create_multiple_docent_scripts(self, recommendations, alert_type, language="English", max_count=3):
-        """
-        추천된 여러 장소에 대해 도슨트 멘트를 일괄 생성하여 반환합니다.
-        
-        Args:
-            recommendations: 추천 장소 리스트 (각 항목은 name, source_type, dist 포함)
-            alert_type: 날씨 상황 타입 (rain_alert, pm_alert, clear_sky_alert)
-            language: 생성할 언어 (English, Korean, Japanese)
-            max_count: 최대 생성 개수 (기본: 3)
-        
-        Returns:
-            도슨트 멘트가 포함된 장소 정보 리스트
-            [{"name": "장소명", "distance": 거리, "type": "attraction/restaurant", "script": "도슨트 멘트"}, ...]
-        """
-        if not recommendations:
-            return []
-        
-        results = []
-        for recommendation in recommendations[:max_count]:
-            target_name = recommendation['name']
-            target_type = recommendation.get('source_type', 'attraction')
-            distance = recommendation.get('dist', 0)
-            
-            # 도슨트 재료 추출
-            material = self.get_docent_material(target_name, alert_type, table_type=target_type)
-            
-            if material:
-                # 도슨트 멘트 생성
-                script = self.create_docent_script(material, language=language)
-                
-                results.append({
-                    "name": target_name,
-                    "distance": distance,
-                    "type": target_type,
-                    "script": script,
-                    "material": material  # 추가 정보가 필요한 경우를 위해
-                })
-            else:
-                # 재료 추출 실패 시 기본 정보만 반환
-                results.append({
-                    "name": target_name,
-                    "distance": distance,
-                    "type": target_type,
-                    "script": f"{target_name}에 대한 정보를 찾을 수 없습니다.",
-                    "material": None
-                })
-        
-        return results
-
-    # 9. 여러 추천 장소를 하나의 통합 도슨트 스크립트로 생성
+    # 7. 여러 추천 장소를 하나의 통합 도슨트 스크립트로 생성
     def create_combined_docent_script(self, recommendations, alert_type, language="English", max_count=3):
         """
         추천된 여러 장소를 하나의 통합된 도슨트 멘트로 생성합니다.
@@ -453,13 +527,29 @@ class WeatherTravelPlanner:
         
         # 통합 스크립트 생성
         output_language = language or "English"
+
+        # 복수 원인 텍스트(있을 때만) 생성
+        multi_reason_text = ""
+        if self.last_alert_reasons:
+            reason_labels = {
+                'rain_alert': '비/눈',
+                'pm_alert': '미세먼지',
+                'cold_alert': '한파/강풍',
+                'heat_alert': '폭염',
+            }
+            reasons = [reason_labels.get(r, r) for r in self.last_alert_reasons]
+            multi_reason_text = f"현재 야외활동이 어려운 이유는 {', '.join(reasons)}입니다. 이 원인들을 자연스럽게 언급해 주세요. "
         
         # 날씨 상황별 지침
         weather_instruction = {
             "rain_alert": "비가 내리기 시작했다는 것을 감성적으로 언급하며, 실내로 이동해 비 오는 날의 특별한 분위기를 즐기자고 친근하게 제안하세요.",
             "pm_alert": "미세먼지가 나빠졌다는 것을 부드럽게 언급하며, 실내로 이동해 쾌적한 환경에서 시간을 보내자고 친근하게 제안하세요.",
+            "cold_alert": "기온이 급락하거나 바람이 강해 무척 춥다는 점을 언급하며, 따뜻한 실내에서 몸을 녹이자고 제안하세요. 갑자기 변한 날씨 때문에 추천하는 것임을 자연스럽게 표현하세요.",
+            "heat_alert": "야외 활동을 하기엔 날씨가 너무 뜨거워졌음을 언급하며, 시원한 실내에서 열기를 식히자고 제안하세요. 갑자기 변한 날씨 때문에 추천하는 것임을 자연스럽게 표현하세요.",
+            "bad_weather_alert": "야외활동을 지양하는 상태임을 부드럽게 언급하되, 특정 원인을 단정하지 말고 실내에서 편안히 시작하자고 친근하게 제안하세요.",
             "clear_sky_alert": "날씨가 맑아졌다는 것을 반갑게 언급하며, 야외로 나가 햇살과 풍경을 즐기자고 친근하게 제안하세요.",
         }.get(alert_type, "이 장소들의 매력을 친근하고 따뜻하게 소개하세요.")
+        weather_instruction = multi_reason_text + weather_instruction
         
         # 장소 정보를 문자열로 정리
         places_summary = ""
@@ -477,12 +567,12 @@ class WeatherTravelPlanner:
 
         스타일:
         - 반드시 {output_language}로 작성
-        - 친구에게 말하듯 자연스럽고 따뜻한 톤이되, 존댓말 (~네요, ~같아요, ~어때요?, ~볼까요?)
+        - 친구에게 말하듯 자연스럽고 따뜻한 톤, 존댓말 (~네요, ~같아요, ~어때요?, ~볼까요?)
         - 3-5문장으로 간결하게
         - 이모지 사용 금지
 
         구조:
-        1) 첫 문장: 날씨 변화를 감성적으로 언급
+        1) 첫 문장: 날씨 변화를 감성적으로 언급 (복합 원인이면 모두 포함)
         2) 둘째 문장: "근처에 3곳 정도 괜찮은 곳이 있는데요" 같은 도입
         3) 각 장소별로 핵심 특징 1개씩 간단히 소개 (1-2문장씩)
         4) 마지막: "어디로 가볼까요?" 같은 선택 유도
@@ -490,6 +580,8 @@ class WeatherTravelPlanner:
         중요:
         - 각 장소의 특징을 간결하게 언급 (장황하지 않게)
         - 명소는 소개 내용 기반, 음식점은 리뷰 기반으로 설명
+        - ★ 야외활동 지양 이유가 여러 개면, 스크립트에 그 모든 이유를 자연스럽게 포함하세요 ★
+          (예: "비도 많이 오고 미세먼지까지 심해서..." / "추위도 있고 바람도 강해서...")
         - 반드시 {output_language}로 작성
         
         금지사항:
@@ -507,6 +599,11 @@ class WeatherTravelPlanner:
         [요청]
         위 {len(places_data)}개 장소를 하나의 멘트로 자연스럽게 소개하세요.
         날씨가 변했고, 그래서 이 장소들 중 하나를 선택하면 좋겠다는 느낌으로요.
+        
+        ★ 매우 중요 ★
+        야외활동 지양 이유가 다중으로 있다면, 스크립트에 그 이유들을 모두 자연스럽게 포함해야 합니다.
+        예: "비도 오고 미세먼지도 심해서" / "강풍에 추위도 있어서" 등
+        
         각 장소의 핵심만 간단히 언급하고, 사용자가 선택할 수 있도록 열린 질문으로 마무리하세요.
         """
 

@@ -87,9 +87,8 @@ def save_text_as_mp3(
         output_dir = Path(output_dir)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_prefix = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in filename_prefix)
-    output_path = output_dir / f"{safe_prefix}_{timestamp}.mp3"
+    output_path = output_dir / f"{safe_prefix}_{language.lower()}.mp3"
 
     output_path.write_bytes(mp3_bytes)
     return str(output_path)

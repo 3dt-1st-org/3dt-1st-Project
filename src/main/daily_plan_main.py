@@ -4,8 +4,6 @@
 
 import sys
 from pathlib import Path
-import argparse
-from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -13,31 +11,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.services.daily_planner import DailyTravelPlanner, print_daily_plan
 from src.services.speech_synthesizer import save_text_as_mp3, SpeechSynthesisError
+from src.utils.cli_utils import build_common_argparser, save_script_text, DEFAULT_TEST_LOCATION
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="하루 일정 플래너 실행")
-    parser.add_argument(
-        "--language",
-        default="English",
-        choices=["English", "Korean", "Japanese"],
-        help="도슨트 대본 언어 선택 (기본: English)",
-    )
-    parser.add_argument(
-        "--speech",
-        action="store_true",
-        help="생성된 하루 일정 대본을 mp3 음성 파일로 저장",
-    )
-    parser.add_argument(
-        "--speech-output-dir",
-        default=None,
-        help="음성 파일 저장 디렉터리 (기본: data/docent/mp3)",
-    )
-    parser.add_argument(
-        "--script-output-dir",
-        default=None,
-        help="도슨트 스크립트 저장 디렉터리 (기본: data/docent/scripts)",
-    )
+    parser = build_common_argparser("하루 일정 플래너 실행")
     return parser.parse_args()
 
 
@@ -55,26 +33,6 @@ def _build_daily_narration_text(plan_result: dict) -> str:
     return " ".join(lines)
 
 
-def _save_daily_script_text(plan_result: dict, narration: str, language: str, output_dir: str | None = None) -> str:
-    if output_dir:
-        target_dir = Path(output_dir)
-    else:
-        target_dir = PROJECT_ROOT / "data" / "docent" / "scripts"
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_path = target_dir / f"daily_plan.txt"
-
-    scripts = []
-    for item in plan_result.get("plan", []):
-        script = (item.get("script", "") or "").strip()
-        if script:
-            scripts.append(script)
-
-    file_path.write_text("\n\n".join(scripts), encoding="utf-8")
-    return str(file_path)
-
-
 def main():
     """
     아침에 실행하는 하루 일정 계획 기능 테스트
@@ -84,8 +42,7 @@ def main():
     print("\n🌅 좋은 아침이에요! 오늘 하루 일정을 짜볼게요.\n")
     
     # 테스트 위치
-    test_lat, test_lng = 37.2635, 127.0090
-    # test_lat, test_lng = 37.26788, 127.11233
+    test_lat, test_lng = DEFAULT_TEST_LOCATION
     
     # 언어 선택 (기본값: English)
     language = args.language
@@ -100,11 +57,18 @@ def main():
     narration = _build_daily_narration_text(result)
 
     if narration:
-        script_path = _save_daily_script_text(
-            plan_result=result,
-            narration=narration,
+        script_content = "\n\n".join([
+            (item.get("script", "") or "").strip()
+            for item in result.get("plan", [])
+            if (item.get("script", "") or "").strip()
+        ])
+        
+        script_path = save_script_text(
+            content=script_content,
             language=language,
             output_dir=args.script_output_dir,
+            filename_prefix="daily_plan",
+            project_root=PROJECT_ROOT,
         )
         print(f"\n📝 스크립트 파일 저장 완료: {script_path}")
     else:

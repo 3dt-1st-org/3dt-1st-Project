@@ -61,15 +61,42 @@ class DailyTravelPlanner:
         precipitation_type = weather.get('precipitation_type') or 0
         pm10 = weather.get('pm10') or 0
         pm25 = weather.get('pm25') or 0
-        is_rainy = precipitation_type > 0
-        is_bad_air = (pm10 > 80 or pm25 > 35)
+        wind_speed = weather.get('wind_speed')
+        outdoor_status = (weather.get('outdoor_status') or '').strip()
+        is_rainy = self.weather_planner._to_bool(weather.get('is_rain_snow'), precipitation_type > 0)
+        is_bad_air = self.weather_planner._to_bool(weather.get('is_bad_dust'), pm10 > 80 or pm25 > 35)
+        is_heatwave = self.weather_planner._to_bool(
+            weather.get('is_heatwave'),
+            (weather.get('temperature') or 0) >= 33,
+        )
+        is_coldwave = self.weather_planner._to_bool(
+            weather.get('is_coldwave'),
+            (weather.get('temperature') or 0) <= -12,
+        )
+        is_strong_wind = self.weather_planner._to_bool(
+            weather.get('is_strong_wind'),
+            (weather.get('wind_speed') or 0) >= 4,
+        )
+        active_weather_reasons = self.weather_planner._get_active_alert_reasons(weather)
+
+        # 대표 alert_type은 기존 호환을 위해 유지
+        alert_type = self.weather_planner._get_detailed_alert_type(weather)
+
+        # 실내/실외 판단은 outdoor_status 기준으로 단일화
+        if outdoor_status == '외출 지양':
+            is_bad_condition = True
+        elif outdoor_status == '야외활동 쾌적':
+            is_bad_condition = False
+        else:
+            # 미적재/이상값 폴백
+            is_bad_condition = alert_type in ("rain_alert", "pm_alert", "cold_alert", "heat_alert")
 
         # 2. 장소 선택 (순차 — anchor 의존)
         time_slots = self._get_time_slots()
         anchor_lat = self.latitude
         anchor_lng = self.longitude
         morning_attraction_pool = self._build_morning_attraction_pool(
-            sigun=sigun, is_rainy=is_rainy, is_bad_air=is_bad_air, radius_m=8000,
+            sigun=sigun, is_bad=is_bad_condition, radius_m=8000,
         )
 
         pending_jobs: List[Dict] = []
@@ -81,7 +108,7 @@ class DailyTravelPlanner:
                 places = self._rank_morning_pool_by_anchor(morning_attraction_pool, anchor_lat, anchor_lng)
             else:
                 places = self._recommend_places_for_slot(
-                    slot, sigun, is_rainy, is_bad_air,
+                    slot, sigun, is_bad_condition,
                     radius_m=5000, center_lat=anchor_lat, center_lng=anchor_lng,
                 )
 
@@ -100,17 +127,23 @@ class DailyTravelPlanner:
 
             for selected_place in selected_items:
                 self.used_place_names.append(selected_place['name'])
-                alert_type = self._determine_alert_type(is_rainy, is_bad_air, slot['period'])
+                slot_alert_type = alert_type or "clear_sky_alert"
                 place_type = selected_place.get('source_type', 'attraction')
                 # weather_mentioned 상태가 순차이므로 instruction은 여기서 확정
-                instruction = self._get_smart_weather_instruction(slot, is_rainy, is_bad_air, place_type)
+                instruction = self._get_smart_weather_instruction(
+                    slot,
+                    slot_alert_type,
+                    place_type,
+                    weather_reasons=active_weather_reasons,
+                    outdoor_status=outdoor_status,
+                )
                 variation_hint = self._get_slot_style_hint(
                     slot['period'], place_type, selected_place.get('itinerary_role', '')
                 )
                 pending_jobs.append({
                     'slot': slot,
                     'place': selected_place,
-                    'alert_type': alert_type,
+                    'alert_type': slot_alert_type,
                     'place_type': place_type,
                     'instruction': instruction,
                     'variation_hint': variation_hint,
@@ -124,22 +157,31 @@ class DailyTravelPlanner:
             return {
                 'location': sigun,
                 'weather': {
-                    'outdoor_status': weather.get('outdoor_status', '정보 없음'),
+                    'outdoor_status': outdoor_status or '정보 없음',
                     'temperature': weather.get('temperature'),
+                    'wind_speed': wind_speed,
                     'precipitation': '비/눈' if is_rainy else '없음',
                     'air_quality': '나쁨' if is_bad_air else '보통 이상',
+                    'is_heatwave': is_heatwave,
+                    'is_coldwave': is_coldwave,
+                    'is_strong_wind': is_strong_wind,
+                    'weather_reasons': active_weather_reasons,
                 },
                 'plan': [],
             }
 
         # 3. 도슨트 재료 조회 (병렬 — DB 조회 + 리뷰 없으면 크롤링 포함)
         def _fetch_material(job):
-            return self._get_docent_material(
-                job['place']['name'],
-                job['alert_type'],
-                table_type=job['place'].get('source_type', 'attraction'),
-                sigun_nm=sigun,
-            )
+            try:
+                return self._get_docent_material(
+                    job['place']['name'],
+                    job['alert_type'],
+                    table_type=job['place'].get('source_type', 'attraction'),
+                    sigun_nm=sigun,
+                )
+            except Exception as e:
+                print(f"⚠️ 도슨트 재료 조회 실패 ({job['place']['name']}): {e}")
+                return None
 
         n = len(pending_jobs)
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(n, 5)) as ex:
@@ -178,17 +220,22 @@ class DailyTravelPlanner:
         return {
             'location': sigun,
             'weather': {
-                'outdoor_status': weather.get('outdoor_status', '정보 없음'),
+                'outdoor_status': outdoor_status or '정보 없음',
                 'temperature': weather.get('temperature'),
+                'wind_speed': wind_speed,
                 'precipitation': '비/눈' if is_rainy else '없음',
                 'air_quality': '나쁨' if is_bad_air else '보통 이상',
+                'is_heatwave': is_heatwave,
+                'is_coldwave': is_coldwave,
+                'is_strong_wind': is_strong_wind,
+                'weather_reasons': active_weather_reasons,
             },
             'plan': daily_plan,
         }
 
-    def _build_morning_attraction_pool(self, sigun: str, is_rainy: bool, is_bad_air: bool, radius_m: int) -> List[Dict]:
+    def _build_morning_attraction_pool(self, sigun: str, is_bad: bool, radius_m: int) -> List[Dict]:
         """오전 전용: 날씨 조건에 맞는 명소를 먼저 탐색해 후보 풀을 만듭니다."""
-        if is_rainy or is_bad_air:
+        if is_bad:
             return self._query_indoor_attractions(
                 sigun,
                 radius_m,
@@ -250,7 +297,7 @@ class DailyTravelPlanner:
             {'time': '17:30-19:00', 'period': '저녁', 'preference': 'evening_combo'},
         ]
     
-    def _recommend_places_for_slot(self, slot, sigun, is_rainy, is_bad_air, radius_m, center_lat, center_lng):
+    def _recommend_places_for_slot(self, slot, sigun, is_bad, radius_m, center_lat, center_lng):
         """[수정] 점심/저녁에는 음식점+음식 관련 명소, 오전/오후에는 일반 명소만"""
         # 1. 점심 식당 + 음식 관련 명소
         if slot['preference'] == 'restaurant':
@@ -270,12 +317,19 @@ class DailyTravelPlanner:
             return res + caf + food_spots
         
         # 3. 오전/오후 명소 (상점류 제외 필터 적용된 쿼리 호출)
-        if is_rainy or is_bad_air:
+        if is_bad:
             return self._query_indoor_attractions(sigun, radius_m, center_lat=center_lat, center_lng=center_lng)
         else:
             return self._query_mixed_attractions(sigun, radius_m, center_lat=center_lat, center_lng=center_lng)
 
-    def _get_smart_weather_instruction(self, slot: Dict, is_rainy: bool, is_bad_air: bool, place_type: str = 'attraction') -> str:
+    def _get_smart_weather_instruction(
+        self,
+        slot: Dict,
+        alert_type: str,
+        place_type: str = 'attraction',
+        weather_reasons: List[str] | None = None,
+        outdoor_status: str = '',
+    ) -> str:
         period = slot['period']
         
         # 명소인 경우 overview 활용 강조
@@ -288,20 +342,34 @@ class DailyTravelPlanner:
         # 날씨 언급은 오전 첫 멘트에서 단 1회만
         if period == '오전' and not self.weather_mentioned:
             self.weather_mentioned = True
-            if is_rainy:
-                return (
-                    "오전 첫 안내에서만 비/눈 상황을 1문장으로 짧게 언급하고, 바로 해결 제안으로 '비를 피할 수 있는 아늑한 실내로 가보시는 건 어떠세요?'처럼 연결해 주세요."
-                    + overview_guidance
-                    + honorific_guidance
-                )
-            if is_bad_air:
-                return (
-                    "오전 첫 안내에서만 공기질이 좋지 않다는 점을 1문장으로 짧게 언급하고, 바로 해결 제안으로 '실내에서 쾌적하게 둘러보시는 게 어떠세요?'처럼 연결해 주세요."
-                    + overview_guidance
-                    + honorific_guidance
-                )
+
+            # 복합 이유를 명시적으로 포함
+            reason_text = ''
+            if weather_reasons and len(weather_reasons) > 0:
+                reason_labels = {
+                    'rain_alert': '비/눈',
+                    'pm_alert': '미세먼지',
+                    'cold_alert': '한파/강풍',
+                    'heat_alert': '폭염',
+                }
+                labels = [reason_labels.get(r, r) for r in weather_reasons]
+                reasons_str = ', '.join(labels)
+                reason_text = f"\n【야외활동 지양 이유: {reasons_str}】\n\n스크립트에 다음 이유들을 모두 자연스럽게 포함하세요:\n"
+                for label in labels:
+                    reason_text += f"• {label}\n"
+                reason_text += "\n그리고 "
+
+            status_intro = {
+                "rain_alert": "비나 눈이 내려서 날씨가 궂다는 점을 짧게 언급하고,",
+                "pm_alert": "미세먼지가 심해 공기질이 좋지 않다는 점을 언급하고,",
+                "cold_alert": "기온이 크게 떨어져 매우 춥거나 바람이 강하다는 점을 언급하고,",
+                "heat_alert": "폭염으로 인해 야외 활동이 뜨겁고 힘들 수 있다는 점을 언급하고,",
+                "clear_sky_alert": "날씨가 상쾌하고 좋다는 점을 언급하며",
+            }.get(alert_type, "오늘의 날씨 상황을 가볍게 언급하며")
+
             return (
-                "오전 첫 안내에서만 날씨가 무난하거나 맑다는 점을 1문장으로 짧게 언급하고, 바로 해결 제안으로 '가볍게 둘러보기 좋은 코스로 시작해보시는 건 어떠세요?'처럼 연결해 주세요."
+                f"오전 첫 안내에서만 {reason_text}{status_intro} 바로 해결 제안으로 "
+                f"'쾌적한 실내(또는 적절한 장소)에서 시작해보시는 건 어떨까요?'처럼 연결해 주세요."
                 + overview_guidance
                 + honorific_guidance
             )
@@ -437,13 +505,16 @@ class DailyTravelPlanner:
                     from src.collectors.load_restaurant_review import run_restaurant_pipeline
                     run_restaurant_pipeline(name, sigun_nm)
                 res = self._query_docent_material_from_db(name, alert_type, table_type)
-            except: pass
+            except Exception as e:
+                print(f"⚠️ 실시간 수집 중 오류 발생 ({name}, {table_type}): {e}")
         return res
 
     def _query_docent_material_from_db(self, name, alert_type, table_type):
         weather_keywords = {
             "rain_alert": "비, 빗소리, 창가, 실내, 운치",
             "pm_alert": "실내, 쾌적, 공기, 깨끗",
+            "cold_alert": "따뜻, 실내, 난방, 아늑, 온기, 포근",
+            "heat_alert": "시원, 냉방, 그늘, 쾌적, 휴식, 에어컨",
             "clear_sky_alert": "산책, 맑음, 햇살, 야외",
         }
         pattern = weather_keywords.get(alert_type, "추천").replace(", ", "|")
@@ -472,20 +543,10 @@ class DailyTravelPlanner:
         data = self._execute_query(query, params)
         return data[0] if data else None
 
-    def _determine_alert_type(self, is_rainy, is_bad_air, period):
-        if is_rainy: return "rain_alert"
-        if is_bad_air: return "pm_alert"
-        return "clear_sky_alert"
-
     def _get_slot_style_hint(self, period, s_type, role):
         if period == '오전': return "하루를 시작하는 활기찬 가이드, 존댓말 유지"
         if role == 'cafe': return "차분하게 쉴 수 있는 힐링 톤, 존댓말 유지"
         return "친절하고 다정한 로컬 도슨트, 존댓말 유지"
-
-    def _extract_edges(self, script):
-        if not script: return "", ""
-        parts = [p.strip() for p in script.split('.') if p.strip()]
-        return (parts[0][:20], parts[-1][:20]) if parts else ("", "")
 
     def _create_daily_docent_script(self, material: Dict, language: str = "English") -> str:
         """Daily planner 전용 프롬프트로 도슨트 스크립트를 생성합니다."""
@@ -610,6 +671,13 @@ def print_daily_plan(plan_result: Dict):
     temperature = w.get('temperature') if w.get('temperature') is not None else 'N/A'
     precipitation = w.get('precipitation') if w.get('precipitation') is not None else 'N/A'
     outdoor_status = w.get('outdoor_status', '정보 없음')
+    weather_reasons = w.get('weather_reasons') or []
+    reason_labels = {
+        'rain_alert': '비/눈',
+        'pm_alert': '미세먼지',
+        'cold_alert': '한파/강풍',
+        'heat_alert': '폭염',
+    }
     
     if temperature != 'N/A':
         temp_str = f"{temperature:.1f}°C"
@@ -617,6 +685,9 @@ def print_daily_plan(plan_result: Dict):
         temp_str = temperature
     
     print(f"\n🌦️ 오늘 날씨: {outdoor_status} (기온: {temp_str}, 강수: {precipitation})")
+    if weather_reasons:
+        reasons_text = ", ".join(reason_labels.get(r, r) for r in weather_reasons)
+        print(f"⚠️ 야외활동 지양 사유: {reasons_text}")
     
     for idx, item in enumerate(plan_result['plan'], 1):
         print(f"\n{idx}. [{item['time']}] {item['period']}")

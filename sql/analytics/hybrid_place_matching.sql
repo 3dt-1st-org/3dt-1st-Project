@@ -30,7 +30,12 @@ CurrentWeather AS (
         temperature,
         pm10,
         pm25,
-        precipitation_type
+        precipitation_type,
+        is_rain_snow,
+        is_bad_dust,
+        is_heatwave,
+        is_coldwave,
+        is_strong_wind
     FROM   locallink.realtime_weather_conditions
     WHERE  location = :city            -- 파라미터 바인딩
     ORDER  BY record_time DESC
@@ -77,6 +82,13 @@ AttractionFiltered AS (
         -- 쾌적: 실내외 모두 통과
         CASE
             WHEN (
+                COALESCE(cw.is_rain_snow, 0) = 1
+                OR COALESCE(cw.is_bad_dust, 0) = 1
+                OR COALESCE(cw.is_heatwave, 0) = 1
+                OR COALESCE(cw.is_coldwave, 0) = 1
+                OR COALESCE(cw.is_strong_wind, 0) = 1
+                -- 플래그 미적재 기간 호환용 폴백
+                OR
                 cw.outdoor_status IN ('비/눈', '미세먼지 나쁨', '폭염', '한파', '대기 나쁨')
                 OR cw.precipitation_type IN (1, 2, 3)
                 OR cw.pm10  > 80
