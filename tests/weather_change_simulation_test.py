@@ -48,12 +48,16 @@ class WeatherRealtimeSimulator:
         self.daily_plan_script = PROJECT_ROOT / "src" / "main" / "daily_plan_main.py"
         self.weather_script = PROJECT_ROOT / "src" / "main" / "weather_main.py"
 
+        # 환경 변수 캐시 (반복 생성 방지)
+        self._env_cache = None
+
         self.last_seen_record_time = None
         self.last_seen_state = None
 
     def _latest_weather_row(self) -> dict | None:
         query = """
-            SELECT location, record_time, temperature, precipitation_type, pm10, pm25, outdoor_status
+            SELECT location, record_time, temperature, precipitation_type, wind_speed, pm10, pm25, outdoor_status,
+                   is_rain_snow, is_bad_dust, is_heatwave, is_coldwave, is_strong_wind
             FROM locallink.realtime_weather_conditions
             WHERE location LIKE %s
             ORDER BY record_time DESC
@@ -66,14 +70,55 @@ class WeatherRealtimeSimulator:
                 return dict(row) if row else None
 
     @staticmethod
-    def _build_state(row: dict) -> str:
-        precip = row.get("precipitation_type") or 0
-        status = row.get("outdoor_status") or "정보 없음"
-        pm10 = row.get("pm10") or 0
-        pm25 = row.get("pm25") or 0
-        return f"precip={precip}|status={status}|pm10={pm10}|pm25={pm25}"
+    def _build_state(row: dict) -> tuple:
+        """
+        프로덕션 로직과 동일한 기준으로 상태를 감지합니다.
+        - ASA 플래그가 모두 있으면: 플래그 기반 감지 (덜 민감)
+        - ASA 플래그가 없으면: 버킷팅된 수치 기반 감지 (수치 흔들림 무시)
+        """
+        # 중간 계산값들을 한 번만 계산하고 재사용
+        precip = WeatherTravelPlanner._to_int(row.get("precipitation_type"), 0)
+        temp = float(row.get("temperature") or 0)
+        wind = float(row.get("wind_speed") or 0)
+        pm10 = WeatherTravelPlanner._to_int(row.get("pm10"), 0)
+        pm25 = WeatherTravelPlanner._to_int(row.get("pm25"), 0)
+
+        # ASA 플래그 계산 (이 값들이 폴백 기준)
+        is_rain_snow = WeatherTravelPlanner._to_bool(row.get("is_rain_snow"), precip > 0)
+        is_bad_dust = WeatherTravelPlanner._to_bool(row.get("is_bad_dust"), pm10 > 80 or pm25 > 35)
+        is_heatwave = WeatherTravelPlanner._to_bool(row.get("is_heatwave"), temp >= 33)
+        is_coldwave = WeatherTravelPlanner._to_bool(row.get("is_coldwave"), temp <= -12)
+        is_strong_wind = WeatherTravelPlanner._to_bool(row.get("is_strong_wind"), wind >= 4)
+
+        has_asa_flags = any(
+            row.get(k) is not None
+            for k in ("is_rain_snow", "is_bad_dust", "is_heatwave", "is_coldwave", "is_strong_wind")
+        )
+
+        # 프로덕션과 동일: ASA 플래그가 있으면 플래그로만, 없으면 버킷팅된 수치로 비교
+        if has_asa_flags:
+            return (
+                bool(is_rain_snow),
+                bool(is_bad_dust),
+                bool(is_heatwave),
+                bool(is_coldwave),
+                bool(is_strong_wind),
+            )
+        else:
+            return (
+                temp // 5,    # 온도는 5도 단위로 버킷팅
+                wind // 2,    # 풍속은 2m/s 단위로 버킷팅
+                pm10 // 20,   # pm10은 20 단위로 버킷팅
+                pm25 // 10,   # pm25는 10 단위로 버킷팅
+            )
 
     def _run_script(self, script_path: Path, language: str, timeout: int = 90) -> int:
+        # 환경 변수 캐시 사용 (매번 생성하지 않음)
+        if self._env_cache is None:
+            self._env_cache = dict(**os.environ)
+            self._env_cache["PYTHONUTF8"] = "1"
+            self._env_cache["PYTHONIOENCODING"] = "utf-8"
+
         cmd = [
             str(self.python_exe),
             str(script_path),
@@ -82,17 +127,13 @@ class WeatherRealtimeSimulator:
         ]
         print(f"\n[EXEC] {' '.join(cmd)}")
 
-        env = dict(**os.environ)
-        env["PYTHONUTF8"] = "1"
-        env["PYTHONIOENCODING"] = "utf-8"
-
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
-            env=env,
+            env=self._env_cache,
             timeout=timeout,
         )
         if result.stdout:
@@ -131,7 +172,7 @@ class WeatherRealtimeSimulator:
             if self.last_seen_record_time is None:
                 self.last_seen_record_time = record_time
                 self.last_seen_state = state
-                print(f"[BASELINE] {record_time} | {state}")
+                print(f"[BASELINE] {record_time} | state={state}")
                 time.sleep(self.poll_seconds)
                 continue
 
@@ -152,6 +193,7 @@ class WeatherRealtimeSimulator:
                 time.sleep(self.poll_seconds)
                 continue
 
+            print(f"[CHANGE] {prev_state} -> {state}")
             print("[CHANGE DETECTED] Run weather_main.py immediately")
             rc = self._run_script(self.weather_script, language="English")
             if rc != 0:
@@ -168,7 +210,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Event-driven weather reaction simulator")
     parser.add_argument("--latitude", type=float, default=37.2635)
     parser.add_argument("--longitude", type=float, default=127.0090)
-    parser.add_argument("--poll-seconds", type=int, default=30)
+    parser.add_argument("--poll-seconds", type=int, default=1800)  # 30분 = 1800초
     parser.add_argument("--run-minutes", type=int, default=30)
     parser.add_argument("--city-prefix", type=str, default="수원")
     return parser.parse_args()
