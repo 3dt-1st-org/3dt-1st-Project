@@ -216,7 +216,7 @@
     }
 
     // ── 활성: 상단 말풍선 + 원형 마커 ─────────────────────────────
-    const rawName   = place.name || '';
+    const rawName   = placeName(place);   // 언어 설정에 맞게 name_en 우선 사용
     const maxChars  = 14;
     const labelText = rawName.length > maxChars ? rawName.slice(0, maxChars) + '…' : rawName;
 
@@ -394,8 +394,8 @@
     const level = APP.map ? APP.map.getLevel() : 99;
     APP.markers.forEach((item) => {
       const isSelected = APP.selectedPlace && APP.selectedPlace.id === item.placeId;
-      // 레벨 4 이하(충분히 확대)이면 전체 말풍선 표시, 아니면 선택 마커만
-      const showBalloon = isSelected || level <= 4;
+      // 레벨 2 이하(충분히 확대)이면 전체 말풍선 표시, 아니면 선택 마커만
+      const showBalloon = isSelected || level <= 2;
       item.marker.setImage(makePlaceMarkerSvg(item.place, showBalloon));
     });
   }
@@ -581,6 +581,10 @@
     if (!dateStr) return '';
     const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (!m) return dateStr;
+    if (APP.selectedLanguage === 'en') {
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return `${months[parseInt(m[2], 10) - 1]} ${parseInt(m[3], 10)}, ${m[1]}`;
+    }
     return `${m[1]}년 ${m[2]}월 ${m[3]}일`;
   }
 
@@ -603,7 +607,7 @@
     if (hasEvent) {
       const isOngoing = place.is_ongoing !== false;
       const statusEl = document.getElementById('detail-event-status');
-      statusEl.textContent = isOngoing ? '🟢 진행 중' : '⛔ 종료된 행사';
+      statusEl.textContent = isOngoing ? (TEXT.eventOngoing || '🟢 진행 중') : (TEXT.eventEnded || '⛔ 종료된 행사');
       statusEl.style.color = isOngoing ? '#2B6CB0' : '#9ca3af';
 
       const hasDates = !!(place.event_start_date || place.event_end_date);
@@ -725,11 +729,12 @@
   function _chartHourLabel(value) {
     const raw = String(value || '').trim();
     if (!raw) return '';
+    const suffix = APP.selectedLanguage === 'en' ? 'h' : '시';
     const m = raw.match(/T(\d{2}):/);
-    if (m) return `${m[1]}시`;
+    if (m) return `${m[1]}${suffix}`;
     const date = new Date(/[zZ+]/.test(raw) ? raw : raw + '+09:00');
     if (isNaN(date.getTime())) return raw;
-    return `${String(date.getHours()).padStart(2, '0')}시`;
+    return `${String(date.getHours()).padStart(2, '0')}${suffix}`;
   }
 
   function setVoiceButtonState() {
@@ -1360,9 +1365,9 @@
     if (!btn) {
       btn = document.createElement('button');
       btn.className = 'map-pill-btn planner-refresh-btn';
-      btn.textContent = '🔄 일정 재생성';
+      btn.textContent = TEXT.plannerRefresh || '🔄 일정 재생성';
       btn.addEventListener('click', () => {
-        if (!confirm('하루 일정을 다시 생성할까요?\n현재 지도의 위치를 기준으로 새 일정이 만들어집니다.')) return;
+        if (!confirm(TEXT.plannerConfirmRegen || '하루 일정을 다시 생성할까요?\n현재 지도의 위치를 기준으로 새 일정이 만들어집니다.')) return;
         APP.dailyPlan = null;
         const center = APP.map ? APP.map.getCenter() : null;
         const lat = center ? center.getLat() : APP.userPosition?.lat;

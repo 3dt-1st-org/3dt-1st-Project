@@ -16,21 +16,22 @@
     <button class="map-chip" data-category="event">{{ t('map_filter_event') }}</button>
   </div>
 
-  <button id="planner-btn" class="map-pill-btn map-planner-btn" aria-label="하루 일정">🗓️ 하루 일정</button>
-  <button id="tour-btn" class="map-pill-btn map-tour-btn" aria-label="맛집 투어 가이드" style="display:none;">🍽️ 투어 가이드</button>
+  <button id="planner-btn" class="map-pill-btn map-planner-btn" aria-label="하루 일정">{{ t('map_planner_btn') }}</button>
+  <button id="tour-btn" class="map-pill-btn map-tour-btn" aria-label="맛집 투어 가이드" style="display:none;">{{ t('map_tour_btn') }}</button>
+
+  <div class="map-weather-row">
+    <button id="weather-btn" class="map-pill-btn map-weather-btn" aria-label="Weather">
+      <span id="weather-icon">🌡️</span>
+      <span class="map-weather-copy">
+        <span id="weather-temp">--°C</span>
+      </span>
+    </button>
+  </div>
 
   <div class="map-top-stack">
-    <button id="card-handle" class="map-card-handle" aria-label="추천 장소 보기">추천 <span id="card-chevron">▼</span></button>
+    <button id="card-handle" class="map-card-handle" aria-label="추체론 장소 보기">{{ t('map_recommend_toggle') }} <span id="card-chevron">▼</span></button>
     <div class="map-card-wrapper">
       <div id="card-panel" class="map-card-panel"></div>
-    </div>
-    <div class="map-weather-row">
-      <button id="weather-btn" class="map-pill-btn map-weather-btn" aria-label="Weather">
-        <span id="weather-icon">🌡️</span>
-        <span class="map-weather-copy">
-          <span id="weather-temp">--°C</span>
-        </span>
-      </button>
     </div>
   </div>
 
@@ -72,8 +73,8 @@
     <p id="detail-event-dates" class="sheet-sub" style="font-size:.82rem; margin-top:4px;"></p>
     <a id="detail-event-link" href="#" target="_blank" rel="noopener noreferrer"
        class="btn-primary"
-       style="display:block; text-align:center; margin-top:8px; text-decoration:none;">행사 상세 보기 →</a>
-    <p id="detail-event-approx" style="display:none; font-size:.75rem; color:#aaa; margin-top:6px;">📍 정확한 위치 정보가 없어 시 중심 위치로 표시돼요</p>
+       style="display:block; text-align:center; margin-top:8px; text-decoration:none;">{{ t('map_event_detail_link') }}</a>
+    <p id="detail-event-approx" style="display:none; font-size:.75rem; color:#aaa; margin-top:6px;">{{ t('map_event_approx') }}</p>
   </div>
   <div class="btn-row">
     <button id="detail-more-btn" class="btn-primary" style="width:100%;">{{ t('map_more_info') }}</button>
@@ -82,7 +83,7 @@
 
 <section id="tour-sheet" class="bottom-sheet" aria-hidden="true">
   <div class="tour-sheet__header">
-    <h3 class="sheet-title">🍽️ 맛집 투어 가이드</h3>
+    <h3 class="sheet-title">{{ t('map_tour_title') }}</h3>
     <p id="tour-subtitle" class="sheet-sub"></p>
   </div>
   <div id="tour-body" class="tour-body"></div>
@@ -93,7 +94,7 @@
 
 <section id="planner-sheet" class="bottom-sheet planner-sheet" aria-hidden="true">
   <div class="planner-sheet__header">
-    <h3 class="sheet-title">🗓️ 하루 일정</h3>
+    <h3 class="sheet-title">{{ t('map_planner_title') }}</h3>
     <p id="planner-location" class="sheet-sub"></p>
     <p id="planner-weather" class="planner-weather-badge"></p>
   </div>
@@ -136,11 +137,15 @@
     docentLoading: "{{ t('map_docent_loading') }}",
     docentUnavailable: "{{ t('map_docent_unavailable') }}",
     moreInfo: "{{ t('map_more_info') }}",
-    tourLoading: "맛집 투어 가이드를 생성하는 중이에요... (20~40초)",
-    tourError: "투어 가이드를 가져오지 못했어요. 잠시 후 다시 시도해 주세요.",
+    tourLoading: "{{ t('map_docent_loading') }}",
+    tourError: "{{ t('map_docent_unavailable') }}",
     weatherTitle: "{{ t('map_weather_title') }}",
     weatherNow: "{{ t('map_weather_now') }}",
-    weatherEmpty: "{{ t('map_weather_empty') }}"
+    weatherEmpty: "{{ t('map_weather_empty') }}",
+    eventOngoing: "{{ t('map_event_ongoing') }}",
+    eventEnded: "{{ t('map_event_ended') }}",
+    plannerRefresh: "{{ t('map_planner_refresh') }}",
+    plannerConfirmRegen: "{{ t('map_planner_confirm_regen') }}",
   };
 </script>
 <script src="{{ url_for('static', filename='js/map_logic.js') }}"></script>
