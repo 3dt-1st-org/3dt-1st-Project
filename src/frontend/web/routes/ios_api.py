@@ -250,6 +250,26 @@ def _find_nearest_db_location(lat: float, lng: float) -> str | None:
         return None
 
 
+def _outdoor_status_from_flags(
+    is_rain_snow, is_bad_dust, is_heatwave, is_coldwave, is_strong_wind
+) -> str:
+    """DB flag 컬럼(int 0/1)으로 outdoor_status 텍스트를 계산.
+
+    우선순위: 비/눈 > 폭염 > 한파 > 강풍 > 미세먼지 나쁨 > 보통
+    """
+    if is_rain_snow:
+        return "비/눈"
+    if is_heatwave:
+        return "폭염"
+    if is_coldwave:
+        return "한파"
+    if is_strong_wind:
+        return "강풍"
+    if is_bad_dust:
+        return "미세먼지 나쁨"
+    return "보통"
+
+
 def _fetch_weather_from_db(lat: float, lng: float) -> tuple[dict, int] | None:
     """realtime_weather_conditions 에서 최근접 도시의 최신 날씨 레코드를 읽어 payload 형식으로 반환.
 
@@ -263,7 +283,8 @@ def _fetch_weather_from_db(lat: float, lng: float) -> tuple[dict, int] | None:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute(
                     """
-                    SELECT temperature, precipitation_type, pm10, pm25, outdoor_status
+                    SELECT temperature, precipitation_type, pm10, pm25,
+                           is_rain_snow, is_bad_dust, is_heatwave, is_coldwave, is_strong_wind
                     FROM locallink.realtime_weather_conditions
                     WHERE location = %s
                       AND record_time > NOW() - INTERVAL '70 minutes'
@@ -283,6 +304,10 @@ def _fetch_weather_from_db(lat: float, lng: float) -> tuple[dict, int] | None:
     pty_str = str(int(row["precipitation_type"] or 0))
     icon = _PTY_ICON.get(pty_str, "🌡️")
     grade = _dust_grade_code(row["pm10"], row["pm25"])
+    outdoor_status = _outdoor_status_from_flags(
+        row["is_rain_snow"], row["is_bad_dust"],
+        row["is_heatwave"], row["is_coldwave"], row["is_strong_wind"],
+    )
 
     return {
         "temp": temp,
@@ -294,7 +319,7 @@ def _fetch_weather_from_db(lat: float, lng: float) -> tuple[dict, int] | None:
             "grade_ko": _DUST_GRADE_LABELS.get(grade, _DUST_GRADE_LABELS["unknown"]),
         },
         "forecast": [],
-        "outdoor_status": row["outdoor_status"] or "",
+        "outdoor_status": outdoor_status,
         "source": "db",
         "dust_source": "db",
         "location": location,
