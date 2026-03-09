@@ -491,6 +491,27 @@
     }).format(date);
   }
 
+  function outdoorStatusLabel(status) {
+    if (!status) return '';
+    if (APP.selectedLanguage !== 'en') return status;
+    const MAP = {
+      '\uc57c\uc678\ud65c\ub3d9 \ucf8c\uc801': TEXT.outdoorComfortable || 'Comfortable Outdoors',
+      '\ube44/\ub208': TEXT.outdoorRain || 'Rain/Snow',
+      '\ubbf8\uc138\uba3c\uc9c0 \ub098\uc068': TEXT.outdoorPmBad || 'Poor Air Quality',
+      '\ubbf8\uc138\uba3c\uc9c0 \ub9e4\uc6b0\ub098\uc068': TEXT.outdoorPmVeryBad || 'Very Poor Air Quality',
+      '\ubcf4\ud1b5': TEXT.outdoorModerate || 'Moderate',
+    };
+    return MAP[status] || status;
+  }
+
+  function periodLabel(period) {
+    if (APP.selectedLanguage !== 'en') return period;
+    if (period === '\uc624\uc804') return TEXT.plannerPeriodMorning || 'Morning';
+    if (period === '\uc624\ud6c4') return TEXT.plannerPeriodAfternoon || 'Afternoon';
+    if (period === '\uc800\ub141') return TEXT.plannerPeriodEvening || 'Evening';
+    return period;
+  }
+
   function dustGradeLabel(dust) {
     if (!dust) return APP.selectedLanguage === 'en' ? 'Unknown' : '정보없음';
     if (APP.selectedLanguage !== 'en') {
@@ -546,11 +567,32 @@
     ) >= APP.weatherReloadThresholdMeters;
   }
 
+  function outdoorStatusLabel(status) {
+    if (!status) return '';
+    if (APP.selectedLanguage !== 'en') return status;
+    const MAP = {
+      '야외활동 쾌적': TEXT.outdoorComfortable || 'Comfortable Outdoors',
+      '비/눈': TEXT.outdoorRain || 'Rain/Snow',
+      '미세먼지 나쁨': TEXT.outdoorPmBad || 'Poor Air Quality',
+      '미세먼지 매우나쁨': TEXT.outdoorPmVeryBad || 'Very Poor Air Quality',
+      '보통': TEXT.outdoorModerate || 'Moderate',
+    };
+    return MAP[status] || status;
+  }
+
+  function periodLabel(period) {
+    if (APP.selectedLanguage !== 'en') return period;
+    if (period === '오전') return TEXT.plannerPeriodMorning || 'Morning';
+    if (period === '오후') return TEXT.plannerPeriodAfternoon || 'Afternoon';
+    if (period === '저녁') return TEXT.plannerPeriodEvening || 'Evening';
+    return period;
+  }
+
   function renderWeatherSummary(payload) {
     APP.weather = payload;
     const tempText = payload && payload.temp != null && payload.temp !== '' ? payload.temp : '--';
     const outdoorStatus = payload && payload.outdoor_status ? payload.outdoor_status : '';
-    const tempAndStatus = [outdoorStatus, `${tempText}°C`].filter(Boolean).join(' · ');
+    const tempAndStatus = [outdoorStatusLabel(outdoorStatus), `${tempText}°C`].filter(Boolean).join(' · ');
     document.getElementById('weather-icon').textContent = payload.icon || '🌡️';
     document.getElementById('weather-temp').textContent = tempAndStatus;
   }
@@ -617,8 +659,8 @@
         const end   = _fmtEventDate(place.event_end_date);
         let dateText = '🗓️';
         if (start && end)  dateText += ` ${start} ~ ${end}`;
-        else if (start)    dateText += ` ${start}부터`;
-        else if (end)      dateText += ` ~${end}까지`;
+        else if (start)    dateText += ` ${start} ${TEXT.eventDateFrom || '부터'}`;
+        else if (end)      dateText += ` ~${end} ${TEXT.eventDateUntil || '까지'}`;
         datesEl.textContent = dateText;
         datesEl.style.display = 'block';
       } else {
@@ -663,7 +705,7 @@
 
     // 야외활동 상태 표시
     const outdoorStatus = APP.weather && APP.weather.outdoor_status ? APP.weather.outdoor_status : '';
-    nowText.textContent = [TEXT.weatherNow || '', outdoorStatus, `${APP.weather.temp}°C`].filter(Boolean).join(' ');
+    nowText.textContent = [TEXT.weatherNow || '', outdoorStatusLabel(outdoorStatus), `${APP.weather.temp}°C`].filter(Boolean).join(' ');
 
     const list = Array.isArray(APP.weather.forecast) ? APP.weather.forecast : [];
     if (!list.length) {
@@ -964,17 +1006,9 @@
             const res = await fetch(`/api/planner/intervention?lat=${APP.userPosition.lat}&lng=${APP.userPosition.lng}`);
             const data = await res.json();
             if (res.ok && data.intervention) {
-              const label = ALERT_LABEL[data.intervention.type];
-              if (label) {
-                let statusText = '';
-                if (label.includes('—')) {
-                  statusText = label.split('—')[1].trim();
-                } else if (label.includes('!')) {
-                  statusText = label.split('!')[1].trim();
-                }
-                if (statusText) {
-                  payload.outdoor_status = statusText;
-                }
+              const statusKo = _INTERVENTION_STATUS[data.intervention.type];
+              if (statusKo) {
+                payload.outdoor_status = statusKo;
               }
             }
           } catch (_) { /* ignore intervention fetch error */ }
@@ -1238,7 +1272,7 @@
     const lat = center ? center.getLat() : APP.userPosition?.lat;
     const lng = center ? center.getLng() : APP.userPosition?.lng;
     if (!lat || !lng) {
-      _setTourBody('error', '위치 정보를 가져올 수 없습니다.');
+      _setTourBody('error', TEXT.tourNoLocation || '위치 정보를 가져올 수 없습니다.');
       return;
     }
 
@@ -1278,13 +1312,13 @@
       `<p>${escapeHtml(data.script)}</p>`;
 
     document.getElementById('tour-subtitle').textContent =
-      `${names.length}개 맛집 · ` + (data.source === 'llm' ? 'AI 생성' : '기본 안내');
+      `${names.length}${TEXT.tourRestaurantsSuffix || '개 맛집'} · ` + (data.source === 'llm' ? (TEXT.tourSourceLlm || 'AI 생성') : (TEXT.tourSourceDefault || '기본 안내'));
 
     // 오디오 재생 버튼
     const audioBar = document.getElementById('tour-audio-bar');
     audioBar.style.display = 'block';
     const playBtn = document.getElementById('tour-play-btn');
-    playBtn.textContent = '▶ 오디오 재생';
+    playBtn.textContent = TEXT.tourPlayAudio || '▶ 오디오 재생';
     playBtn.disabled = false;
     playBtn.onclick = () => _playTourAudio(data.script);
   }
@@ -1297,7 +1331,7 @@
 
   async function _playTourAudio(script) {
     const playBtn = document.getElementById('tour-play-btn');
-    playBtn.textContent = '⏳ 오디오 변환 중...';
+    playBtn.textContent = TEXT.tourConverting || '⏳ 오디오 변환 중...';
     playBtn.disabled = true;
 
     try {
@@ -1318,23 +1352,23 @@
       APP.tourAudio._url = url;
       APP.tourAudio.onended = () => {
         URL.revokeObjectURL(url);
-        playBtn.textContent = '▶ 다시 재생';
+        playBtn.textContent = TEXT.tourPlayAgain || '▶ 다시 재생';
         playBtn.disabled = false;
       };
       APP.tourAudio.play().catch(() => {
         URL.revokeObjectURL(url);
       });
-      playBtn.textContent = '⏹ 재생 중...';
+      playBtn.textContent = TEXT.tourPlaying || '⏹ 재생 중...';
       playBtn.disabled = false;
       playBtn.onclick = () => {
         if (APP.tourAudio) {
           APP.tourAudio.pause();
-          playBtn.textContent = '▶ 다시 재생';
+          playBtn.textContent = TEXT.tourPlayAgain || '▶ 다시 재생';
           playBtn.onclick = () => _playTourAudio(script);
         }
       };
     } catch (_err) {
-      playBtn.textContent = '⚠️ 오디오 실패';
+      playBtn.textContent = TEXT.tourAudioFailed || '⚠️ 오디오 실패';
       playBtn.disabled = false;
       playBtn.onclick = () => _playTourAudio(script);
     }
@@ -1343,16 +1377,21 @@
   // ── 하루 일정 플래너 ────────────────────────────────────────────────────
 
   const PERIOD_ICON = { '오전': '🌅', '오후': '☀️', '저녁': '🌙' };
+  const _INTERVENTION_STATUS = {
+    rain_alert: '비/눈',
+    pm_alert: '미세먼지 나쁨',
+    clear_sky_alert: '야외활동 쾌적',
+  };
   const ALERT_LABEL = {
-    rain_alert: '☔ 비가 옵니다 — 실내 장소를 추천해요',
-    pm_alert: '😷 미세먼지가 나빠요 — 실내 장소를 추천해요',
-    clear_sky_alert: '☀️ 날씨가 맑아요! 야외 활동하기 좋아요',
+    rain_alert: TEXT.alertRain || '☔ 비가 옵니다 — 실내 장소를 추천해요',
+    pm_alert: TEXT.alertPm || '😷 미세먼지가 나빠요 — 실내 장소를 추천해요',
+    clear_sky_alert: TEXT.alertClearSky || '☀️ 날씨가 맑아요! 야외 활동하기 좋아요',
   };
 
   async function fetchDailyPlan(lat, lng) {
     openSheet('planner-sheet');
     const slotsEl = document.getElementById('planner-slots');
-    slotsEl.innerHTML = '<div class="planner-skeleton">일정을 생성하는 중…<br><small style="opacity:.6;font-size:.75rem">처음 방문하는 장소는 최대 5~10초 소요돼요</small></div>';
+    slotsEl.innerHTML = `<div class="planner-skeleton">${TEXT.plannerLoading || '일정을 생성하는 중…'}<br><small style="opacity:.6;font-size:.75rem">${TEXT.plannerLoadingHint || '처음 방문하는 장소는 최대 5~10초 소요돼요'}</small></div>`;
     document.getElementById('planner-location').textContent = '';
     document.getElementById('planner-weather').textContent = '';
 
@@ -1368,7 +1407,7 @@
       renderPlannerSheet(data);
       _showPlannerRefreshBtn();
     } catch (err) {
-      slotsEl.innerHTML = `<p class="planner-error">일정을 가져오지 못했어요. 다시 시도해주세요.</p>`;
+      slotsEl.innerHTML = `<p class="planner-error">${TEXT.plannerError || '일정을 가져오지 못했어요. 다시 시도해주세요.'}</p>`;
     }
   }
 
@@ -1396,7 +1435,7 @@
   function renderPlannerSheet(data) {
     document.getElementById('planner-location').textContent = data.location || '';
     const w = data.weather || {};
-    const badge = [w.outdoor_status, w.temperature ? `${w.temperature}°C` : null]
+    const badge = [outdoorStatusLabel(w.outdoor_status), w.temperature ? `${w.temperature}°C` : null]
       .filter(Boolean).join('  ');
     document.getElementById('planner-weather').textContent = badge;
 
@@ -1405,17 +1444,18 @@
 
     const plan = data.plan || [];
     if (!plan.length) {
-      slotsEl.innerHTML = '<p class="planner-error">추천 장소가 없어요.</p>';
+      slotsEl.innerHTML = `<p class="planner-error">${TEXT.plannerEmpty || '추천 장소가 없어요.'}</p>`;
       return;
     }
 
     plan.forEach((item) => {
       const icon = PERIOD_ICON[item.period] || '📍';
+      const periodText = periodLabel(item.period);
       const place = item.place || {};
       const card = document.createElement('div');
       card.className = 'plan-slot-card';
       card.innerHTML = `
-        <div class="plan-slot-card__period">${icon} <strong>${escapeHtml(item.period)}</strong><span class="plan-slot-card__time">${escapeHtml(item.time || '')}</span></div>
+        <div class="plan-slot-card__period">${icon} <strong>${escapeHtml(periodText)}</strong><span class="plan-slot-card__time">${escapeHtml(item.time || '')}</span></div>
         <div class="plan-slot-card__name">${escapeHtml(place.name || '')}</div>
         ${place.road_addr ? `<div class="plan-slot-card__addr">${escapeHtml(place.road_addr)}</div>` : ''}
         ${item.script ? `<p class="plan-slot-card__script">${escapeHtml(item.script)}</p>` : ''}
@@ -1449,7 +1489,7 @@
   }
 
   function showInterventionToast(intervention) {
-    const label = ALERT_LABEL[intervention.type] || '날씨가 바뀌었어요';
+    const label = ALERT_LABEL[intervention.type] || TEXT.alertGeneric || '날씨가 바뀌었어요';
     const toast = document.getElementById('intervention-toast');
     document.getElementById('intervention-toast-text').textContent = label;
     toast.style.display = 'flex';

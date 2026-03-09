@@ -88,7 +88,7 @@
   </div>
   <div id="tour-body" class="tour-body"></div>
   <div id="tour-audio-bar" class="tour-audio-bar" style="display:none;">
-    <button id="tour-play-btn" class="btn-primary tour-play-btn">▶ 오디오 재생</button>
+    <button id="tour-play-btn" class="btn-primary tour-play-btn">{{ t('map_tour_play_audio') }}</button>
   </div>
 </section>
 
@@ -144,8 +144,35 @@
     weatherEmpty: "{{ t('map_weather_empty') }}",
     eventOngoing: "{{ t('map_event_ongoing') }}",
     eventEnded: "{{ t('map_event_ended') }}",
+    eventDateFrom: "{{ t('map_event_date_from') }}",
+    eventDateUntil: "{{ t('map_event_date_until') }}",
     plannerRefresh: "{{ t('map_planner_refresh') }}",
     plannerConfirmRegen: "{{ t('map_planner_confirm_regen') }}",
+    plannerLoading: "{{ t('map_planner_loading') }}",
+    plannerLoadingHint: "{{ t('map_planner_loading_hint') }}",
+    plannerError: "{{ t('map_planner_error') }}",
+    plannerEmpty: "{{ t('map_planner_empty') }}",
+    plannerPeriodMorning: "{{ t('map_planner_period_morning') }}",
+    plannerPeriodAfternoon: "{{ t('map_planner_period_afternoon') }}",
+    plannerPeriodEvening: "{{ t('map_planner_period_evening') }}",
+    tourPlayAudio: "{{ t('map_tour_play_audio') }}",
+    tourPlayAgain: "{{ t('map_tour_play_again') }}",
+    tourConverting: "{{ t('map_tour_converting') }}",
+    tourPlaying: "{{ t('map_tour_playing') }}",
+    tourAudioFailed: "{{ t('map_tour_audio_failed') }}",
+    tourNoLocation: "{{ t('map_tour_no_location') }}",
+    tourSourceLlm: "{{ t('map_tour_source_llm') }}",
+    tourSourceDefault: "{{ t('map_tour_source_default') }}",
+    tourRestaurantsSuffix: "{{ t('map_tour_restaurants_suffix') }}",
+    alertRain: "{{ t('map_alert_rain') }}",
+    alertPm: "{{ t('map_alert_pm') }}",
+    alertClearSky: "{{ t('map_alert_clear_sky') }}",
+    alertGeneric: "{{ t('map_alert_generic') }}",
+    outdoorComfortable: "{{ t('map_outdoor_comfortable') }}",
+    outdoorRain: "{{ t('map_outdoor_rain') }}",
+    outdoorPmBad: "{{ t('map_outdoor_pm_bad') }}",
+    outdoorPmVeryBad: "{{ t('map_outdoor_pm_very_bad') }}",
+    outdoorModerate: "{{ t('map_outdoor_moderate') }}",
   };
 </script>
 <script src="{{ url_for('static', filename='js/map_logic.js') }}"></script>
