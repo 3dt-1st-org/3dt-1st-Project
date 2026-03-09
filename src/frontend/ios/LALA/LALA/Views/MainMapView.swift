@@ -287,7 +287,7 @@ struct MainMapView: View {
     }
 
     private var weatherForecastSheet: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(viewModel.weatherDetailTitle(for: appViewModel.selectedLanguage))
                 .font(.system(size: 20 * appViewModel.fontScale, weight: .bold))
                 .foregroundStyle(Color(AppThemeColor.north.rawValue))
@@ -301,34 +301,7 @@ struct MainMapView: View {
                     .foregroundStyle(.secondary)
                     .padding(.top, 6)
             } else {
-                ScrollView {
-                    VStack(spacing: 8) {
-                        ForEach(viewModel.weatherForecast) { item in
-                            HStack(spacing: 12) {
-                                Text(item.timeText)
-                                    .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
-                                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                                    .frame(width: 78, alignment: .leading)
-
-                                Image(systemName: item.symbolName)
-                                    .foregroundStyle(weatherIconColor(for: item.symbolName))
-                                    .frame(width: 24, alignment: .center)
-
-                                Text(item.temperatureText)
-                                    .font(.system(size: 14 * appViewModel.fontScale, weight: .bold))
-                                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
-
-                                Spacer()
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(Color.white.opacity(0.95))
-                            )
-                        }
-                    }
-                }
+                weatherForecastChartCard(items: viewModel.weatherForecast)
             }
 
             Spacer(minLength: 0)
@@ -339,6 +312,181 @@ struct MainMapView: View {
             Color(UIColor.systemGroupedBackground)
                 .ignoresSafeArea()
         )
+    }
+
+    private func weatherForecastChartCard(items: [WeatherForecastItem]) -> some View {
+        let columnWidth: CGFloat = 56
+        let chartHeight: CGFloat = 88
+        let chartPoints = weatherForecastChartPoints(
+            items: items,
+            columnWidth: columnWidth,
+            chartHeight: chartHeight
+        )
+        let totalWidth = max(CGFloat(items.count) * columnWidth, 1)
+
+        return ScrollView(.horizontal, showsIndicators: false) {
+            VStack(spacing: 0) {
+                ZStack(alignment: .topLeading) {
+                    weatherForecastLinePath(points: chartPoints)
+                        .stroke(
+                            Color(red: 0.78, green: 0.79, blue: 0.82),
+                            style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                        )
+                        .frame(width: totalWidth, height: chartHeight)
+
+                    ForEach(chartPoints) { point in
+                        Circle()
+                            .fill(Color(red: 0.62, green: 0.65, blue: 0.70))
+                            .frame(width: 7, height: 7)
+                            .position(x: point.x, y: point.y)
+
+                        Text(point.label)
+                            .font(.system(size: 11 * appViewModel.fontScale, weight: .bold))
+                            .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.88))
+                            .position(x: point.x, y: point.y - 12)
+                    }
+                }
+                .frame(width: totalWidth, height: chartHeight)
+
+                HStack(spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        Text(weatherChartIconText(for: item.symbolName))
+                            .font(.system(size: 21))
+                            .frame(width: columnWidth, height: 28)
+                    }
+                }
+                .frame(width: totalWidth, alignment: .leading)
+
+                HStack(spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        Text(weatherChartTimeLabel(item.timeText))
+                            .font(.system(size: 11 * appViewModel.fontScale, weight: .medium))
+                            .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.45))
+                            .frame(width: columnWidth, height: 18)
+                    }
+                }
+                .frame(width: totalWidth, alignment: .leading)
+            }
+            .frame(width: totalWidth, alignment: .leading)
+            .padding(.vertical, 6)
+        }
+        .scrollIndicators(.hidden)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.96))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.black.opacity(0.04), lineWidth: 1)
+        )
+    }
+
+    private func weatherForecastChartPoints(
+        items: [WeatherForecastItem],
+        columnWidth: CGFloat,
+        chartHeight: CGFloat
+    ) -> [WeatherForecastChartPoint] {
+        let padTop: CGFloat = 26
+        let padBottom: CGFloat = 18
+        let drawHeight = max(1, chartHeight - padTop - padBottom)
+
+        let parsedTemps = items.map { weatherTemperatureValue($0.temperatureText) }
+        let validTemps = parsedTemps.compactMap { $0 }
+        let maxTemp = validTemps.max() ?? 1
+        let minTemp = validTemps.min() ?? 0
+        let range = max(0.1, maxTemp - minTemp)
+
+        return parsedTemps.enumerated().map { index, temp in
+            let x = CGFloat(index) * columnWidth + (columnWidth / 2)
+            let y: CGFloat
+            if let temp {
+                let ratio = CGFloat((maxTemp - temp) / range)
+                y = padTop + (ratio * drawHeight)
+            } else {
+                y = padTop + (drawHeight / 2)
+            }
+
+            let label = temp.map { "\(Int($0.rounded()))°" } ?? "--"
+            return WeatherForecastChartPoint(id: index, x: x, y: y, label: label)
+        }
+    }
+
+    private func weatherForecastLinePath(points: [WeatherForecastChartPoint]) -> Path {
+        var path = Path()
+        guard let first = points.first else { return path }
+        path.move(to: CGPoint(x: first.x, y: first.y))
+
+        guard points.count > 1 else { return path }
+        for index in 1..<points.count {
+            let previous = points[index - 1]
+            let current = points[index]
+            let midX = (previous.x + current.x) / 2
+            path.addCurve(
+                to: CGPoint(x: current.x, y: current.y),
+                control1: CGPoint(x: midX, y: previous.y),
+                control2: CGPoint(x: midX, y: current.y)
+            )
+        }
+        return path
+    }
+
+    private func weatherChartIconText(for symbolName: String) -> String {
+        switch symbolName {
+        case "sun.max.fill":
+            return "☀️"
+        case "cloud.sun.fill":
+            return "⛅"
+        case "cloud.fill":
+            return "☁️"
+        case "cloud.fog.fill":
+            return "🌫️"
+        case "cloud.rain.fill":
+            return "🌧️"
+        case "cloud.sleet.fill":
+            return "🌨️"
+        case "snowflake":
+            return "❄️"
+        case "cloud.sun.rain.fill":
+            return "🌦️"
+        case "cloud.bolt.rain.fill":
+            return "⛈️"
+        default:
+            return "⛅"
+        }
+    }
+
+    private func weatherChartTimeLabel(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        guard let hourRange = trimmed.range(
+            of: #"(\d{1,2})(?=:\d{2})"#,
+            options: .regularExpression
+        ),
+        let hourValue = Int(trimmed[hourRange]) else {
+            return trimmed
+        }
+
+        let hourText = String(format: "%02d", hourValue)
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "\(hourText)시"
+        case .english:
+            return "\(hourText)h"
+        }
+    }
+
+    private func weatherTemperatureValue(_ raw: String) -> Double? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let valueRange = trimmed.range(
+            of: #"-?\d+(?:\.\d+)?"#,
+            options: .regularExpression
+        ) else {
+            return nil
+        }
+
+        return Double(trimmed[valueRange])
     }
 
     private var plannerSheet: some View {
@@ -975,6 +1123,13 @@ struct MainMapView: View {
             return Color(AppThemeColor.east.rawValue).opacity(0.95)
         }
     }
+}
+
+private struct WeatherForecastChartPoint: Identifiable {
+    let id: Int
+    let x: CGFloat
+    let y: CGFloat
+    let label: String
 }
 
 private struct PlaceDetailBottomSheet: View {
