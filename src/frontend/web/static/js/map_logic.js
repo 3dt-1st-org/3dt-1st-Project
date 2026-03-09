@@ -1139,6 +1139,20 @@
       openTourSheet();
     });
 
+    // 맛집 투어 가이드 - 음식점 태그 클릭 시 해당 음식점 세부정보 팝업 열기
+    document.getElementById('tour-body').addEventListener('click', (e) => {
+      const tag = e.target.closest('.tour-tag');
+      if (!tag) return;
+      const tagName = tag.textContent.trim();
+      const found = APP.places.find(
+        (p) => (p.name || '') === tagName || (p.name_en || '') === tagName
+      );
+      if (found) {
+        closeSheets();
+        selectPlace(found, { from: 'tour_tag', openDetail: true });
+      }
+    });
+
     const cardHandle = document.getElementById('card-handle');
     if (cardHandle) {
       cardHandle.addEventListener('click', () => {

@@ -596,6 +596,12 @@ body {
   font-size: 0.75rem;
   font-weight: 700;
   border: 1px solid rgba(200, 150, 0, 0.25);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.tour-tag:hover {
+  background: rgba(245, 200, 66, 0.38);
+  border-color: rgba(200, 150, 0, 0.55);
 }
 
 .tour-audio-bar {
