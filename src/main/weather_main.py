@@ -1,7 +1,5 @@
 import sys
 from pathlib import Path
-import argparse
-from datetime import datetime
 
 # 프로젝트 루트 경로 추가 (src 임포트용)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -10,53 +8,18 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.services.weather_planner import WeatherTravelPlanner
 from src.services.speech_synthesizer import save_text_as_mp3, SpeechSynthesisError
+from src.utils.cli_utils import build_common_argparser, save_script_text, DEFAULT_TEST_LOCATION
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="WeatherTravelPlanner 통합 테스트")
-    parser.add_argument(
-        "--language",
-        default="English",
-        choices=["English", "Korean", "Japanese"],
-        help="도슨트 멘트 생성 언어 (기본: English)",
-    )
-    parser.add_argument(
-        "--speech",
-        action="store_true",
-        help="생성된 통합 도슨트 멘트를 mp3 음성 파일로 저장",
-    )
-    parser.add_argument(
-        "--speech-output-dir",
-        default=None,
-        help="음성 파일 저장 디렉터리 (기본: data/docent/mp3)",
-    )
-    parser.add_argument(
-        "--script-output-dir",
-        default=None,
-        help="도슨트 스크립트 저장 디렉터리 (기본: data/docent/scripts)",
-    )
+    parser = build_common_argparser("WeatherTravelPlanner 통합 테스트")
     return parser.parse_args()
-
-def _save_weather_script_text(combined_result: dict, language: str, output_dir: str | None = None) -> str:
-    if output_dir:
-        target_dir = Path(output_dir)
-    else:
-        target_dir = PROJECT_ROOT / "data" / "docent" / "scripts"
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_path = target_dir / f"weather_combined_{language.lower()}_{timestamp}.txt"
-
-    script_text = (combined_result.get("script", "") or "").strip()
-    file_path.write_text(script_text, encoding="utf-8")
-    return str(file_path)
 
 
 def run_integration_test(language="English", speech=False, speech_output_dir=None, script_output_dir=None):
-    # 1. 초기화 (테스트용 GPS: 수원역 인근)
+    # 테스트용 GPS: 수원역 인근
     # 실제 DB에 '수원' 관련 날씨와 명소가 있어야 결과가 나옵니다.
-    test_lat, test_lng = 37.2635, 127.0090
-    # test_lat, test_lng = 37.26788, 127.11233
+    test_lat, test_lng = DEFAULT_TEST_LOCATION
     script_language = language
     planner = WeatherTravelPlanner(test_lat, test_lng)
     
@@ -75,7 +38,8 @@ def run_integration_test(language="English", speech=False, speech_output_dir=Non
     # STEP 2: 실시간 날씨 조회 테스트
     weather = planner.get_current_location_weather()
     if weather:
-        print(f"🌦️ [STEP 2] 현재 날씨: {weather['location']} / {weather['outdoor_status']} / 강수형태:{weather['precipitation_type']}")
+        outdoor_status = weather.get('outdoor_status') or '정보 없음'
+        print(f"🌦️ [STEP 2] 현재 날씨: {weather['location']} / {outdoor_status} / 강수형태:{weather['precipitation_type']}")
     else:
         print("❌ 날씨 데이터를 가져오지 못했습니다. DB를 확인하세요.")
         return
@@ -83,10 +47,24 @@ def run_integration_test(language="English", speech=False, speech_output_dir=Non
     # STEP 3: 선제시(Intervention) 로직 및 장소 추출 테스트
     # *테스트 팁: DB의 날씨를 강제로 '비'로 바꾸거나 코드를 수정해서 상황을 연출해보세요.
     # radius_m: 날씨 조건에 맞는 장소를 찾은 후 이 거리 내 장소들을 추천
-    recommendations, alert_type = planner.check_and_propose_intervention(radius_m=10000)
+    intervention = planner.check_and_propose_intervention(radius_m=10000)
+    if not intervention:
+        print("\nℹ️ 현재 날씨 변동이 없거나 조건에 맞는 장소가 주변에 없습니다.")
+        return
+
+    recommendations, alert_type = intervention
     
     if recommendations:
         print(f"\n✅ [STEP 3] 감지된 상황: {alert_type}")
+        if planner.last_alert_reasons:
+            reason_labels = {
+                'rain_alert': '비/눈',
+                'pm_alert': '미세먼지',
+                'cold_alert': '한파/강풍',
+                'heat_alert': '폭염',
+            }
+            reasons = [reason_labels.get(r, r) for r in planner.last_alert_reasons]
+            print(f"🧭 야외활동 불가 원인: {', '.join(reasons)}")
         print(f"🔎 추천된 장소 (TOP 3):")
         for i, res in enumerate(recommendations[:3], 1):
             print(f"   {i}. {res['name']} (거리: {res['dist']:.1f}m)")
@@ -110,10 +88,12 @@ def run_integration_test(language="English", speech=False, speech_output_dir=Non
             print(combined_result['script'])
             print(f"{'─'*70}")
 
-            script_path = _save_weather_script_text(
-                combined_result=combined_result,
+            script_path = save_script_text(
+                content=combined_result['script'],
                 language=script_language,
                 output_dir=script_output_dir,
+                filename_prefix="weather_combined",
+                project_root=PROJECT_ROOT,
             )
             print(f"\n📝 스크립트 파일 저장 완료: {script_path}")
 
