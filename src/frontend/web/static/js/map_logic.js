@@ -419,7 +419,9 @@
     if (distance) metaParts.push(`<span>${escapeHtml(distance)}</span>`);
     let categoryLabel = placeCategoryLabel(place);
     if (place.category === 'event') {
-      categoryLabel += isExpiredEvent ? ' · 종료됨' : ' · 진행중';
+      categoryLabel += isExpiredEvent
+        ? ` · ${TEXT.eventStatusEnded || '종료됨'}`
+        : ` · ${TEXT.eventStatusOngoing || '진행중'}`;
     }
 
     wrapper.innerHTML = `
@@ -1456,7 +1458,7 @@
       card.className = 'plan-slot-card';
       card.innerHTML = `
         <div class="plan-slot-card__period">${icon} <strong>${escapeHtml(periodText)}</strong><span class="plan-slot-card__time">${escapeHtml(item.time || '')}</span></div>
-        <div class="plan-slot-card__name">${escapeHtml(place.name || '')}</div>
+        <div class="plan-slot-card__name">${escapeHtml(placeName(place))}</div>
         ${place.road_addr ? `<div class="plan-slot-card__addr">${escapeHtml(place.road_addr)}</div>` : ''}
         ${item.script ? `<p class="plan-slot-card__script">${escapeHtml(item.script)}</p>` : ''}
       `;

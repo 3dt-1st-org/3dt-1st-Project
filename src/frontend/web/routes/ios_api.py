@@ -1077,7 +1077,7 @@ def _fetch_places_by_city(
                         SELECT
                             MD5(COALESCE(title, '') || '|' || COALESCE(url, '') || '|' || COALESCE(city, '')) AS id,
                             COALESCE(title, '') AS name,
-                            COALESCE(title, '') AS name_en,
+                            COALESCE(NULLIF(TRIM(title_en), ''), title, '') AS name_en,
                             COALESCE(inst_nm, '') AS address,
                             COALESCE(inst_nm, '') AS address_en,
                             COALESCE(city, '') AS region,
@@ -1340,7 +1340,7 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                         SELECT
                             MD5(COALESCE(title, '') || '|' || COALESCE(url, '') || '|' || COALESCE(city, '')) AS id,
                             COALESCE(title, '') AS name,
-                            COALESCE(title, '') AS name_en,
+                            COALESCE(NULLIF(TRIM(title_en), ''), title, '') AS name_en,
                             COALESCE(inst_nm, '') AS address,
                             COALESCE(inst_nm, '') AS address_en,
                             COALESCE(city, '') AS region,

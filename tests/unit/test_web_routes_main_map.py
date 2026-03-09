@@ -174,3 +174,84 @@ def test_api_docent_audio_validation_error(client, monkeypatch):
 
     assert response.status_code == 400
     assert response.get_json()["error"] == "language must be ko|en"
+
+
+def test_api_places_event_name_en_uses_title_en(client, monkeypatch):
+    """행사 장소의 name_en 필드가 title_en(영문 번역) 값을 우선하여 반환해야 한다."""
+    sample_event_with_translation = {
+        "id": "event-translated",
+        "name": "경기 벚꽃 축제",
+        "name_en": "Gyeonggi Cherry Blossom Festival",
+        "lat": 37.26,
+        "lng": 127.02,
+        "category": "event",
+        "address": "경기도 수원시",
+        "address_en": "Suwon-si, Gyeonggi-do",
+        "region": "수원시",
+        "region_en": "Suwon-si",
+        "distance_m": 500,
+        "image_url": None,
+        "is_approximate_location": False,
+        "event_start_date": "2026-03-15",
+        "event_end_date": "2026-03-31",
+        "event_url": "https://example.com/cherry",
+        "is_ongoing": True,
+    }
+
+    def _fake_places_payload(**_kwargs):
+        return {"count": 1, "places": [sample_event_with_translation], "scope": "city", "city": "수원시"}, 200
+
+    monkeypatch.setattr(
+        "src.frontend.web.routes.main_map.create_places_payload",
+        _fake_places_payload,
+    )
+
+    response = client.get("/api/places?category=event&scope=city")
+    assert response.status_code == 200
+    payload = response.get_json()
+    place = payload["places"][0]
+
+    # name_en은 영어 번역 제목이어야 한다 (한국어 name과 달라야 함)
+    assert place["name"] == "경기 벚꽃 축제"
+    assert place["name_en"] == "Gyeonggi Cherry Blossom Festival"
+    assert place["name_en"] != place["name"]
+
+
+def test_api_places_event_name_en_falls_back_to_name(client, monkeypatch):
+    """title_en이 없는 행사는 name_en이 name(한국어 제목)과 동일해야 한다."""
+    sample_event_no_translation = {
+        "id": "event-no-translation",
+        "name": "미번역 행사",
+        "name_en": "미번역 행사",
+        "lat": 37.26,
+        "lng": 127.02,
+        "category": "event",
+        "address": "경기도",
+        "address_en": "Gyeonggi-do",
+        "region": "수원시",
+        "region_en": "Suwon-si",
+        "distance_m": 1200,
+        "image_url": None,
+        "is_approximate_location": True,
+        "event_start_date": None,
+        "event_end_date": None,
+        "event_url": "",
+        "is_ongoing": True,
+    }
+
+    def _fake_places_payload(**_kwargs):
+        return {"count": 1, "places": [sample_event_no_translation], "scope": "city", "city": "수원시"}, 200
+
+    monkeypatch.setattr(
+        "src.frontend.web.routes.main_map.create_places_payload",
+        _fake_places_payload,
+    )
+
+    response = client.get("/api/places?category=event&scope=city")
+    assert response.status_code == 200
+    place = response.get_json()["places"][0]
+
+    # title_en이 없으면 name_en은 name과 동일해도 됨 (한국어 fallback)
+    assert place["name_en"] is not None
+    assert place["name_en"] == place["name"]
+
