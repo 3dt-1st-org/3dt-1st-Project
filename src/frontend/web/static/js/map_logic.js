@@ -130,7 +130,9 @@
   }
 
   function makePinSvg(color, active) {
-    const size = active ? 42 : 34;
+    const level = APP.map ? APP.map.getLevel() : 5;
+    const base = Math.max(20, Math.min(40, 48 - level * 2));
+    const size = active ? Math.min(46, base + 8) : base;
     const inner = active ? 7.5 : 6;
     const glow = active
       ? `<circle cx="16" cy="16" r="15" fill="${color}" opacity="0.18"/>`
@@ -405,8 +407,8 @@
     document.getElementById('sheet-backdrop').classList.add('active');
     document.getElementById(id).classList.add('active');
     // [UX개선] 시트가 열리면 카드 패널 + 자막 패널 숨기기 (Google Maps 방식)
-    const cardPanel = document.getElementById('card-panel');
-    if (cardPanel) cardPanel.classList.add('hidden');
+    const cardWrapper = document.querySelector('.map-card-wrapper');
+    if (cardWrapper) cardWrapper.classList.add('hidden');
     const subtitlePanel = document.getElementById('status-panel');
     if (subtitlePanel) subtitlePanel.classList.add('hidden');
   }
@@ -417,8 +419,8 @@
       sheet.classList.remove('active');
     });
     // [UX개선] 시트가 닫히면 카드 패널 + 자막 패널 복원
-    const cardPanel = document.getElementById('card-panel');
-    if (cardPanel) cardPanel.classList.remove('hidden');
+    const cardWrapper = document.querySelector('.map-card-wrapper');
+    if (cardWrapper) cardWrapper.classList.remove('hidden');
     const subtitlePanel = document.getElementById('status-panel');
     if (subtitlePanel) subtitlePanel.classList.remove('hidden');
   }
@@ -961,6 +963,18 @@
       openTourSheet();
     });
 
+    const cardHandle = document.getElementById('card-handle');
+    if (cardHandle) {
+      cardHandle.addEventListener('click', () => {
+        const wrapper = document.querySelector('.map-card-wrapper');
+        if (!wrapper) return;
+        const isExpanded = wrapper.classList.contains('expanded');
+        wrapper.classList.toggle('expanded');
+        const chevron = document.getElementById('card-chevron');
+        if (chevron) chevron.textContent = isExpanded ? '▼' : '▲';
+      });
+    }
+
     document.getElementById('planner-btn').addEventListener('click', () => {
       if (APP.dailyPlan) {
         // 기존 계획 있으면 바로 시트를 열고, 재생성 여부를 확인
@@ -1275,6 +1289,9 @@
 
     kakao.maps.event.addListener(APP.map, 'dragend', function () {
       loadPlaces();
+    });
+    kakao.maps.event.addListener(APP.map, 'zoom_changed', function () {
+      syncMarkerState();
     });
 
     bindEvents();
