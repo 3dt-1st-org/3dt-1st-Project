@@ -350,7 +350,7 @@ struct MainMapView: View {
                             .foregroundStyle(.secondary)
                     }
                     if let snapshot = viewModel.plannerSnapshot {
-                        let weather = plannerWeatherBadgeText(snapshot: snapshot)
+                        let weather = viewModel.plannerWeatherBadgeText(for: snapshot)
                         if !weather.isEmpty {
                             Text(weather)
                                 .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
@@ -774,23 +774,6 @@ struct MainMapView: View {
             return viewModel.weatherValue
         }
         return "\(status) · \(viewModel.weatherValue)"
-    }
-
-    private func plannerWeatherBadgeText(snapshot: PlannerSnapshot) -> String {
-        let mapStatus = viewModel.weatherOutdoorStatus.trimmingCharacters(in: .whitespacesAndNewlines)
-        let mapTempRaw = viewModel.weatherValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let mapTemp = (mapTempRaw.isEmpty || mapTempRaw == "--°C") ? "" : mapTempRaw
-        let liveWeather = [mapStatus, mapTemp]
-            .filter { !$0.isEmpty }
-            .joined(separator: "  ")
-        if !liveWeather.isEmpty {
-            return liveWeather
-        }
-
-        return [snapshot.outdoorStatus, snapshot.temperatureText]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "  ")
     }
 
     private var loadingText: String {

@@ -794,7 +794,7 @@ private struct RemoteWeatherForecast: Decodable {
     }
 }
 
-private extension KeyedDecodingContainer {
+extension KeyedDecodingContainer {
     func decodeLossyString(forKey key: Key) throws -> String? {
         guard contains(key) else { return nil }
         if try decodeNil(forKey: key) {
@@ -811,6 +811,53 @@ private extension KeyedDecodingContainer {
         }
         if let value = try? decode(Bool.self, forKey: key) {
             return value ? "true" : "false"
+        }
+        return nil
+    }
+
+    func decodeLossyDouble(forKey key: Key) throws -> Double? {
+        guard contains(key) else { return nil }
+        if try decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? decode(Double.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Int.self, forKey: key) {
+            return Double(value)
+        }
+        if let value = try? decode(String.self, forKey: key) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return nil
+            }
+            return Double(trimmed)
+        }
+        return nil
+    }
+
+    func decodeLossyInt(forKey key: Key) throws -> Int? {
+        guard contains(key) else { return nil }
+        if try decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? decode(Int.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Double.self, forKey: key) {
+            return Int(value.rounded())
+        }
+        if let value = try? decode(String.self, forKey: key) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return nil
+            }
+            if let intValue = Int(trimmed) {
+                return intValue
+            }
+            if let doubleValue = Double(trimmed) {
+                return Int(doubleValue.rounded())
+            }
         }
         return nil
     }

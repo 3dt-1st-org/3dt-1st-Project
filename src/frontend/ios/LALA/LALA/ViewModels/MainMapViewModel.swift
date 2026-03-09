@@ -341,6 +341,22 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
+    func plannerWeatherBadgeText(for snapshot: PlannerSnapshot) -> String {
+        let liveStatus = weatherOutdoorStatus.trimmingCharacters(in: .whitespacesAndNewlines)
+        let liveTemp = normalizedLiveWeatherTemperature() ?? ""
+        let liveWeather = [liveStatus, liveTemp]
+            .filter { !$0.isEmpty }
+            .joined(separator: "  ")
+        if !liveWeather.isEmpty {
+            return liveWeather
+        }
+
+        return [snapshot.outdoorStatus, snapshot.temperatureText]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "  ")
+    }
+
     func focusPlannerPlace(_ item: PlannerPlanItem, animated: Bool) {
         guard let coordinate = item.place.coordinate else { return }
         let focused = MKCoordinateRegion(center: coordinate, span: defaultMapSpan)
@@ -355,10 +371,6 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
         selectedPlaceID = nil
         isPlannerPresented = false
-    }
-
-    func clearPlannerSnapshot() {
-        plannerSnapshot = nil
     }
 
     func clearInterventionToast() {
