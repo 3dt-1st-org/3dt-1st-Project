@@ -939,7 +939,8 @@
         radius: '20000',
         category: APP.selectedCategory,
         scope: 'radius',
-        limit: '100'
+        limit: '100',
+        language: APP.selectedLanguage
       });
 
       const response = await fetch('/api/places?' + query.toString());

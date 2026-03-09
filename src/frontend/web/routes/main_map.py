@@ -63,6 +63,13 @@ def api_places():
     except ValueError:
         return jsonify({"error": "잘못된 파라미터"}), 400
 
+    language = str(request.args.get("language") or "").strip().lower()
+    if language not in ("ko", "en"):
+        from flask import session
+        language = session.get("lang", "ko")
+    if language not in ("ko", "en"):
+        language = "ko"
+
     payload, status_code = create_places_payload(
         lat=lat,
         lng=lng,
@@ -71,6 +78,7 @@ def api_places():
         scope=(request.args.get("scope", "radius") or "radius"),
         city_hint=str(request.args.get("city") or ""),
         limit=limit,
+        language=language,
     )
     return jsonify(payload), status_code
 
