@@ -13,6 +13,7 @@ struct MainMapView: View {
     @StateObject private var viewModel = MainMapViewModel()
     @State private var showSettings = false
     @State private var selectedDetailPlace: PlaceRecommendation?
+    @State private var showPlannerRegenerateConfirm = false
 
     var body: some View {
         ZStack {
@@ -36,6 +37,9 @@ struct MainMapView: View {
                 }
             }
             .mapStyle(.standard(pointsOfInterest: .excludingAll))
+            .onMapCameraChange(frequency: .onEnd) { context in
+                viewModel.handleMapCameraInteractionEnded(center: context.region.center)
+            }
             .ignoresSafeArea()
 
             overlayContent
@@ -71,8 +75,22 @@ struct MainMapView: View {
         }
         .sheet(isPresented: $viewModel.isWeatherDetailPresented) {
             weatherForecastSheet
+                .presentationDetents([.height(weatherSheetHeight)])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.clear)
+        }
+        .sheet(isPresented: $viewModel.isPlannerPresented) {
+            plannerSheet
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+        }
+        .alert(plannerRegenerateTitle, isPresented: $showPlannerRegenerateConfirm) {
+            Button(cancelText, role: .cancel) {}
+            Button(regenerateText, role: .destructive) {
+                viewModel.regeneratePlanner(language: appViewModel.selectedLanguage)
+            }
+        } message: {
+            Text(plannerRegenerateBody)
         }
     }
 
@@ -93,8 +111,9 @@ struct MainMapView: View {
                 .padding(.top, 2)
 
             HStack {
-                settingsButton
+                plannerButton
                 Spacer()
+                settingsButton
                 weatherView
             }
             .padding(.horizontal, 16)
@@ -105,6 +124,10 @@ struct MainMapView: View {
 
             if let status = viewModel.statusMessage(for: appViewModel.selectedLanguage) {
                 statusBanner(status)
+            }
+
+            if let toast = viewModel.interventionToastMessage {
+                interventionToast(message: toast)
             }
 
             Spacer()
@@ -120,6 +143,11 @@ struct MainMapView: View {
                 .padding(.horizontal, 16)
             }
             .frame(height: 74)
+        }
+        .overlay(alignment: .center) {
+            if viewModel.isLocationOverlayVisible {
+                locationOverlay
+            }
         }
         .safeAreaPadding(.top, 10)
         .safeAreaPadding(.bottom, 8)
@@ -164,6 +192,7 @@ struct MainMapView: View {
                     ForEach(viewModel.places) { place in
                         Button {
                             viewModel.handlePlaceTap(place, language: appViewModel.selectedLanguage)
+                            selectedDetailPlace = place
                         } label: {
                             HStack(alignment: .center, spacing: 10) {
                                 VStack(alignment: .leading, spacing: 5) {
@@ -173,10 +202,19 @@ struct MainMapView: View {
                                         .lineLimit(2)
                                         .minimumScaleFactor(0.85)
 
-                                    Text(place.category(in: appViewModel.selectedLanguage))
-                                        .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
-                                        .foregroundStyle(categoryTextColor(for: place.categoryKind))
-                                        .lineLimit(1)
+                                    HStack(spacing: 6) {
+                                        Text(place.category(in: appViewModel.selectedLanguage))
+                                            .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
+                                            .foregroundStyle(categoryTextColor(for: place.categoryKind))
+                                            .lineLimit(1)
+
+                                        if place.categoryKind == .event {
+                                            Text(eventStatusText(for: place))
+                                                .font(.system(size: 11 * appViewModel.fontScale, weight: .bold))
+                                                .foregroundStyle(place.isOngoing == false ? .gray : Color(AppThemeColor.east.rawValue))
+                                                .lineLimit(1)
+                                        }
+                                    }
 
                                     HStack(spacing: 6) {
                                         Text(place.district(in: appViewModel.selectedLanguage))
@@ -211,18 +249,12 @@ struct MainMapView: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        .simultaneousGesture(
-                            LongPressGesture(minimumDuration: 0.45)
-                                .onEnded { _ in
-                                    viewModel.activatePlaceForDetail(place, language: appViewModel.selectedLanguage)
-                                    selectedDetailPlace = place
-                                }
-                        )
                         .id(place.id)
                     }
                 }
                 .padding(.horizontal, 14)
             }
+            .id(viewModel.placesRenderID)
             .onChange(of: viewModel.selectedPlaceID) { _, selectedID in
                 guard let selectedID else { return }
                 withAnimation(.easeInOut(duration: 0.35)) {
@@ -239,15 +271,10 @@ struct MainMapView: View {
             HStack(spacing: 8) {
                 Image(systemName: viewModel.weatherSymbol)
                     .foregroundStyle(weatherIconColor(for: viewModel.weatherSymbol))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(viewModel.weatherValue)
-                        .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
-                        .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                    Text(viewModel.weatherDust)
-                        .font(.system(size: 10 * appViewModel.fontScale, weight: .medium))
-                        .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.8))
-                        .lineLimit(1)
-                }
+                Text(weatherPillText)
+                    .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
+                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                    .lineLimit(1)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -261,7 +288,7 @@ struct MainMapView: View {
     }
 
     private var weatherForecastSheet: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(viewModel.weatherDetailTitle(for: appViewModel.selectedLanguage))
                 .font(.system(size: 20 * appViewModel.fontScale, weight: .bold))
                 .foregroundStyle(Color(AppThemeColor.north.rawValue))
@@ -275,40 +302,264 @@ struct MainMapView: View {
                     .foregroundStyle(.secondary)
                     .padding(.top, 6)
             } else {
-                ScrollView {
-                    VStack(spacing: 8) {
-                        ForEach(viewModel.weatherForecast) { item in
-                            HStack(spacing: 12) {
-                                Text(item.timeText)
-                                    .font(.system(size: 13 * appViewModel.fontScale, weight: .semibold))
-                                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                                    .frame(width: 78, alignment: .leading)
+                weatherForecastChartCard(items: viewModel.weatherForecast)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 20)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
 
-                                Image(systemName: item.symbolName)
-                                    .foregroundStyle(weatherIconColor(for: item.symbolName))
-                                    .frame(width: 24, alignment: .center)
+    private var weatherSheetHeight: CGFloat {
+        let baseHeight: CGFloat = 336
+        let scaled = baseHeight + ((appViewModel.fontScale - 1.0) * 42)
+        return min(max(scaled, 318), 390)
+    }
 
-                                Text(item.temperatureText)
-                                    .font(.system(size: 14 * appViewModel.fontScale, weight: .bold))
-                                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+    private func weatherForecastChartCard(items: [WeatherForecastItem]) -> some View {
+        let columnWidth: CGFloat = 56
+        let chartHeight: CGFloat = 88
+        let chartPoints = weatherForecastChartPoints(
+            items: items,
+            columnWidth: columnWidth,
+            chartHeight: chartHeight
+        )
+        let totalWidth = max(CGFloat(items.count) * columnWidth, 1)
 
-                                Spacer()
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(Color.white.opacity(0.95))
-                            )
+        return ScrollView(.horizontal, showsIndicators: false) {
+            VStack(spacing: 0) {
+                ZStack(alignment: .topLeading) {
+                    weatherForecastLinePath(points: chartPoints)
+                        .stroke(
+                            Color(red: 0.78, green: 0.79, blue: 0.82),
+                            style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                        )
+                        .frame(width: totalWidth, height: chartHeight)
+
+                    ForEach(chartPoints) { point in
+                        Circle()
+                            .fill(Color(red: 0.62, green: 0.65, blue: 0.70))
+                            .frame(width: 7, height: 7)
+                            .position(x: point.x, y: point.y)
+
+                        Text(point.label)
+                            .font(.system(size: 11 * appViewModel.fontScale, weight: .bold))
+                            .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.88))
+                            .position(x: point.x, y: point.y - 12)
+                    }
+                }
+                .frame(width: totalWidth, height: chartHeight)
+
+                HStack(spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        Text(weatherChartIconText(for: item.symbolName))
+                            .font(.system(size: 21))
+                            .frame(width: columnWidth, height: 28)
+                    }
+                }
+                .frame(width: totalWidth, alignment: .leading)
+
+                HStack(spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        Text(weatherChartTimeLabel(item.timeText))
+                            .font(.system(size: 11 * appViewModel.fontScale, weight: .medium))
+                            .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.45))
+                            .frame(width: columnWidth, height: 18)
+                    }
+                }
+                .frame(width: totalWidth, alignment: .leading)
+            }
+            .frame(width: totalWidth, alignment: .leading)
+            .padding(.vertical, 6)
+        }
+        .scrollIndicators(.hidden)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.96))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.black.opacity(0.04), lineWidth: 1)
+        )
+    }
+
+    private func weatherForecastChartPoints(
+        items: [WeatherForecastItem],
+        columnWidth: CGFloat,
+        chartHeight: CGFloat
+    ) -> [WeatherForecastChartPoint] {
+        let padTop: CGFloat = 26
+        let padBottom: CGFloat = 18
+        let drawHeight = max(1, chartHeight - padTop - padBottom)
+
+        let parsedTemps = items.map { weatherTemperatureValue($0.temperatureText) }
+        let validTemps = parsedTemps.compactMap { $0 }
+        let maxTemp = validTemps.max() ?? 1
+        let minTemp = validTemps.min() ?? 0
+        let range = max(0.1, maxTemp - minTemp)
+
+        return parsedTemps.enumerated().map { index, temp in
+            let x = CGFloat(index) * columnWidth + (columnWidth / 2)
+            let y: CGFloat
+            if let temp {
+                let ratio = CGFloat((maxTemp - temp) / range)
+                y = padTop + (ratio * drawHeight)
+            } else {
+                y = padTop + (drawHeight / 2)
+            }
+
+            let label = temp.map { "\(Int($0.rounded()))°" } ?? "--"
+            return WeatherForecastChartPoint(id: index, x: x, y: y, label: label)
+        }
+    }
+
+    private func weatherForecastLinePath(points: [WeatherForecastChartPoint]) -> Path {
+        var path = Path()
+        guard let first = points.first else { return path }
+        path.move(to: CGPoint(x: first.x, y: first.y))
+
+        guard points.count > 1 else { return path }
+        for index in 1..<points.count {
+            let previous = points[index - 1]
+            let current = points[index]
+            let midX = (previous.x + current.x) / 2
+            path.addCurve(
+                to: CGPoint(x: current.x, y: current.y),
+                control1: CGPoint(x: midX, y: previous.y),
+                control2: CGPoint(x: midX, y: current.y)
+            )
+        }
+        return path
+    }
+
+    private func weatherChartIconText(for symbolName: String) -> String {
+        switch symbolName {
+        case "sun.max.fill":
+            return "☀️"
+        case "cloud.sun.fill":
+            return "⛅"
+        case "cloud.fill":
+            return "☁️"
+        case "cloud.fog.fill":
+            return "🌫️"
+        case "cloud.rain.fill":
+            return "🌧️"
+        case "cloud.sleet.fill":
+            return "🌨️"
+        case "snowflake":
+            return "❄️"
+        case "cloud.sun.rain.fill":
+            return "🌦️"
+        case "cloud.bolt.rain.fill":
+            return "⛈️"
+        default:
+            return "⛅"
+        }
+    }
+
+    private func weatherChartTimeLabel(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        guard let hourRange = trimmed.range(
+            of: #"(\d{1,2})(?=:\d{2})"#,
+            options: .regularExpression
+        ),
+        let hourValue = Int(trimmed[hourRange]) else {
+            return trimmed
+        }
+
+        let hourText = String(format: "%02d", hourValue)
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "\(hourText)시"
+        case .english:
+            return "\(hourText)h"
+        }
+    }
+
+    private func weatherTemperatureValue(_ raw: String) -> Double? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let valueRange = trimmed.range(
+            of: #"-?\d+(?:\.\d+)?"#,
+            options: .regularExpression
+        ) else {
+            return nil
+        }
+
+        return Double(trimmed[valueRange])
+    }
+
+    private var plannerSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(plannerButtonText)
+                        .font(.system(size: 20 * appViewModel.fontScale, weight: .bold))
+                        .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                    if let snapshot = viewModel.plannerSnapshot, !snapshot.location.isEmpty {
+                        Text(snapshot.location)
+                            .font(.system(size: 13 * appViewModel.fontScale, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    if let snapshot = viewModel.plannerSnapshot {
+                        let weather = viewModel.plannerWeatherBadgeText(for: snapshot)
+                        if !weather.isEmpty {
+                            Text(weather)
+                                .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
+                                .foregroundStyle(Color(AppThemeColor.east.rawValue))
                         }
                     }
                 }
+                Spacer()
+                Button {
+                    showPlannerRegenerateConfirm = true
+                } label: {
+                    Text(regenerateText)
+                        .font(.system(size: 12 * appViewModel.fontScale, weight: .bold))
+                        .foregroundStyle(Color(AppThemeColor.east.rawValue))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color.white.opacity(0.92))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+
+            if viewModel.isPlannerLoading {
+                plannerLoadingCard
+            } else if let error = viewModel.plannerErrorMessage {
+                Text(error)
+                    .font(.system(size: 13 * appViewModel.fontScale, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 6)
+            } else if let snapshot = viewModel.plannerSnapshot, !snapshot.plan.isEmpty {
+                ScrollView {
+                    VStack(spacing: 10) {
+                        ForEach(snapshot.plan) { item in
+                            plannerItemCard(item)
+                        }
+                    }
+                    .padding(.bottom, 8)
+                }
+            } else {
+                Text(plannerEmptyText)
+                    .font(.system(size: 13 * appViewModel.fontScale, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 6)
             }
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)
         .padding(.top, 20)
+        .onAppear {
+            viewModel.presentPlanner(language: appViewModel.selectedLanguage)
+        }
         .background(
             Color(UIColor.systemGroupedBackground)
                 .ignoresSafeArea()
@@ -373,6 +624,26 @@ struct MainMapView: View {
         .padding(.horizontal, 16)
     }
 
+    private var plannerButton: some View {
+        Button {
+            viewModel.presentPlanner(language: appViewModel.selectedLanguage)
+        } label: {
+            HStack(spacing: 6) {
+                Text("🗓️")
+                Text(plannerButtonText)
+                    .font(.system(size: 13 * appViewModel.fontScale, weight: .bold))
+            }
+            .foregroundStyle(Color(AppThemeColor.north.rawValue))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.93))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
     private var settingsButton: some View {
         Button {
             showSettings = true
@@ -387,6 +658,83 @@ struct MainMapView: View {
                 )
         }
         .accessibilityLabel(settingsText)
+    }
+
+    private func interventionToast(message: String) -> some View {
+        HStack(spacing: 10) {
+            Text(message)
+                .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 6)
+
+            Button {
+                viewModel.clearInterventionToast()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.92))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(AppThemeColor.north.rawValue).opacity(0.88))
+        )
+        .padding(.horizontal, 16)
+    }
+
+    private var locationOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.48).ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                Text(locationOverlayTitle)
+                    .font(.system(size: 19 * appViewModel.fontScale, weight: .bold))
+                    .multilineTextAlignment(.center)
+
+                Text(locationOverlayBody)
+                    .font(.system(size: 14 * appViewModel.fontScale))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    showSettings = true
+                } label: {
+                    Text(locationOverlayOpenSettingsText)
+                        .font(.system(size: 15 * appViewModel.fontScale, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color(AppThemeColor.east.rawValue))
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    viewModel.centerOnUserLocation(animated: true)
+                    viewModel.dismissLocationOverlay()
+                } label: {
+                    Text(locationOverlayRetryText)
+                        .font(.system(size: 15 * appViewModel.fontScale, weight: .semibold))
+                        .foregroundStyle(Color(AppThemeColor.east.rawValue))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(18)
+            .frame(maxWidth: 340)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color(.systemBackground))
+            )
+            .padding(.horizontal, 24)
+        }
     }
 
     private var subtitleView: some View {
@@ -488,12 +836,179 @@ struct MainMapView: View {
         .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
     }
 
+    private var plannerLoadingCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .tint(Color(AppThemeColor.east.rawValue))
+                Text(plannerLoadingText)
+                    .font(.system(size: 14 * appViewModel.fontScale, weight: .semibold))
+                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+            }
+            Text(plannerLoadingSubtext)
+                .font(.system(size: 11 * appViewModel.fontScale, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.95))
+        )
+    }
+
+    private func plannerItemCard(_ item: PlannerPlanItem) -> some View {
+        Button {
+            viewModel.focusPlannerPlace(item, animated: true)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(periodIcon(for: item.period))
+                    Text(item.period)
+                        .font(.system(size: 13 * appViewModel.fontScale, weight: .bold))
+                        .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                    if !item.time.isEmpty {
+                        Text(item.time)
+                            .font(.system(size: 12 * appViewModel.fontScale, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text(item.place.name)
+                    .font(.system(size: 15 * appViewModel.fontScale, weight: .bold))
+                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                    .lineLimit(2)
+                if !item.place.roadAddress.isEmpty {
+                    Text(item.place.roadAddress)
+                        .font(.system(size: 12 * appViewModel.fontScale, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if !item.script.isEmpty {
+                    Text(item.script)
+                        .font(.system(size: 12 * appViewModel.fontScale, weight: .regular))
+                        .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.86))
+                        .lineLimit(3)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.95))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func periodIcon(for raw: String) -> String {
+        switch raw {
+        case "오전", "Morning":
+            return "🌅"
+        case "오후", "Afternoon":
+            return "☀️"
+        case "저녁", "Evening", "Night":
+            return "🌙"
+        default:
+            return "📍"
+        }
+    }
+
+    private func eventStatusText(for place: PlaceRecommendation) -> String {
+        let isKorean = appViewModel.selectedLanguage == .korean
+        if place.isOngoing == false {
+            return isKorean ? "종료됨" : "Ended"
+        }
+        return isKorean ? "진행중" : "Ongoing"
+    }
+
+    private var weatherPillText: String {
+        let status = viewModel.weatherOutdoorStatus.trimmingCharacters(in: .whitespacesAndNewlines)
+        if status.isEmpty {
+            return viewModel.weatherValue
+        }
+        return "\(status) · \(viewModel.weatherValue)"
+    }
+
     private var loadingText: String {
         switch appViewModel.selectedLanguage {
         case .korean:
             return "주변 장소 로딩 중..."
         case .english:
             return "Loading nearby places..."
+        }
+    }
+
+    private var plannerButtonText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "하루 일정"
+        case .english:
+            return "Daily Plan"
+        }
+    }
+
+    private var plannerLoadingText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "일정을 생성하는 중…"
+        case .english:
+            return "Generating your day plan…"
+        }
+    }
+
+    private var plannerLoadingSubtext: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "처음 방문하는 장소는 최대 30~60초 소요돼요"
+        case .english:
+            return "First-time places can take up to 30–60 seconds."
+        }
+    }
+
+    private var plannerEmptyText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "추천 장소가 없어요."
+        case .english:
+            return "No recommended places in the plan."
+        }
+    }
+
+    private var plannerRegenerateTitle: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "하루 일정 재생성"
+        case .english:
+            return "Regenerate Daily Plan"
+        }
+    }
+
+    private var plannerRegenerateBody: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "현재 지도의 위치를 기준으로 새 일정을 생성할까요?"
+        case .english:
+            return "Generate a new plan based on the current map position?"
+        }
+    }
+
+    private var regenerateText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "🔄 일정 재생성"
+        case .english:
+            return "🔄 Regenerate"
+        }
+    }
+
+    private var cancelText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "취소"
+        case .english:
+            return "Cancel"
         }
     }
 
@@ -530,6 +1045,42 @@ struct MainMapView: View {
             return "현재 위치로 이동"
         case .english:
             return "Go to current location"
+        }
+    }
+
+    private var locationOverlayTitle: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "위치 권한이 필요합니다"
+        case .english:
+            return "Location Permission Required"
+        }
+    }
+
+    private var locationOverlayBody: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "위치 권한이 꺼져 있어 LALA를 실행할 수 없습니다. 앱 설정에서 위치 권한을 켜주세요."
+        case .english:
+            return "LALA cannot run while location access is off. Please enable location permission in Settings."
+        }
+    }
+
+    private var locationOverlayOpenSettingsText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "앱 위치 설정 열기"
+        case .english:
+            return "Open App Location Settings"
+        }
+    }
+
+    private var locationOverlayRetryText: String {
+        switch appViewModel.selectedLanguage {
+        case .korean:
+            return "다시 확인"
+        case .english:
+            return "Check Again"
         }
     }
 
@@ -577,6 +1128,13 @@ struct MainMapView: View {
     }
 }
 
+private struct WeatherForecastChartPoint: Identifiable {
+    let id: Int
+    let x: CGFloat
+    let y: CGFloat
+    let label: String
+}
+
 private struct PlaceDetailBottomSheet: View {
     let place: PlaceRecommendation
     let language: AppLanguage
@@ -585,6 +1143,7 @@ private struct PlaceDetailBottomSheet: View {
     let moreInfoButtonTitle: String
     let showMoreInfoButton: Bool
     let onPlayMoreInfo: () -> Void
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -623,6 +1182,10 @@ private struct PlaceDetailBottomSheet: View {
                 .foregroundStyle(Color(AppThemeColor.north.rawValue))
                 .lineLimit(4)
 
+            if place.categoryKind == .event {
+                eventInfo
+            }
+
             if showMoreInfoButton {
                 Button(action: onPlayMoreInfo) {
                     Text(moreInfoButtonTitle)
@@ -641,6 +1204,105 @@ private struct PlaceDetailBottomSheet: View {
         .padding(.horizontal, 18)
         .padding(.top, 16)
         .padding(.bottom, 22)
+    }
+
+    private var eventInfo: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(eventStatusText)
+                .font(.system(size: 12 * fontScale, weight: .bold))
+                .foregroundStyle(place.isOngoing == false ? .gray : Color(AppThemeColor.east.rawValue))
+
+            if let dateText = eventDateRangeText {
+                Text(dateText)
+                    .font(.system(size: 12 * fontScale, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            if let eventURL = place.eventURL {
+                Button {
+                    openURL(eventURL)
+                } label: {
+                    Text(eventDetailLinkText)
+                        .font(.system(size: 12 * fontScale, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color(AppThemeColor.east.rawValue))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+
+            if place.isApproximateLocation {
+                Text(approximateLocationNotice)
+                    .font(.system(size: 11 * fontScale, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var eventStatusText: String {
+        let isKorean = language == .korean
+        if place.isOngoing == false {
+            return isKorean ? "⛔ 종료된 행사" : "⛔ Ended Event"
+        }
+        return isKorean ? "🟢 진행 중" : "🟢 Ongoing"
+    }
+
+    private var eventDetailLinkText: String {
+        language == .korean ? "행사 상세 보기 →" : "Open Event Details →"
+    }
+
+    private var approximateLocationNotice: String {
+        language == .korean
+            ? "📍 정확한 위치 정보가 없어 시 중심 위치로 표시돼요"
+            : "📍 Exact coordinates are unavailable, so the city center is shown."
+    }
+
+    private var eventDateRangeText: String? {
+        let start = formattedDate(place.eventStartDate)
+        let end = formattedDate(place.eventEndDate)
+        if start == nil && end == nil {
+            return nil
+        }
+        if language == .korean {
+            if let start, let end {
+                return "🗓️ \(start) ~ \(end)"
+            }
+            if let start {
+                return "🗓️ \(start)부터"
+            }
+            if let end {
+                return "🗓️ ~\(end)까지"
+            }
+        } else {
+            if let start, let end {
+                return "🗓️ \(start) ~ \(end)"
+            }
+            if let start {
+                return "🗓️ From \(start)"
+            }
+            if let end {
+                return "🗓️ Until \(end)"
+            }
+        }
+        return nil
+    }
+
+    private func formattedDate(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let source = DateFormatter()
+        source.locale = Locale(identifier: "en_US_POSIX")
+        source.dateFormat = "yyyy-MM-dd"
+        guard let date = source.date(from: raw) else {
+            return raw
+        }
+        let formatter = DateFormatter()
+        formatter.locale = language == .korean ? Locale(identifier: "ko_KR") : Locale(identifier: "en_US")
+        formatter.dateStyle = .medium
+        return formatter.string(from: date)
     }
 
     private var heroImage: some View {

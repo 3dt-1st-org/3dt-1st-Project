@@ -51,6 +51,11 @@ struct PlaceRecommendation: Identifiable {
     let addressKo: String
     let addressEn: String
     let imageURL: URL?
+    let isOngoing: Bool?
+    let eventStartDate: String?
+    let eventEndDate: String?
+    let eventURL: URL?
+    let isApproximateLocation: Bool
     private static let koreanCityEnglishMap: [String: String] = [
         "수원시": "Suwon-si",
         "성남시": "Seongnam-si",
@@ -103,7 +108,12 @@ struct PlaceRecommendation: Identifiable {
         distanceMeters: Int? = nil,
         addressKo: String = "",
         addressEn: String = "",
-        imageURL: URL? = nil
+        imageURL: URL? = nil,
+        isOngoing: Bool? = nil,
+        eventStartDate: String? = nil,
+        eventEndDate: String? = nil,
+        eventURL: URL? = nil,
+        isApproximateLocation: Bool = false
     ) {
         self.id = id
         self.nameKo = nameKo
@@ -120,6 +130,11 @@ struct PlaceRecommendation: Identifiable {
         self.addressKo = addressKo
         self.addressEn = addressEn
         self.imageURL = imageURL
+        self.isOngoing = isOngoing
+        self.eventStartDate = eventStartDate
+        self.eventEndDate = eventEndDate
+        self.eventURL = eventURL
+        self.isApproximateLocation = isApproximateLocation
     }
 
     func name(in language: AppLanguage) -> String {
@@ -204,7 +219,12 @@ struct PlaceRecommendation: Identifiable {
             distanceMeters: nextDistanceMeters,
             addressKo: addressKo,
             addressEn: addressEn,
-            imageURL: imageURL
+            imageURL: imageURL,
+            isOngoing: isOngoing,
+            eventStartDate: eventStartDate,
+            eventEndDate: eventEndDate,
+            eventURL: eventURL,
+            isApproximateLocation: isApproximateLocation
         )
     }
 

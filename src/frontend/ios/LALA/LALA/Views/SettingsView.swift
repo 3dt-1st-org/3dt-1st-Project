@@ -18,6 +18,7 @@ struct SettingsView: View {
                 locationConsentCard
                 languageCard
                 fontCard
+                aboutCard
             }
             .padding(16)
         }
@@ -127,6 +128,24 @@ struct SettingsView: View {
             Text("x\(String(format: "%.2f", viewModel.fontScale))")
                 .font(.system(size: 13 * viewModel.fontScale, weight: .medium))
                 .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .background(cardStyle)
+    }
+
+    private var aboutCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(viewModel.aboutTitle(in: viewModel.selectedLanguage))
+                .font(.system(size: 16 * viewModel.fontScale, weight: .semibold))
+            HStack {
+                Text(viewModel.versionTitle(in: viewModel.selectedLanguage))
+                    .font(.system(size: 14 * viewModel.fontScale, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(viewModel.appVersionText)
+                    .font(.system(size: 14 * viewModel.fontScale, weight: .bold))
+                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+            }
         }
         .padding(14)
         .background(cardStyle)
