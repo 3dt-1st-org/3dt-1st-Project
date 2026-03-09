@@ -40,7 +40,7 @@
     hasPlayedDetailForPlace: new Set(),
     dailyPlan: null,
     tourDocent: null,   // { script, restaurant_names, source }
-    clusterer: null,
+    clusterers: { attraction: null, restaurant: null, event: null },
     tourAudio: null
   };
 
@@ -294,9 +294,7 @@
   }
 
   function clearMarkers() {
-    if (APP.clusterer) {
-      APP.clusterer.clear();
-    }
+    Object.values(APP.clusterers).forEach((c) => { if (c) c.clear(); });
     APP.markers.forEach((item) => item.marker.setMap(null));
     APP.markers = [];
   }
@@ -365,7 +363,7 @@
 
   function drawMarkers(places) {
     clearMarkers();
-    const kakaoMarkers = [];
+    const byCategory = { attraction: [], restaurant: [], event: [] };
     places.forEach((place) => {
       const marker = new kakao.maps.Marker({
         position: new kakao.maps.LatLng(place.lat, place.lng),
@@ -375,20 +373,30 @@
         selectPlace(place, { from: 'marker', openDetail: true });
       });
       APP.markers.push({ placeId: place.id, marker, place });
-      kakaoMarkers.push(marker);
+      const cat = place.category in byCategory ? place.category : 'attraction';
+      byCategory[cat].push(marker);
     });
 
-    if (APP.clusterer) {
-      APP.clusterer.addMarkers(kakaoMarkers);
-    } else {
-      kakaoMarkers.forEach((m) => m.setMap(APP.map));
-    }
+    Object.entries(byCategory).forEach(([cat, markers]) => {
+      if (!markers.length) return;
+      const c = APP.clusterers[cat];
+      if (c) {
+        c.addMarkers(markers);
+      } else {
+        markers.forEach((m) => m.setMap(APP.map));
+      }
+    });
+    // 마커 추가 후 현재 줌 레벨에 맞게 말풍선 상태 동기화
+    syncMarkerState();
   }
 
   function syncMarkerState() {
+    const level = APP.map ? APP.map.getLevel() : 99;
     APP.markers.forEach((item) => {
-      const active = APP.selectedPlace && APP.selectedPlace.id === item.placeId;
-      item.marker.setImage(makePlaceMarkerSvg(item.place, active));
+      const isSelected = APP.selectedPlace && APP.selectedPlace.id === item.placeId;
+      // 레벨 6 이하(충분히 확대)이면 전체 말풍선 표시, 아니면 선택 마커만
+      const showBalloon = isSelected || level <= 6;
+      item.marker.setImage(makePlaceMarkerSvg(item.place, showBalloon));
     });
   }
 
@@ -1450,25 +1458,32 @@
       level: 5
     });
 
-    // MarkerClusterer: 인접 마커 그룹화 (minLevel 5 이상 축소 시 클러스터링)
+    // MarkerClusterer: 카테고리별 색상 클러스터링 (레벨 7 이상 축소 시 활성화)
     if (kakao.maps.MarkerClusterer) {
-      APP.clusterer = new kakao.maps.MarkerClusterer({
-        map: APP.map,
-        averageCenter: true,
-        minLevel: 5,
-        disableClickZoom: false,
-        styles: [{
-          width: '44px', height: '44px',
-          background: 'rgba(255,255,255,0.92)',
-          border: '2px solid #38a169',
-          borderRadius: '50%',
-          color: '#276749',
-          textAlign: 'center',
-          lineHeight: '40px',
-          fontSize: '13px',
-          fontWeight: '700',
-          boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
-        }]
+      const _CLUSTER_STYLES = {
+        attraction: { border: '#C53030', color: '#742a2a' },
+        restaurant:  { border: '#C87F11', color: '#744210' },
+        event:       { border: '#2B6CB0', color: '#1a365d' },
+      };
+      Object.entries(_CLUSTER_STYLES).forEach(([cat, s]) => {
+        APP.clusterers[cat] = new kakao.maps.MarkerClusterer({
+          map: APP.map,
+          averageCenter: true,
+          minLevel: 7,
+          disableClickZoom: false,
+          styles: [{
+            width: '44px', height: '44px',
+            background: 'rgba(255,255,255,0.93)',
+            border: `2px solid ${s.border}`,
+            borderRadius: '50%',
+            color: s.color,
+            textAlign: 'center',
+            lineHeight: '40px',
+            fontSize: '13px',
+            fontWeight: '700',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+          }]
+        });
       });
     }
 
@@ -1478,12 +1493,7 @@
       loadPlaces();
     });
     kakao.maps.event.addListener(APP.map, 'zoom_changed', function () {
-      // 레벨 5 초과(축소)이면 선택된 마커의 말풍선도 숨김
-      const level = APP.map.getLevel();
-      if (level > 5 && APP.selectedPlace) {
-        const item = APP.markers.find((m) => m.placeId === APP.selectedPlace.id);
-        if (item) item.marker.setImage(makePlaceMarkerSvg(item.place, false));
-      }
+      // syncMarkerState가 줌 레벨 기반으로 말풍선 ON/OFF를 처리
       syncMarkerState();
     });
 
