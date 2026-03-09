@@ -743,6 +743,17 @@
       }
 
       APP.places = Array.isArray(payload.places) ? payload.places : [];
+
+      // distance_m을 항상 사용자 실제 위치 기준으로 재계산
+      // (API는 지도 center 기준으로 계산하므로 지도를 이동하면 틀어짐)
+      if (APP.userPosition) {
+        APP.places.forEach((place) => {
+          place.distance_m = Math.round(
+            distanceMeters(APP.userPosition.lat, APP.userPosition.lng, place.lat, place.lng)
+          );
+        });
+      }
+
       drawMarkers(APP.places);
       renderCards();
 
