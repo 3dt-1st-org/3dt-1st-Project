@@ -43,6 +43,43 @@
     tourAudio: null
   };
 
+  // ── 유저 행동 로그 ──────────────────────────────────────────────────────
+  // 세션 ID: 탭을 닫기 전까지 유지. 새 탭/재시작 시 새 UUID 발급 → DAU 집계.
+  const _SESSION_ID = (() => {
+    const KEY = 'lala_session_id';
+    let id = sessionStorage.getItem(KEY);
+    if (!id) {
+      id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      });
+      sessionStorage.setItem(KEY, id);
+    }
+    return id;
+  })();
+
+  /**
+   * 유저 행동을 비동기(fire-and-forget)로 DB에 기록.
+   * @param {string} action_type  - 이벤트 종류 (예: 'click_place_card')
+   * @param {Object} [extra={}]   - place_id, place_name, sigun_nm 등 선택 필드
+   */
+  function logAction(action_type, extra = {}) {
+    const body = {
+      session_id:  _SESSION_ID,
+      action_type,
+      latitude:    APP.userPosition?.lat ?? null,
+      longitude:   APP.userPosition?.lng ?? null,
+      sigun_nm:    extra.sigun_nm   ?? null,
+      place_id:    extra.place_id   ?? null,
+      place_name:  extra.place_name ?? null,
+    };
+    fetch('/api/log/action', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    }).catch(() => {/* 로그 실패는 UI에 영향 없이 무시 */});
+  }
+
   function guardRoute() {
     if (!S.getBool(S.keys.hasAcceptedPrivacyNotice, false)) {
       window.location.replace('/privacy');
@@ -129,23 +166,85 @@
     return '로컬 장소';
   }
 
-  function makePinSvg(color, active) {
-    const level = APP.map ? APP.map.getLevel() : 5;
-    const base = Math.max(20, Math.min(40, 48 - level * 2));
-    const size = active ? Math.min(46, base + 8) : base;
-    const inner = active ? 7.5 : 6;
-    const glow = active
-      ? `<circle cx="16" cy="16" r="15" fill="${color}" opacity="0.18"/>`
-      : '';
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 40">${glow}
-      <path d="M16 0C7.163 0 0 7.163 0 16c0 10 16 24 16 24s16-14 16-24C32 7.163 24.837 0 16 0z" fill="${color}"/>
-      <circle cx="16" cy="16" r="${inner}" fill="#fff"/>
+  // iOS PlacePinView와 동일한 원형 마커
+  // normal  : 흰 원(외) + 카테고리 색 원(내) + 아이콘
+  // selected: 크기 확대 + 장소명 레이블(상단 말풍선)
+  const _CATEGORY_ICON = {
+    attraction: '🏛',
+    restaurant: '🍴',
+    event:      '🗓',
+  };
+
+  function makePlaceMarkerSvg(place, active) {
+    const isExpired = place.category === 'event' && place.is_ongoing === false;
+    const color  = isExpired ? '#9ca3af' : categoryColor(place.category);
+    const icon   = _CATEGORY_ICON[place.category] || '📍';
+
+    // 줌 레벨에 따른 크기 반응 (iOS : 28/34 고정, 웹: 줌 연동)
+    const level  = APP.map ? APP.map.getLevel() : 5;
+    const base   = Math.max(12, Math.min(17, 22 - level));  // outer radius
+    const outerR = active ? Math.min(19, base + 3) : base;
+    const innerR = Math.round(outerR * 0.64);
+    const iconSz = Math.round(outerR * 0.72);
+    const pad    = 3;  // 그림자 여백
+    const cx     = outerR + pad;
+    const circleDiam = (outerR + pad) * 2;
+
+    // 장소명 레이블 — 항상 표시 (iOS PlacePinView와 동일)
+    const rawName   = place.name || '';
+    const maxChars  = 12;
+    const labelText = rawName.length > maxChars ? rawName.slice(0, maxChars) + '…' : rawName;
+
+    const labelFontSz = 10;
+    const labelPadH   = 11;   // 좌우 충분한 여백
+    const labelPadV   = 4;
+    // 한글은 1em ≈ 글자 크기만큼 넓으므로 charW를 글자 크기와 동일하게 설정
+    const charW       = labelFontSz;
+    const labelInnerW = Math.max(40, labelText.length * charW);
+    const labelW      = labelInnerW + labelPadH * 2;
+    const labelH      = labelFontSz + labelPadV * 2;  // 18px
+    const rx          = Math.round(labelH / 2);        // 완전한 pill 모양
+    const gap         = 4;
+
+    // svgW는 레이블 폭과 원 지름 중 큰 값 — 항상 레이블 기준으로 계산
+    const svgH    = labelH + gap + circleDiam;
+    const svgW    = Math.max(circleDiam, labelW);
+    const circleX = svgW / 2;
+    const circleY = labelH + gap + outerR + pad;
+
+    const labelContent = `
+      <rect x="${((svgW - labelW) / 2).toFixed(1)}" y="0"
+            width="${labelW.toFixed(1)}" height="${labelH}"
+            rx="${rx}" fill="rgba(0,0,0,0.72)"/>
+      <text x="${(svgW / 2).toFixed(1)}" y="${(labelH / 2).toFixed(1)}"
+            text-anchor="middle" dominant-baseline="central"
+            font-family="system-ui,-apple-system,sans-serif"
+            font-size="${labelFontSz}" font-weight="700" fill="white"
+            >${labelText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</text>`;
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}">
+      <defs>
+        <filter id="sh" x="-60%" y="-60%" width="220%" height="220%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2.5"
+                        flood-color="#000000" flood-opacity="0.22"/>
+        </filter>
+      </defs>
+      ${labelContent}
+      <circle cx="${circleX.toFixed(1)}" cy="${circleY.toFixed(1)}"
+              r="${outerR}" fill="white" filter="url(#sh)"/>
+      <circle cx="${circleX.toFixed(1)}" cy="${circleY.toFixed(1)}"
+              r="${innerR}" fill="${color}"/>
+      <text x="${circleX.toFixed(1)}" y="${circleY.toFixed(1)}"
+            text-anchor="middle" dominant-baseline="central"
+            font-family="system-ui,-apple-system,sans-serif"
+            font-size="${iconSz}" fill="white">${icon}</text>
     </svg>`;
+
     const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
     return new kakao.maps.MarkerImage(
       src,
-      new kakao.maps.Size(size, size + 10),
-      { offset: new kakao.maps.Point(size / 2, size + 10) }
+      new kakao.maps.Size(svgW, svgH),
+      { offset: new kakao.maps.Point(circleX, circleY) }
     );
   }
 
@@ -236,7 +335,7 @@
     places.forEach((place) => {
       const marker = new kakao.maps.Marker({
         position: new kakao.maps.LatLng(place.lat, place.lng),
-        image: makePinSvg((place.category === 'event' && place.is_ongoing === false) ? '#9ca3af' : categoryColor(place.category), false),
+        image: makePlaceMarkerSvg(place, false),
         map: APP.map
       });
       kakao.maps.event.addListener(marker, 'click', () => {
@@ -249,7 +348,7 @@
   function syncMarkerState() {
     APP.markers.forEach((item) => {
       const active = APP.selectedPlace && APP.selectedPlace.id === item.placeId;
-      item.marker.setImage(makePinSvg((item.place.category === 'event' && item.place.is_ongoing === false) ? '#9ca3af' : categoryColor(item.place.category), active));
+      item.marker.setImage(makePlaceMarkerSvg(item.place, active));
     });
   }
 
@@ -288,6 +387,11 @@
 
     wrapper.addEventListener('click', () => {
       const alreadySelected = APP.selectedPlace && APP.selectedPlace.id === place.id;
+      logAction('click_place_card', {
+        place_id:   place.id,
+        place_name: place.name,
+        sigun_nm:   place.region || null,
+      });
       selectPlace(place, { from: 'card', openDetail: !alreadySelected });
     });
     return wrapper;
@@ -484,6 +588,11 @@
     moreBtn.style.display = canMore ? 'inline-block' : 'none';
     moreBtn.onclick = () => {
       APP.hasPlayedDetailForPlace.add(place.id);
+      logAction('click_docent_detail', {
+        place_id:   place.id,
+        place_name: place.name,
+        sigun_nm:   place.region || null,
+      });
       closeSheets();
       requestDocent(place, 'detail');
     };
@@ -918,6 +1027,7 @@
 
   function bindEvents() {
     document.getElementById('weather-btn').addEventListener('click', async () => {
+      logAction('click_weather');
       await loadWeather();
       renderWeatherSheet();
       openSheet('weather-sheet');
@@ -965,12 +1075,14 @@
         document.querySelectorAll('.map-chip').forEach((el) => el.classList.remove('active'));
         btn.classList.add('active');
         APP.selectedCategory = btn.dataset.category;
+        logAction('click_category_filter');
         _syncTourBtn();
         loadPlaces();
       });
     });
 
     document.getElementById('tour-btn').addEventListener('click', () => {
+      logAction('click_tour_guide');
       openTourSheet();
     });
 
@@ -987,6 +1099,7 @@
     }
 
     document.getElementById('planner-btn').addEventListener('click', () => {
+      logAction('click_daily_plan');
       if (APP.dailyPlan) {
         // 기존 계획 있으면 바로 시트를 열고, 재생성 여부를 확인
         openSheet('planner-sheet');
@@ -1172,7 +1285,7 @@
   async function fetchDailyPlan(lat, lng) {
     openSheet('planner-sheet');
     const slotsEl = document.getElementById('planner-slots');
-    slotsEl.innerHTML = '<div class="planner-skeleton">일정을 생성하는 중…<br><small style="opacity:.6;font-size:.75rem">처음 방문하는 장소는 최대 30~60초 소요돼요</small></div>';
+    slotsEl.innerHTML = '<div class="planner-skeleton">일정을 생성하는 중…<br><small style="opacity:.6;font-size:.75rem">처음 방문하는 장소는 최대 5~10초 소요돼요</small></div>';
     document.getElementById('planner-location').textContent = '';
     document.getElementById('planner-weather').textContent = '';
 

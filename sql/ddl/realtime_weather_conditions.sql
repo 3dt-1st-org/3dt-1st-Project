@@ -20,6 +20,12 @@ CREATE TABLE locallink.realtime_weather_conditions (
     
     -- 5. 시스템 메타데이터
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP -- Azure에서 PostgreSQL로 데이터가 실제 INSERT된 물리적 시간
+    is_rain_snow bool NULL,
+	is_bad_dust bool NULL,
+	is_heatwave bool NULL,
+	is_coldwave bool NULL,
+	is_strong_wind bool NULL,
+	CONSTRAINT realtime_weather_conditions_pkey PRIMARY KEY (id)
 );
 
 
