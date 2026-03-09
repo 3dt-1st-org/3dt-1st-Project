@@ -61,6 +61,7 @@ def create_app() -> Flask:
     from src.frontend.web.routes.ios_api import ios_api_bp
     from src.frontend.web.routes.dashboard import dashboard_bp
     from src.frontend.web.routes.planner import planner_bp
+    from src.frontend.web.routes.action_log import action_log_bp
 
     app.register_blueprint(onboarding_bp)
     app.register_blueprint(main_map_bp)
@@ -68,6 +69,7 @@ def create_app() -> Flask:
     app.register_blueprint(ios_api_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(planner_bp)
+    app.register_blueprint(action_log_bp)
 
     @app.route("/api/health")
     def health_check():

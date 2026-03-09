@@ -321,7 +321,7 @@ body {
   position: absolute;
   left: 12px;
   right: 12px;
-  top: 66px;
+  top: 104px;   /* filter-bar + weather-row 아래 (56px + ~34px + 14px gap) */
   z-index: 34;
   display: flex;
   flex-direction: column;
@@ -520,9 +520,13 @@ body {
 }
 
 .map-weather-row {
-  width: var(--map-top-stack-width);
+  position: absolute;
+  top: 56px;     /* filter-bar(top:12px + chip height ~36px + gap 8px) 아래 */
+  left: 10px;
+  right: 110px;  /* planner-btn 공간 확보 */
+  z-index: 30;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: center;
   gap: 8px;
   pointer-events: none;
@@ -592,6 +596,12 @@ body {
   font-size: 0.75rem;
   font-weight: 700;
   border: 1px solid rgba(200, 150, 0, 0.25);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.tour-tag:hover {
+  background: rgba(245, 200, 66, 0.38);
+  border-color: rgba(200, 150, 0, 0.55);
 }
 
 .tour-audio-bar {
@@ -916,7 +926,7 @@ body {
 
 @media (min-width: 768px) {
   .map-top-stack {
-    top: 74px;
+    top: 112px;   /* 768px에서도 weather-row 아래 */
   }
 
   .map-subtitle-panel {
@@ -927,7 +937,7 @@ body {
 @media (min-width: 1024px) {
   .map-top-stack {
     --map-top-stack-width: min(804px, calc(100vw - 140px));
-    top: 78px;
+    top: 116px;  /* 1024px에서도 weather-row 아래 */
   }
 
   .map-subtitle-panel {

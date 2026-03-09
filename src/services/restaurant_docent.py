@@ -176,7 +176,9 @@ def rank_restaurants(candidate_names: list[str], cursor) -> list[str]:
 
         # 가중합: 카드 40% + 당근 60%
         df["final_score"] = df["norm_card"] * 0.4 + df["norm_daangn"] * 0.6
-        return df.sort_values("final_score", ascending=False)["restaurant_name"].head(10).tolist()
+        # 동일 식당명이 여러 도시 행으로 중복될 수 있으므로 이름 기준 최고 점수만 유지
+        df = df.sort_values("final_score", ascending=False).drop_duplicates(subset="restaurant_name", keep="first")
+        return df["restaurant_name"].head(10).tolist()
 
     except Exception as exc:
         logger.warning("rank_restaurants 쿼리 실패, 입력 순서 그대로 사용: %s", exc)
