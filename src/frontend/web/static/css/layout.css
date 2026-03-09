@@ -504,6 +504,73 @@ body {
   white-space: nowrap;
 }
 
+.map-tour-btn {
+  position: absolute;
+  top: 50px;
+  right: 10px;
+  z-index: 31;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: rgba(255, 240, 200, 0.97);
+  color: #7a4f00;
+  border: 1.5px solid rgba(200, 150, 0, 0.3);
+}
+
+/* ── 맛집 투어 가이드 시트 ────────────────────────────────────────────── */
+.tour-sheet__header {
+  margin-bottom: 4px;
+}
+
+.tour-body {
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: #1f2937;
+  white-space: pre-wrap;
+  padding: 4px 0 12px;
+}
+
+.tour-body--loading {
+  color: #64748b;
+  font-style: italic;
+}
+
+.tour-body--error {
+  color: #dc2626;
+}
+
+.tour-restaurant-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.tour-tag {
+  background: rgba(245, 200, 66, 0.18);
+  color: #7a4f00;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid rgba(200, 150, 0, 0.25);
+}
+
+.tour-audio-bar {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.tour-play-btn {
+  width: 100%;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
 .place-card {
   width: 252px;
   min-width: 252px;

@@ -5,6 +5,7 @@ from flask import Blueprint, Response, jsonify, render_template, request
 from src.frontend.web.services.docent_api_service import (
     create_docent_audio_payload,
     create_docent_script_payload,
+    create_tour_docent_payload,
 )
 from src.frontend.web.services.map_api_service import (
     DEFAULT_LAT,
@@ -83,6 +84,15 @@ def api_docent_script():
 def api_docent_audio():
     payload = request.get_json(silent=True) or {}
     response_payload, status_code, mime_type = create_docent_audio_payload(payload)
+    if mime_type == "audio/mpeg":
+        return Response(response_payload, mimetype=mime_type, status=status_code)
+    return jsonify(response_payload), status_code
+
+
+@main_map_bp.route("/api/docent/tour", methods=["POST"])
+def api_docent_tour():
+    payload = request.get_json(silent=True) or {}
+    response_payload, status_code, mime_type = create_tour_docent_payload(payload)
     if mime_type == "audio/mpeg":
         return Response(response_payload, mimetype=mime_type, status=status_code)
     return jsonify(response_payload), status_code
