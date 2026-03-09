@@ -40,6 +40,7 @@
     hasPlayedDetailForPlace: new Set(),
     dailyPlan: null,
     tourDocent: null,   // { script, restaurant_names, source }
+    clusterer: null,
     tourAudio: null
   };
 
@@ -167,73 +168,102 @@
   }
 
   // iOS PlacePinView와 동일한 원형 마커
-  // normal  : 흰 원(외) + 카테고리 색 원(내) + 아이콘
-  // selected: 크기 확대 + 장소명 레이블(상단 말풍선)
+  // active=false : 원형 아이콘만 렌더링 (클린 상태)
+  // active=true  : 원형 + 상단 말풍선(장소명) 표시
   const _CATEGORY_ICON = {
     attraction: '🏛',
     restaurant: '🍴',
     event:      '🗓',
   };
 
+  // 말풍선(레이블) — 흰 배경 pill + 그림자 + 장소명
+  // 줌 레벨과 무관하게 픽셀 크기 고정: SVG 고정 width/height 사용
   function makePlaceMarkerSvg(place, active) {
     const isExpired = place.category === 'event' && place.is_ongoing === false;
     const color  = isExpired ? '#9ca3af' : categoryColor(place.category);
     const icon   = _CATEGORY_ICON[place.category] || '📍';
 
-    // 줌 레벨에 따른 크기 반응 (iOS : 28/34 고정, 웹: 줌 연동)
-    const level  = APP.map ? APP.map.getLevel() : 5;
-    const base   = Math.max(12, Math.min(17, 22 - level));  // outer radius
-    const outerR = active ? Math.min(19, base + 3) : base;
+    // 원 크기 — 줌 비례 없이 고정 크기 사용 (줌인/줌아웃에도 동일한 픽셀)
+    const outerR = active ? 20 : 17;
     const innerR = Math.round(outerR * 0.64);
     const iconSz = Math.round(outerR * 0.72);
-    const pad    = 3;  // 그림자 여백
+    const pad    = 4;   // 그림자 여백
     const cx     = outerR + pad;
     const circleDiam = (outerR + pad) * 2;
 
-    // 장소명 레이블 — 항상 표시 (iOS PlacePinView와 동일)
+    if (!active) {
+      // ── 비활성: 원형 마커만 ─────────────────────────────────────
+      const svgW = circleDiam;
+      const svgH = circleDiam;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}">
+        <defs>
+          <filter id="sh" x="-60%" y="-60%" width="220%" height="220%">
+            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.2"/>
+          </filter>
+        </defs>
+        <circle cx="${cx}" cy="${cx}" r="${outerR}" fill="white" filter="url(#sh)"/>
+        <circle cx="${cx}" cy="${cx}" r="${innerR}" fill="${color}"/>
+        <text x="${cx}" y="${cx}" text-anchor="middle" dominant-baseline="central"
+              font-family="system-ui,-apple-system,sans-serif"
+              font-size="${iconSz}" fill="white">${icon}</text>
+      </svg>`;
+      const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+      return new kakao.maps.MarkerImage(
+        src,
+        new kakao.maps.Size(svgW, svgH),
+        { offset: new kakao.maps.Point(cx, cx) }
+      );
+    }
+
+    // ── 활성: 상단 말풍선 + 원형 마커 ─────────────────────────────
     const rawName   = place.name || '';
-    const maxChars  = 12;
+    const maxChars  = 14;
     const labelText = rawName.length > maxChars ? rawName.slice(0, maxChars) + '…' : rawName;
 
-    const labelFontSz = 10;
-    const labelPadH   = 11;   // 좌우 충분한 여백
-    const labelPadV   = 4;
-    // 한글은 1em ≈ 글자 크기만큼 넓으므로 charW를 글자 크기와 동일하게 설정
-    const charW       = labelFontSz;
-    const labelInnerW = Math.max(40, labelText.length * charW);
-    const labelW      = labelInnerW + labelPadH * 2;
-    const labelH      = labelFontSz + labelPadV * 2;  // 18px
-    const rx          = Math.round(labelH / 2);        // 완전한 pill 모양
-    const gap         = 4;
+    const labelFontSz = 11;   // px 고정 — 줌 무관
+    const labelPadH   = 10;
+    const labelPadV   = 5;
+    const charW       = labelFontSz * 0.95;  // 한글 자폭 근사
+    const labelInnerW = Math.max(48, labelText.length * charW);
+    const labelW      = Math.ceil(labelInnerW + labelPadH * 2);
+    const labelH      = Math.ceil(labelFontSz + labelPadV * 2);  // pill 높이
+    const rx          = Math.round(labelH / 2);  // 완전 pill
+    const gap         = 5;   // 말풍선 ↔ 원 간격
+    // 말풍선 아래에 뾰족한 꼬리
+    const tailW = 8;
+    const tailH = 5;
+    const tailTotalH = labelH + tailH;
 
-    // svgW는 레이블 폭과 원 지름 중 큰 값 — 항상 레이블 기준으로 계산
-    const svgH    = labelH + gap + circleDiam;
-    const svgW    = Math.max(circleDiam, labelW);
+    const svgW = Math.max(circleDiam, labelW);
+    const svgH = tailTotalH + gap + circleDiam;
     const circleX = svgW / 2;
-    const circleY = labelH + gap + outerR + pad;
-
-    const labelContent = `
-      <rect x="${((svgW - labelW) / 2).toFixed(1)}" y="0"
-            width="${labelW.toFixed(1)}" height="${labelH}"
-            rx="${rx}" fill="rgba(0,0,0,0.72)"/>
-      <text x="${(svgW / 2).toFixed(1)}" y="${(labelH / 2).toFixed(1)}"
-            text-anchor="middle" dominant-baseline="central"
-            font-family="system-ui,-apple-system,sans-serif"
-            font-size="${labelFontSz}" font-weight="700" fill="white"
-            >${labelText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</text>`;
+    const circleY = tailTotalH + gap + outerR + pad;
+    const labelX  = (svgW - labelW) / 2;
+    const tailMid = svgW / 2;
 
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}">
       <defs>
-        <filter id="sh" x="-60%" y="-60%" width="220%" height="220%">
-          <feDropShadow dx="0" dy="2" stdDeviation="2.5"
-                        flood-color="#000000" flood-opacity="0.22"/>
+        <filter id="sh" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.18"/>
+        </filter>
+        <filter id="csh" x="-60%" y="-60%" width="220%" height="220%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.2"/>
         </filter>
       </defs>
-      ${labelContent}
-      <circle cx="${circleX.toFixed(1)}" cy="${circleY.toFixed(1)}"
-              r="${outerR}" fill="white" filter="url(#sh)"/>
-      <circle cx="${circleX.toFixed(1)}" cy="${circleY.toFixed(1)}"
-              r="${innerR}" fill="${color}"/>
+      <!-- 말풍선 배경(흰 pill + 꼬리) -->
+      <g filter="url(#sh)">
+        <rect x="${labelX.toFixed(1)}" y="0" width="${labelW}" height="${labelH}" rx="${rx}" fill="white"/>
+        <polygon points="${(tailMid - tailW / 2).toFixed(1)},${labelH} ${(tailMid + tailW / 2).toFixed(1)},${labelH} ${tailMid.toFixed(1)},${tailTotalH}" fill="white"/>
+      </g>
+      <!-- 장소명 -->
+      <text x="${(svgW / 2).toFixed(1)}" y="${(labelH / 2).toFixed(1)}"
+            text-anchor="middle" dominant-baseline="central"
+            font-family="system-ui,-apple-system,sans-serif"
+            font-size="${labelFontSz}" font-weight="700" fill="#1a1a1a"
+      >${labelText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</text>
+      <!-- 원형 마커 -->
+      <circle cx="${circleX.toFixed(1)}" cy="${circleY.toFixed(1)}" r="${outerR}" fill="white" filter="url(#csh)"/>
+      <circle cx="${circleX.toFixed(1)}" cy="${circleY.toFixed(1)}" r="${innerR}" fill="${color}"/>
       <text x="${circleX.toFixed(1)}" y="${circleY.toFixed(1)}"
             text-anchor="middle" dominant-baseline="central"
             font-family="system-ui,-apple-system,sans-serif"
@@ -264,6 +294,9 @@
   }
 
   function clearMarkers() {
+    if (APP.clusterer) {
+      APP.clusterer.clear();
+    }
     APP.markers.forEach((item) => item.marker.setMap(null));
     APP.markers = [];
   }
@@ -332,17 +365,24 @@
 
   function drawMarkers(places) {
     clearMarkers();
+    const kakaoMarkers = [];
     places.forEach((place) => {
       const marker = new kakao.maps.Marker({
         position: new kakao.maps.LatLng(place.lat, place.lng),
         image: makePlaceMarkerSvg(place, false),
-        map: APP.map
       });
       kakao.maps.event.addListener(marker, 'click', () => {
         selectPlace(place, { from: 'marker', openDetail: true });
       });
       APP.markers.push({ placeId: place.id, marker, place });
+      kakaoMarkers.push(marker);
     });
+
+    if (APP.clusterer) {
+      APP.clusterer.addMarkers(kakaoMarkers);
+    } else {
+      kakaoMarkers.forEach((m) => m.setMap(APP.map));
+    }
   }
 
   function syncMarkerState() {
@@ -1409,12 +1449,41 @@
       center: new kakao.maps.LatLng(APP.userPosition.lat, APP.userPosition.lng),
       level: 5
     });
+
+    // MarkerClusterer: 인접 마커 그룹화 (minLevel 5 이상 축소 시 클러스터링)
+    if (kakao.maps.MarkerClusterer) {
+      APP.clusterer = new kakao.maps.MarkerClusterer({
+        map: APP.map,
+        averageCenter: true,
+        minLevel: 5,
+        disableClickZoom: false,
+        styles: [{
+          width: '44px', height: '44px',
+          background: 'rgba(255,255,255,0.92)',
+          border: '2px solid #38a169',
+          borderRadius: '50%',
+          color: '#276749',
+          textAlign: 'center',
+          lineHeight: '40px',
+          fontSize: '13px',
+          fontWeight: '700',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+        }]
+      });
+    }
+
     renderUserLocation();
 
     kakao.maps.event.addListener(APP.map, 'dragend', function () {
       loadPlaces();
     });
     kakao.maps.event.addListener(APP.map, 'zoom_changed', function () {
+      // 레벨 5 초과(축소)이면 선택된 마커의 말풍선도 숨김
+      const level = APP.map.getLevel();
+      if (level > 5 && APP.selectedPlace) {
+        const item = APP.markers.find((m) => m.placeId === APP.selectedPlace.id);
+        if (item) item.marker.setImage(makePlaceMarkerSvg(item.place, false));
+      }
       syncMarkerState();
     });
 
