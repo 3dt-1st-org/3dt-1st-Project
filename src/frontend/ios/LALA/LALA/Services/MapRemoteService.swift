@@ -199,7 +199,19 @@ final class MapRemoteService: MapDataProviding {
             try validate(response: response)
 
             let decoded = try decoder.decode(RemoteWeatherResponse.self, from: data)
+            let normalizedTemp = decoded.temp.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedIcon = decoded.icon.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedOutdoorStatus = (decoded.outdoorStatus ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             let filteredForecast = Self.filterFutureForecast(decoded.forecast)
+            let hasRenderableWeather = !normalizedTemp.isEmpty ||
+                !normalizedIcon.isEmpty ||
+                !normalizedOutdoorStatus.isEmpty ||
+                !filteredForecast.isEmpty
+            guard hasRenderableWeather else {
+                throw MapServiceError.invalidResponse
+            }
+
             let forecast = filteredForecast.map {
                 WeatherForecastItem(
                     id: $0.time,
@@ -212,7 +224,7 @@ final class MapRemoteService: MapDataProviding {
                 symbolName: Self.weatherSymbolName(from: decoded.icon),
                 temperatureText: Self.temperatureText(from: decoded.temp),
                 dustText: Self.dustText(from: decoded.dust),
-                outdoorStatus: decoded.outdoorStatus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                outdoorStatus: normalizedOutdoorStatus,
                 forecast: forecast
             )
         }
@@ -738,6 +750,15 @@ private struct RemoteWeatherResponse: Decodable {
         case forecast
         case outdoorStatus = "outdoor_status"
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        temp = try container.decodeLossyString(forKey: .temp) ?? ""
+        icon = try container.decodeLossyString(forKey: .icon) ?? ""
+        dust = try container.decodeIfPresent(RemoteWeatherDust.self, forKey: .dust)
+        forecast = try container.decodeIfPresent([RemoteWeatherForecast].self, forKey: .forecast) ?? []
+        outdoorStatus = try container.decodeLossyString(forKey: .outdoorStatus)
+    }
 }
 
 private struct RemoteWeatherDust: Decodable {
@@ -758,4 +779,39 @@ private struct RemoteWeatherForecast: Decodable {
     let time: String
     let temp: String
     let icon: String
+
+    enum CodingKeys: String, CodingKey {
+        case time
+        case temp
+        case icon
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        time = try container.decodeLossyString(forKey: .time) ?? ""
+        temp = try container.decodeLossyString(forKey: .temp) ?? ""
+        icon = try container.decodeLossyString(forKey: .icon) ?? ""
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decodeLossyString(forKey key: Key) throws -> String? {
+        guard contains(key) else { return nil }
+        if try decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? decode(String.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Double.self, forKey: key) {
+            return String(value)
+        }
+        if let value = try? decode(Int.self, forKey: key) {
+            return String(value)
+        }
+        if let value = try? decode(Bool.self, forKey: key) {
+            return value ? "true" : "false"
+        }
+        return nil
+    }
 }

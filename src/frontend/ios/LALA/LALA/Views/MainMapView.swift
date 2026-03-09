@@ -83,8 +83,7 @@ struct MainMapView: View {
         .alert(plannerRegenerateTitle, isPresented: $showPlannerRegenerateConfirm) {
             Button(cancelText, role: .cancel) {}
             Button(regenerateText, role: .destructive) {
-                viewModel.clearPlannerSnapshot()
-                viewModel.refreshPlanner(language: appViewModel.selectedLanguage)
+                viewModel.regeneratePlanner(language: appViewModel.selectedLanguage)
             }
         } message: {
             Text(plannerRegenerateBody)
@@ -351,9 +350,7 @@ struct MainMapView: View {
                             .foregroundStyle(.secondary)
                     }
                     if let snapshot = viewModel.plannerSnapshot {
-                        let weather = [snapshot.outdoorStatus, snapshot.temperatureText]
-                            .filter { !$0.isEmpty }
-                            .joined(separator: "  ")
+                        let weather = plannerWeatherBadgeText(snapshot: snapshot)
                         if !weather.isEmpty {
                             Text(weather)
                                 .font(.system(size: 12 * appViewModel.fontScale, weight: .semibold))
@@ -685,10 +682,14 @@ struct MainMapView: View {
     }
 
     private var plannerLoadingCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(plannerLoadingText)
-                .font(.system(size: 14 * appViewModel.fontScale, weight: .semibold))
-                .foregroundStyle(Color(AppThemeColor.north.rawValue))
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .tint(Color(AppThemeColor.east.rawValue))
+                Text(plannerLoadingText)
+                    .font(.system(size: 14 * appViewModel.fontScale, weight: .semibold))
+                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+            }
             Text(plannerLoadingSubtext)
                 .font(.system(size: 11 * appViewModel.fontScale, weight: .medium))
                 .foregroundStyle(.secondary)
@@ -773,6 +774,23 @@ struct MainMapView: View {
             return viewModel.weatherValue
         }
         return "\(status) · \(viewModel.weatherValue)"
+    }
+
+    private func plannerWeatherBadgeText(snapshot: PlannerSnapshot) -> String {
+        let mapStatus = viewModel.weatherOutdoorStatus.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mapTempRaw = viewModel.weatherValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mapTemp = (mapTempRaw.isEmpty || mapTempRaw == "--°C") ? "" : mapTempRaw
+        let liveWeather = [mapStatus, mapTemp]
+            .filter { !$0.isEmpty }
+            .joined(separator: "  ")
+        if !liveWeather.isEmpty {
+            return liveWeather
+        }
+
+        return [snapshot.outdoorStatus, snapshot.temperatureText]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "  ")
     }
 
     private var loadingText: String {

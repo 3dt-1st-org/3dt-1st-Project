@@ -299,21 +299,32 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     func presentPlanner(language: AppLanguage) {
         activeLanguage = language
         isPlannerPresented = true
+        reloadWeather(force: true)
         if plannerSnapshot == nil {
             refreshPlanner(language: language)
         }
     }
 
-    func refreshPlanner(language: AppLanguage) {
+    func regeneratePlanner(language: AppLanguage) {
+        isPlannerPresented = true
+        plannerSnapshot = nil
+        plannerErrorMessage = nil
+        reloadWeather(force: true)
+        refreshPlanner(language: language, force: true)
+    }
+
+    func refreshPlanner(language: AppLanguage, force: Bool = false) {
         activeLanguage = language
-        guard !isPlannerLoading else { return }
+        if isPlannerLoading && !force {
+            return
+        }
 
         plannerTask?.cancel()
+        let center = region.center
+        isPlannerLoading = true
+        plannerErrorMessage = nil
         plannerTask = Task { [weak self] in
             guard let self else { return }
-            let center = region.center
-            isPlannerLoading = true
-            plannerErrorMessage = nil
             defer {
                 isPlannerLoading = false
                 plannerTask = nil
@@ -322,7 +333,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             do {
                 let snapshot = try await plannerDataProvider.fetchDailyPlan(at: center, language: language)
                 guard !Task.isCancelled else { return }
-                plannerSnapshot = snapshot
+                plannerSnapshot = mergedPlannerSnapshot(from: snapshot)
             } catch {
                 guard !Task.isCancelled else { return }
                 plannerErrorMessage = plannerErrorText(for: language)
@@ -367,6 +378,34 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         case .english:
             return "Unable to load the daily plan. Please try again."
         }
+    }
+
+    private func mergedPlannerSnapshot(from snapshot: PlannerSnapshot) -> PlannerSnapshot {
+        let liveStatus = weatherOutdoorStatus.trimmingCharacters(in: .whitespacesAndNewlines)
+        let liveTemp = normalizedLiveWeatherTemperature()
+
+        let mergedStatus = liveStatus.isEmpty ? snapshot.outdoorStatus : liveStatus
+        let mergedTemp = liveTemp ?? snapshot.temperatureText
+
+        return PlannerSnapshot(
+            location: snapshot.location,
+            outdoorStatus: mergedStatus,
+            temperatureText: mergedTemp,
+            plan: snapshot.plan
+        )
+    }
+
+    private func normalizedLiveWeatherTemperature() -> String? {
+        let trimmed = weatherValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == WeatherSnapshot.placeholder.temperatureText {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func refreshPlannerSnapshotWeatherFromLiveWeather() {
+        guard let snapshot = plannerSnapshot else { return }
+        plannerSnapshot = mergedPlannerSnapshot(from: snapshot)
     }
 
     private func voiceOnSubtitle(for language: AppLanguage) -> String {
@@ -752,6 +791,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 weatherDust = weatherResult.dustText
                 weatherOutdoorStatus = weatherResult.outdoorStatus
                 weatherForecast = weatherResult.forecast
+                refreshPlannerSnapshotWeatherFromLiveWeather()
                 lastWeatherFetchCoordinate = coordinate
                 lastWeatherFetchAt = Date()
                 lastWeatherFailureAt = nil

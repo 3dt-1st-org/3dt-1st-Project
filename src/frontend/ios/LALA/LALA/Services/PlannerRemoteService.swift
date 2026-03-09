@@ -74,7 +74,7 @@ final class PlannerRemoteService: PlannerDataProviding {
             language: language == .korean ? "Korean" : "English"
         )
 
-        var request = try makeRequest(url: url, method: "POST", timeout: 30)
+        var request = try makeRequest(url: url, method: "POST", timeout: 95)
         request.httpBody = try encoder.encode(payload)
 
         let (data, response) = try await session.data(for: request)
@@ -214,8 +214,8 @@ final class PlannerRemoteService: PlannerDataProviding {
     private static func makeDefaultSession() -> URLSession {
         let config = URLSessionConfiguration.default
         config.waitsForConnectivity = false
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 40
+        config.timeoutIntervalForRequest = 95
+        config.timeoutIntervalForResource = 120
         config.httpMaximumConnectionsPerHost = 2
         return URLSession(configuration: config)
     }
@@ -270,6 +270,12 @@ private struct RemoteDailyPlanWeather: Decodable {
         case outdoorStatus = "outdoor_status"
         case temperature
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        outdoorStatus = try container.decodeLossyString(forKey: .outdoorStatus)
+        temperature = try container.decodeLossyString(forKey: .temperature)
+    }
 }
 
 private struct RemoteDailyPlanItem: Decodable {
@@ -292,6 +298,15 @@ private struct RemoteDailyPlanPlace: Decodable {
         case lng
         case roadAddress = "road_addr"
         case sourceType = "source_type"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeLossyString(forKey: .name)
+        lat = try container.decodeLossyDouble(forKey: .lat)
+        lng = try container.decodeLossyDouble(forKey: .lng)
+        roadAddress = try container.decodeLossyString(forKey: .roadAddress)
+        sourceType = try container.decodeLossyString(forKey: .sourceType)
     }
 }
 
@@ -319,5 +334,84 @@ private struct RemoteInterventionPlace: Decodable {
         case distance = "dist"
         case roadAddress = "road_addr"
         case sourceType = "source_type"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeLossyString(forKey: .name)
+        lat = try container.decodeLossyDouble(forKey: .lat)
+        lng = try container.decodeLossyDouble(forKey: .lng)
+        distance = try container.decodeLossyInt(forKey: .distance)
+        roadAddress = try container.decodeLossyString(forKey: .roadAddress)
+        sourceType = try container.decodeLossyString(forKey: .sourceType)
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decodeLossyString(forKey key: Key) throws -> String? {
+        guard contains(key) else { return nil }
+        if try decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? decode(String.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Double.self, forKey: key) {
+            return String(value)
+        }
+        if let value = try? decode(Int.self, forKey: key) {
+            return String(value)
+        }
+        if let value = try? decode(Bool.self, forKey: key) {
+            return value ? "true" : "false"
+        }
+        return nil
+    }
+
+    func decodeLossyDouble(forKey key: Key) throws -> Double? {
+        guard contains(key) else { return nil }
+        if try decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? decode(Double.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Int.self, forKey: key) {
+            return Double(value)
+        }
+        if let value = try? decode(String.self, forKey: key) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return nil
+            }
+            return Double(trimmed)
+        }
+        return nil
+    }
+
+    func decodeLossyInt(forKey key: Key) throws -> Int? {
+        guard contains(key) else { return nil }
+        if try decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? decode(Int.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Double.self, forKey: key) {
+            return Int(value.rounded())
+        }
+        if let value = try? decode(String.self, forKey: key) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return nil
+            }
+            if let intValue = Int(trimmed) {
+                return intValue
+            }
+            if let doubleValue = Double(trimmed) {
+                return Int(doubleValue.rounded())
+            }
+        }
+        return nil
     }
 }
