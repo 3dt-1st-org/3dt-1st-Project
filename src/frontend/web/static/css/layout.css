@@ -335,7 +335,7 @@ body {
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: calc(100px + env(safe-area-inset-bottom));
+  bottom: calc(84px + env(safe-area-inset-bottom));
   z-index: 34;
   display: flex;
   justify-content: center;
@@ -351,12 +351,14 @@ body {
   padding: 14px 14px 14px 16px;
   box-shadow: 0 8px 32px rgba(18, 31, 45, 0.22);
   pointer-events: auto;
-  transition: opacity 0.22s ease, visibility 0.22s;
+  transform: translateY(0);
+  transition: opacity 0.3s ease, transform 0.34s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.3s;
 }
 
-/* 바텀시트가 열릴 때 자막 패널 숨기기 */
+/* [UX개선] 도슨트 패널 — 아래에서 올라오는 슬라이드업 애니메이션 */
 .map-subtitle-panel.hidden {
   opacity: 0;
+  transform: translateY(calc(100% + 32px));
   pointer-events: none;
   visibility: hidden;
 }
@@ -465,20 +467,56 @@ body {
   touch-action: pan-x;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  pointer-events: auto;
-  transition: opacity 0.22s ease, transform 0.22s ease, visibility 0.22s;  /* 숨김 애니메이션 */
-}
-
-/* [UX개선] 바텀시트가 열렸을 때 카드 패널 숨기기 (Google Maps 방식) */
-.map-card-panel.hidden {
-  opacity: 0;
-  transform: translateY(-12px);
-  pointer-events: none;
-  visibility: hidden;
+  /* pointer-events controlled by .map-card-wrapper */
 }
 
 .map-card-panel::-webkit-scrollbar {
   display: none;
+}
+
+/* [UX개선] 카드 패널 슬라이드 다운 래퍼 — max-height 애니메이션으로 레이아웃 공간까지 접힘 */
+.map-card-wrapper {
+  width: var(--map-top-stack-width);
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: max-height 0.38s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.28s ease;
+}
+
+.map-card-wrapper.expanded {
+  max-height: 155px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 바텀시트 열릴 때 카드 숨기기 (expanded 우선순위 무효화) */
+.map-card-wrapper.hidden {
+  max-height: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* [UX개선] 카드 패널 토글 핸들 — 상단 중앙의 소형 pill */
+.map-card-handle {
+  align-self: center;
+  background: rgba(255, 255, 255, 0.95);
+  border: none;
+  border-radius: 999px;
+  padding: 5px 16px 5px 14px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #374151;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.13);
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.18s ease;
+}
+.map-card-handle:active {
+  background: rgba(230, 240, 255, 0.98);
 }
 
 .map-weather-row {
@@ -502,6 +540,73 @@ body {
   font-size: 0.8rem;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.map-tour-btn {
+  position: absolute;
+  top: 50px;
+  right: 10px;
+  z-index: 31;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: rgba(255, 240, 200, 0.97);
+  color: #7a4f00;
+  border: 1.5px solid rgba(200, 150, 0, 0.3);
+}
+
+/* ── 맛집 투어 가이드 시트 ────────────────────────────────────────────── */
+.tour-sheet__header {
+  margin-bottom: 4px;
+}
+
+.tour-body {
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: #1f2937;
+  white-space: pre-wrap;
+  padding: 4px 0 12px;
+}
+
+.tour-body--loading {
+  color: #64748b;
+  font-style: italic;
+}
+
+.tour-body--error {
+  color: #dc2626;
+}
+
+.tour-restaurant-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.tour-tag {
+  background: rgba(245, 200, 66, 0.18);
+  color: #7a4f00;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid rgba(200, 150, 0, 0.25);
+}
+
+.tour-audio-bar {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.tour-play-btn {
+  width: 100%;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .place-card {

@@ -17,9 +17,13 @@
   </div>
 
   <button id="planner-btn" class="map-pill-btn map-planner-btn" aria-label="하루 일정">🗓️ 하루 일정</button>
+  <button id="tour-btn" class="map-pill-btn map-tour-btn" aria-label="맛집 투어 가이드" style="display:none;">🍽️ 투어 가이드</button>
 
   <div class="map-top-stack">
-    <div id="card-panel" class="map-card-panel"></div>
+    <button id="card-handle" class="map-card-handle" aria-label="추천 장소 보기">추천 <span id="card-chevron">▼</span></button>
+    <div class="map-card-wrapper">
+      <div id="card-panel" class="map-card-panel"></div>
+    </div>
     <div class="map-weather-row">
       <button id="weather-btn" class="map-pill-btn map-weather-btn" aria-label="Weather">
         <span id="weather-icon">🌡️</span>
@@ -76,6 +80,17 @@
   </div>
 </section>
 
+<section id="tour-sheet" class="bottom-sheet" aria-hidden="true">
+  <div class="tour-sheet__header">
+    <h3 class="sheet-title">🍽️ 맛집 투어 가이드</h3>
+    <p id="tour-subtitle" class="sheet-sub"></p>
+  </div>
+  <div id="tour-body" class="tour-body"></div>
+  <div id="tour-audio-bar" class="tour-audio-bar" style="display:none;">
+    <button id="tour-play-btn" class="btn-primary tour-play-btn">▶ 오디오 재생</button>
+  </div>
+</section>
+
 <section id="planner-sheet" class="bottom-sheet planner-sheet" aria-hidden="true">
   <div class="planner-sheet__header">
     <h3 class="sheet-title">🗓️ 하루 일정</h3>
@@ -121,6 +136,8 @@
     docentLoading: "{{ t('map_docent_loading') }}",
     docentUnavailable: "{{ t('map_docent_unavailable') }}",
     moreInfo: "{{ t('map_more_info') }}",
+    tourLoading: "맛집 투어 가이드를 생성하는 중이에요... (20~40초)",
+    tourError: "투어 가이드를 가져오지 못했어요. 잠시 후 다시 시도해 주세요.",
     weatherTitle: "{{ t('map_weather_title') }}",
     weatherNow: "{{ t('map_weather_now') }}",
     weatherEmpty: "{{ t('map_weather_empty') }}"

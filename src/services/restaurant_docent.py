@@ -302,26 +302,43 @@ def generate_tour_script(
         raise ValueError("language must be 'ko' or 'en'")
 
     full_context = "\n\n".join(_build_context_block(ctx) for ctx in context_list)
-    language_name = "Korean" if language == "ko" else "English"
     count = len(restaurant_names)
 
-    system_message = (
-        "당신은 'LALA AI Guide', 경기도 근처 맛집을 소개하는 전문 오디오 투어 도슨트입니다.\n"
-        "[대본 작성 원칙]\n"
-        f"1. 내러티브 구조: {count}개 식당을 하나의 여정으로 — 단순 나열 금지."
-        "   분위기·메뉴 특성에 따라 흐름 있게 연결하세요.\n"
-        "2. 구성: 도입(지역 소개 + 기대감 조성) → 음식 여정(각 식당을 스토리로 이어줌)"
-        "   → 마무리(방문 독려)\n"
-        "3. 데이터 기반: 키워드·요약·분위기 정보를 문장에 자연스럽게 녹여 생생함을 더하세요.\n"
-        "4. 말투: 이어폰으로 듣는 오디오 가이드 — 리듬감 있는 구어체, 청자에게 직접 말하는 형식.\n"
-        "5. 없는 사실을 지어내지 마세요.\n"
-        f"6. 분량: 약 2분 분량(300~400 단어). 언어: {language_name}."
-    )
-
-    user_message = (
-        f"아래 TOP {count}개 맛집 데이터를 바탕으로 통합 오디오 투어 가이드 대본을 작성해주세요.\n\n"
-        f"{full_context}"
-    )
+    if language == "ko":
+        system_message = (
+            "당신은 'LALA AI Guide', 경기도 근처 맛집을 소개하는 전문 오디오 투어 도슨트입니다.\n"
+            "[대본 작성 원칙]\n"
+            f"1. 내러티브 구조: {count}개 식당을 하나의 여정으로 — 단순 나열 금지. "
+            "   분위기·메뉴 특성에 따라 흐름 있게 연결하세요.\n"
+            "2. 구성: 도입(지역 소개 + 기대감 조성) → 음식 여정(각 식당을 스토리로 이어줌)"
+            "   → 마무리(방문 독려)\n"
+            "3. 데이터 기반: 키워드·요약·분위기 정보를 문장에 자연스럽게 녹여 생생함을 더하세요.\n"
+            "4. 말투: 이어폰으로 듣는 오디오 가이드 — 리듬감 있는 구어체, 청자에게 직접 말하는 형식.\n"
+            "5. 없는 사실을 지어내지 마세요.\n"
+            "6. 분량: 약 2분 분량(300~400 단어).\n"
+            "7. [필수] 반드시 한국어로만 작성하세요. 영어를 사용하면 안 됩니다."
+        )
+        user_message = (
+            f"아래 TOP {count}개 맛집 데이터를 바탕으로 통합 오디오 투어 가이드 대본을 한국어로 작성해주세요.\n\n"
+            f"{full_context}"
+        )
+    else:
+        system_message = (
+            "You are 'LALA AI Guide', a professional audio tour docent introducing local restaurants near Gyeonggi-do, Korea.\n"
+            "[Script Guidelines]\n"
+            f"1. Narrative structure: Connect {count} restaurants as one journey — no simple listing. "
+            "   Link them by atmosphere and menu characteristics.\n"
+            "2. Structure: Intro (region intro + anticipation) → Food journey (each restaurant as a story) → Closing (encourage visit)\n"
+            "3. Data-driven: Weave keywords, summaries, and atmosphere info naturally into sentences.\n"
+            "4. Tone: Audio guide listened through earphones — rhythmic conversational style, speak directly to the listener.\n"
+            "5. Do not fabricate facts.\n"
+            "6. Length: ~2 minutes (~300-400 words).\n"
+            "7. [REQUIRED] Write entirely in English. Do not use Korean."
+        )
+        user_message = (
+            f"Based on the TOP {count} restaurant data below, write a unified audio tour guide script in English.\n\n"
+            f"{full_context}"
+        )
 
     max_tokens = _int_env("DOCENT_TOUR_MAX_TOKENS", _LLM_DEFAULT_MAX_TOKENS)
     client, deploy = _get_llm_client()

@@ -38,7 +38,9 @@
     currentAudio: null,
     watchId: null,
     hasPlayedDetailForPlace: new Set(),
-    dailyPlan: null
+    dailyPlan: null,
+    tourDocent: null,   // { script, restaurant_names, source }
+    tourAudio: null
   };
 
   function guardRoute() {
@@ -128,7 +130,9 @@
   }
 
   function makePinSvg(color, active) {
-    const size = active ? 42 : 34;
+    const level = APP.map ? APP.map.getLevel() : 5;
+    const base = Math.max(20, Math.min(40, 48 - level * 2));
+    const size = active ? Math.min(46, base + 8) : base;
     const inner = active ? 7.5 : 6;
     const glow = active
       ? `<circle cx="16" cy="16" r="15" fill="${color}" opacity="0.18"/>`
@@ -403,8 +407,8 @@
     document.getElementById('sheet-backdrop').classList.add('active');
     document.getElementById(id).classList.add('active');
     // [UX개선] 시트가 열리면 카드 패널 + 자막 패널 숨기기 (Google Maps 방식)
-    const cardPanel = document.getElementById('card-panel');
-    if (cardPanel) cardPanel.classList.add('hidden');
+    const cardWrapper = document.querySelector('.map-card-wrapper');
+    if (cardWrapper) cardWrapper.classList.add('hidden');
     const subtitlePanel = document.getElementById('status-panel');
     if (subtitlePanel) subtitlePanel.classList.add('hidden');
   }
@@ -415,8 +419,8 @@
       sheet.classList.remove('active');
     });
     // [UX개선] 시트가 닫히면 카드 패널 + 자막 패널 복원
-    const cardPanel = document.getElementById('card-panel');
-    if (cardPanel) cardPanel.classList.remove('hidden');
+    const cardWrapper = document.querySelector('.map-card-wrapper');
+    if (cardWrapper) cardWrapper.classList.remove('hidden');
     const subtitlePanel = document.getElementById('status-panel');
     if (subtitlePanel) subtitlePanel.classList.remove('hidden');
   }
@@ -717,6 +721,7 @@
 
   async function loadPlaces() {
     if (!APP.map) return;
+    APP.tourDocent = null;   // 위치·카테고리 변경 시 투어 캐시 초기화
     showLoading(true);
     try {
       const center = APP.map.getCenter();
@@ -738,6 +743,17 @@
       }
 
       APP.places = Array.isArray(payload.places) ? payload.places : [];
+
+      // distance_m을 항상 사용자 실제 위치 기준으로 재계산
+      // (API는 지도 center 기준으로 계산하므로 지도를 이동하면 틀어짐)
+      if (APP.userPosition) {
+        APP.places.forEach((place) => {
+          place.distance_m = Math.round(
+            distanceMeters(APP.userPosition.lat, APP.userPosition.lng, place.lat, place.lng)
+          );
+        });
+      }
+
       drawMarkers(APP.places);
       renderCards();
 
@@ -949,9 +965,26 @@
         document.querySelectorAll('.map-chip').forEach((el) => el.classList.remove('active'));
         btn.classList.add('active');
         APP.selectedCategory = btn.dataset.category;
+        _syncTourBtn();
         loadPlaces();
       });
     });
+
+    document.getElementById('tour-btn').addEventListener('click', () => {
+      openTourSheet();
+    });
+
+    const cardHandle = document.getElementById('card-handle');
+    if (cardHandle) {
+      cardHandle.addEventListener('click', () => {
+        const wrapper = document.querySelector('.map-card-wrapper');
+        if (!wrapper) return;
+        const isExpanded = wrapper.classList.contains('expanded');
+        wrapper.classList.toggle('expanded');
+        const chevron = document.getElementById('card-chevron');
+        if (chevron) chevron.textContent = isExpanded ? '▼' : '▲';
+      });
+    }
 
     document.getElementById('planner-btn').addEventListener('click', () => {
       if (APP.dailyPlan) {
@@ -996,6 +1029,135 @@
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 120000 }
     );
+  }
+
+  // ── 맛집 투어 가이드 ────────────────────────────────────────────────────
+
+  function _syncTourBtn() {
+    const btn = document.getElementById('tour-btn');
+    if (!btn) return;
+    btn.style.display = APP.selectedCategory === 'restaurant' ? 'block' : 'none';
+  }
+
+  function openTourSheet() {
+    openSheet('tour-sheet');
+    // 캐시된 결과가 있으면 바로 표시
+    if (APP.tourDocent) {
+      _renderTourSheet(APP.tourDocent);
+      return;
+    }
+    _fetchTourDocent();
+  }
+
+  async function _fetchTourDocent() {
+    _setTourBody('loading', TEXT.tourLoading || '맛집 투어 가이드를 생성하는 중이에요...');
+    document.getElementById('tour-audio-bar').style.display = 'none';
+    document.getElementById('tour-subtitle').textContent = '';
+
+    const center = APP.map ? APP.map.getCenter() : null;
+    const lat = center ? center.getLat() : APP.userPosition?.lat;
+    const lng = center ? center.getLng() : APP.userPosition?.lng;
+    if (!lat || !lng) {
+      _setTourBody('error', '위치 정보를 가져올 수 없습니다.');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/docent/tour', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lat,
+          lng,
+          language: APP.selectedLanguage,
+          with_audio: false
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.script) {
+        throw new Error(data.error || 'tour-failed');
+      }
+      APP.tourDocent = data;
+      _renderTourSheet(data);
+    } catch (err) {
+      _setTourBody('error', TEXT.tourError || String(err));
+    }
+  }
+
+  function _renderTourSheet(data) {
+    // 식당 태그 목록
+    const names = data.restaurant_names || [];
+    const tagsHtml = names.map((n) =>
+      `<span class="tour-tag">${escapeHtml(n)}</span>`
+    ).join('');
+
+    const body = document.getElementById('tour-body');
+    body.className = 'tour-body';
+    body.innerHTML =
+      (tagsHtml ? `<div class="tour-restaurant-tags">${tagsHtml}</div>` : '') +
+      `<p>${escapeHtml(data.script)}</p>`;
+
+    document.getElementById('tour-subtitle').textContent =
+      `${names.length}개 맛집 · ` + (data.source === 'llm' ? 'AI 생성' : '기본 안내');
+
+    // 오디오 재생 버튼
+    const audioBar = document.getElementById('tour-audio-bar');
+    audioBar.style.display = 'block';
+    const playBtn = document.getElementById('tour-play-btn');
+    playBtn.textContent = '▶ 오디오 재생';
+    playBtn.disabled = false;
+    playBtn.onclick = () => _playTourAudio(data.script);
+  }
+
+  function _setTourBody(type, text) {
+    const body = document.getElementById('tour-body');
+    body.className = 'tour-body tour-body--' + type;
+    body.textContent = text;
+  }
+
+  async function _playTourAudio(script) {
+    const playBtn = document.getElementById('tour-play-btn');
+    playBtn.textContent = '⏳ 오디오 변환 중...';
+    playBtn.disabled = true;
+
+    try {
+      const res = await fetch('/api/docent/audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ script, language: APP.selectedLanguage })
+      });
+      if (!res.ok) throw new Error('audio-failed');
+
+      const blob = await res.blob();
+      if (APP.tourAudio) {
+        APP.tourAudio.pause();
+        URL.revokeObjectURL(APP.tourAudio._url);
+      }
+      const url = URL.createObjectURL(blob);
+      APP.tourAudio = new Audio(url);
+      APP.tourAudio._url = url;
+      APP.tourAudio.onended = () => {
+        URL.revokeObjectURL(url);
+        playBtn.textContent = '▶ 다시 재생';
+        playBtn.disabled = false;
+      };
+      APP.tourAudio.play().catch(() => {
+        URL.revokeObjectURL(url);
+      });
+      playBtn.textContent = '⏹ 재생 중...';
+      playBtn.disabled = false;
+      playBtn.onclick = () => {
+        if (APP.tourAudio) {
+          APP.tourAudio.pause();
+          playBtn.textContent = '▶ 다시 재생';
+          playBtn.onclick = () => _playTourAudio(script);
+        }
+      };
+    } catch (_err) {
+      playBtn.textContent = '⚠️ 오디오 실패';
+      playBtn.disabled = false;
+      playBtn.onclick = () => _playTourAudio(script);
+    }
   }
 
   // ── 하루 일정 플래너 ────────────────────────────────────────────────────
@@ -1138,6 +1300,9 @@
 
     kakao.maps.event.addListener(APP.map, 'dragend', function () {
       loadPlaces();
+    });
+    kakao.maps.event.addListener(APP.map, 'zoom_changed', function () {
+      syncMarkerState();
     });
 
     bindEvents();
