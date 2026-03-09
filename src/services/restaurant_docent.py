@@ -161,6 +161,10 @@ def rank_restaurants(candidate_names: list[str], cursor) -> list[str]:
             rows, columns=["restaurant_name", "card_score_raw", "daangn_score_raw"]
         )
 
+        # [수정] Decimal -> float 변환 (연산 오류 방지)
+        df["card_score_raw"] = pd.to_numeric(df["card_score_raw"], errors='coerce').fillna(0.0)
+        df["daangn_score_raw"] = pd.to_numeric(df["daangn_score_raw"], errors='coerce').fillna(0.0)
+
         # IQR Capping — 카드 매출 이상치가 전체 랭킹을 왜곡하는 것을 방지
         q1, q3 = df["card_score_raw"].quantile([0.25, 0.75])
         df["card_score_raw"] = df["card_score_raw"].clip(upper=q3 + 1.5 * (q3 - q1))
@@ -444,6 +448,9 @@ def generate_restaurant_tour_docent(
             audio_bytes = synthesize_tour_audio(script, language)
         except Exception as exc:
             logger.warning("tour_docent TTS 실패: %s", exc)
+
+    # [추가] 서버 로그에 성공 메시지 출력 (사용자 확인용)
+    print(f"✅ [Tour Docent] 생성 완료: {len(names)}개 식당 (Source: {source}, Audio: {len(audio_bytes) if audio_bytes else 0} bytes)")
 
     return TourDocentResult(
         restaurant_names=names,
