@@ -17,6 +17,11 @@ CREATE TABLE locallink.realtime_weather_conditions (
     
     -- 4. AI 도슨트 컨텍스트용 파생 변수
     outdoor_status VARCHAR(50),                   -- ASA의 CASE 문으로 생성된 한글 상태 텍스트 ('비/눈', '야외활동 쾌적' 등)
+    is_rain_snow BIGINT,                          -- ASA 계산 플래그: 강수(비/눈) 여부 (1=참, 0=거짓)
+    is_bad_dust BIGINT,                           -- ASA 계산 플래그: 미세먼지 나쁨 여부 (1=참, 0=거짓)
+    is_heatwave BIGINT,                           -- ASA 계산 플래그: 폭염 여부 (1=참, 0=거짓)
+    is_coldwave BIGINT,                           -- ASA 계산 플래그: 한파 여부 (1=참, 0=거짓)
+    is_strong_wind BIGINT,                        -- ASA 계산 플래그: 강풍 여부 (1=참, 0=거짓)
     
     -- 5. 시스템 메타데이터
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP -- Azure에서 PostgreSQL로 데이터가 실제 INSERT된 물리적 시간
