@@ -96,7 +96,7 @@ def create_places_payload(
         return {"error": str(exc)}, 500
 
 
-def create_weather_payload(*, lat: float, lng: float) -> tuple[dict[str, Any], int]:
+def create_weather_payload(*, lat: float, lng: float, force: bool = False) -> tuple[dict[str, Any], int]:
     from src.frontend.web.routes import ios_api as ios_helpers
 
-    return ios_helpers._weather_snapshot(lat=lat, lng=lng)
+    return ios_helpers._weather_snapshot(lat=lat, lng=lng, force=force)

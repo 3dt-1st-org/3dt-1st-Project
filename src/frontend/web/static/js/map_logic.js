@@ -900,7 +900,7 @@
 
     const requestPromise = (async () => {
       try {
-        const response = await fetch(`/api/weather?lat=${APP.userPosition.lat}&lng=${APP.userPosition.lng}`);
+        const response = await fetch(`/api/weather?lat=${APP.userPosition.lat}&lng=${APP.userPosition.lng}${options.force ? '&force=1' : ''}`);
         const payload = await response.json();
         if (!response.ok) {
           return APP.weather;
@@ -1028,7 +1028,7 @@
   function bindEvents() {
     document.getElementById('weather-btn').addEventListener('click', async () => {
       logAction('click_weather');
-      await loadWeather();
+      await loadWeather({ force: true });
       renderWeatherSheet();
       openSheet('weather-sheet');
     });

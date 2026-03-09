@@ -352,10 +352,21 @@ def _parse_int_arg(name: str, default: int) -> int:
     return int(raw)
 
 
-def _weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
+def _weather_snapshot(lat: float, lng: float, force: bool = False) -> tuple[dict, int]:
     key = _weather_cache_key(lat, lng)
     now_monotonic = time.monotonic()
     cached_stale_payload: dict | None = None
+
+    # force=True: 캐시·DB 모두 건너뛰고 외부 API 직접 호출
+    if force:
+        try:
+            payload, status_code = _compute_weather_snapshot(lat=lat, lng=lng)
+        except Exception as exc:
+            payload, status_code = {"error": str(exc)}, 502
+        if status_code == 200:
+            with _WEATHER_CACHE_LOCK:
+                _store_cached_weather_entry(key, payload, status_code)
+        return payload, status_code
 
     with _WEATHER_CACHE_LOCK:
         cached = _read_cached_weather_entry(key, now_monotonic=now_monotonic, allow_stale=False)

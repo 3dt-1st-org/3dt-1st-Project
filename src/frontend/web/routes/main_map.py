@@ -47,8 +47,10 @@ def api_weather():
     except ValueError:
         return jsonify({"error": "잘못된 파라미터"}), 400
 
-    payload, status_code = create_weather_payload(lat=lat, lng=lng)
-    return jsonify(payload), status_code, {"Cache-Control": _WEATHER_HTTP_CACHE_CONTROL}
+    force = request.args.get("force") == "1"
+    payload, status_code = create_weather_payload(lat=lat, lng=lng, force=force)
+    cache_header = "no-store" if force else _WEATHER_HTTP_CACHE_CONTROL
+    return jsonify(payload), status_code, {"Cache-Control": cache_header}
 
 
 @main_map_bp.route("/api/places")
