@@ -1,7 +1,7 @@
 import sys
 import os
 from pathlib import Path
-from flask import Flask
+from flask import Flask, jsonify
 from dotenv import load_dotenv
 
 
@@ -47,7 +47,6 @@ def create_app() -> Flask:
             kakao_js_key = ""
     app.jinja_env.globals["kakao_js_key"] = kakao_js_key
 
-    # 앱 버전 (모든 템플릿에서 {{ app_version }} 사용 가능)
     app.jinja_env.globals["app_version"] = _read_version()
 
     # i18n: t() 함수와 current_lang 변수를 모든 템플릿에서 사용 가능하게 주입
@@ -61,12 +60,18 @@ def create_app() -> Flask:
     from src.frontend.web.routes.settings import settings_bp
     from src.frontend.web.routes.ios_api import ios_api_bp
     from src.frontend.web.routes.dashboard import dashboard_bp
+    from src.frontend.web.routes.planner import planner_bp
 
     app.register_blueprint(onboarding_bp)
     app.register_blueprint(main_map_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(ios_api_bp)
     app.register_blueprint(dashboard_bp)
+    app.register_blueprint(planner_bp)
+
+    @app.route("/api/health")
+    def health_check():
+        return jsonify({"status": "ok", "version": app.jinja_env.globals.get("app_version", "unknown")}), 200
 
     return app
 

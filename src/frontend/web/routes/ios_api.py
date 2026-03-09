@@ -33,7 +33,7 @@ ios_api_bp = Blueprint("ios_api", __name__)
 
 _DEFAULT_LAT = 37.2636
 _DEFAULT_LNG = 127.0286
-_DEFAULT_RADIUS = 3000
+_DEFAULT_RADIUS = 10000
 _DEFAULT_LIMIT = 50
 _MAX_LIMIT = 100
 
@@ -263,7 +263,7 @@ def _fetch_weather_from_db(lat: float, lng: float) -> tuple[dict, int] | None:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute(
                     """
-                    SELECT temperature, precipitation_type, pm10, pm25
+                    SELECT temperature, precipitation_type, pm10, pm25, outdoor_status
                     FROM locallink.realtime_weather_conditions
                     WHERE location = %s
                       AND record_time > NOW() - INTERVAL '70 minutes'
@@ -294,6 +294,7 @@ def _fetch_weather_from_db(lat: float, lng: float) -> tuple[dict, int] | None:
             "grade_ko": _DUST_GRADE_LABELS.get(grade, _DUST_GRADE_LABELS["unknown"]),
         },
         "forecast": [],
+        "outdoor_status": row["outdoor_status"] or "",
         "source": "db",
         "dust_source": "db",
         "location": location,
@@ -386,6 +387,24 @@ def _weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
         _db_result = _fetch_weather_from_db(lat, lng)
         if _db_result is not None:
             _db_payload, _db_status = _db_result
+            # Open-Meteo에서 예보 + 누락된 온도 보충 (best-effort)
+            try:
+                _weather_future = _WEATHER_FETCH_EXECUTOR.submit(_fetch_open_meteo_weather, lat, lng)
+                _weather_data = _weather_future.result(timeout=_OPEN_METEO_TIMEOUT_SEC + 0.5)
+                _db_payload["forecast"] = _build_weather_forecast_payload(_weather_data)
+                # DB 온도가 NULL인 경우 Open-Meteo 현재 온도로 보충
+                if _db_payload.get("temp") == "--":
+                    _om_current = _weather_data.get("current") or {}
+                    _om_temp = _format_temp_value(_om_current.get("temperature_2m"))
+                    if _om_temp != "--":
+                        _db_payload["temp"] = _om_temp
+                        _db_payload["icon"] = _wmo_weather_icon(_om_current.get("weather_code"))
+                        _db_payload["outdoor_status"] = _compute_outdoor_status(
+                            _om_current.get("weather_code"),
+                            (_db_payload.get("dust") or {}).get("grade", "unknown"),
+                        )
+            except Exception:
+                pass  # forecast stays [], temp stays "--"
             with _WEATHER_CACHE_LOCK:
                 _store_cached_weather_entry(key, _db_payload, _db_status)
                 _current_inflight = _WEATHER_INFLIGHT.pop(key, None)
@@ -446,11 +465,14 @@ def _compute_weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
         except Exception:
             dust_source = "unavailable"
 
+        outdoor_status = _compute_outdoor_status(current.get("weather_code"), dust["grade"])
+
         return {
             "temp": temp,
             "icon": icon,
             "dust": dust,
             "forecast": forecast,
+            "outdoor_status": outdoor_status,
             "source": "open-meteo",
             "dust_source": dust_source,
         }, 200
@@ -546,6 +568,20 @@ def _legacy_weather_snapshot(lat: float, lng: float) -> tuple[dict, int]:
         return {"temp": str(temp), "icon": icon}, 200
     except Exception as exc:
         return {"error": str(exc)}, 500
+
+
+def _compute_outdoor_status(weather_code_value, dust_grade: str) -> str:
+    """날씨 코드와 미세먼지 등급을 기반으로 outdoor_status 텍스트를 생성."""
+    code = _safe_float(weather_code_value)
+    if code is not None:
+        c = int(round(code))
+        if c in {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99}:
+            return "비/눈"
+    if dust_grade in {"bad", "very_bad"}:
+        return "미세먼지 나쁨"
+    if code is not None and int(round(code)) in {0, 1, 2} and dust_grade in {"good", "normal", "unknown"}:
+        return "야외활동 쾌적"
+    return "보통"
 
 
 def _safe_float(value) -> float | None:
@@ -1005,13 +1041,15 @@ def _fetch_places_by_city(
                         SELECT
                             MD5(COALESCE(title, '') || '|' || COALESCE(url, '') || '|' || COALESCE(city, '')) AS id,
                             COALESCE(title, '') AS name,
-                            COALESCE(NULLIF(TRIM(title_en), ''), COALESCE(title, '')) AS name_en,
+                            COALESCE(title, '') AS name_en,
                             COALESCE(inst_nm, '') AS address,
                             COALESCE(inst_nm, '') AS address_en,
                             COALESCE(city, '') AS region,
                             COALESCE(city, '') AS region_en,
                             COALESCE(url, '') AS event_url,
                             COALESCE(NULLIF(TRIM(image_url), ''), NULL) AS image_url,
+                            lat,
+                            lng,
                             CASE
                                 WHEN begin_de ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$' THEN begin_de::DATE
                                 ELSE NULL
@@ -1029,8 +1067,8 @@ def _fetch_places_by_city(
                         ne.id,
                         ne.name,
                         ne.name_en,
-                        COALESCE(cc.center_lat, %s) AS lat,
-                        COALESCE(cc.center_lng, %s) AS lng,
+                        COALESCE(ne.lat, cc.center_lat, %s) AS lat,
+                        COALESCE(ne.lng, cc.center_lng, %s) AS lng,
                         'event' AS category,
                         ne.address,
                         ne.address_en,
@@ -1040,22 +1078,24 @@ def _fetch_places_by_city(
                             ST_Distance(
                                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
                                 ST_SetSRID(
-                                    ST_MakePoint(COALESCE(cc.center_lng, %s), COALESCE(cc.center_lat, %s)),
+                                    ST_MakePoint(COALESCE(ne.lng, cc.center_lng, %s), COALESCE(ne.lat, cc.center_lat, %s)),
                                     4326
                                 )::geography
                             )::NUMERIC,
                             0
                         )::INT AS distance_m,
                         ne.image_url AS image_url,
-                        TRUE AS is_approximate_location,
+                        (ne.lat IS NULL) AS is_approximate_location,
                         ne.event_start_date::TEXT AS event_start_date,
                         ne.event_end_date::TEXT AS event_end_date,
-                        ne.event_url
+                        ne.event_url,
+                        (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE) AS is_ongoing
                     FROM normalized_events ne
                     LEFT JOIN city_centers cc
                       ON REPLACE(COALESCE(TRIM(cc.city_name), ''), ' ', '') = REPLACE(COALESCE(TRIM(ne.region), ''), ' ', '')
-                    WHERE (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE)
-                    ORDER BY distance_m, ne.event_start_date NULLS LAST
+                    ORDER BY
+                        CASE WHEN (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE) THEN 0 ELSE 1 END,
+                        distance_m, ne.event_start_date NULLS LAST
                     LIMIT %s
                     """,
                     (
@@ -1071,7 +1111,11 @@ def _fetch_places_by_city(
                 )
                 results.extend(_normalize_place_row(dict(row)) for row in cursor.fetchall())
 
-    results.sort(key=lambda row: row.get("distance_m") or 0)
+    def _sort_key(row):
+        is_ongoing_event = row.get("category") == "event" and row.get("is_ongoing") is True
+        return (0 if is_ongoing_event else 1, row.get("distance_m") or 0)
+
+    results.sort(key=_sort_key)
     if category == "all":
         return results
     return results[: max(limit, 1)]
@@ -1260,13 +1304,15 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                         SELECT
                             MD5(COALESCE(title, '') || '|' || COALESCE(url, '') || '|' || COALESCE(city, '')) AS id,
                             COALESCE(title, '') AS name,
-                            COALESCE(NULLIF(TRIM(title_en), ''), COALESCE(title, '')) AS name_en,
+                            COALESCE(title, '') AS name_en,
                             COALESCE(inst_nm, '') AS address,
                             COALESCE(inst_nm, '') AS address_en,
                             COALESCE(city, '') AS region,
                             COALESCE(city, '') AS region_en,
                             COALESCE(url, '') AS event_url,
                             COALESCE(NULLIF(TRIM(image_url), ''), NULL) AS image_url,
+                            lat,
+                            lng,
                             CASE
                                 WHEN begin_de ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN begin_de::DATE
                                 ELSE NULL
@@ -1283,8 +1329,8 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                         ne.id,
                         ne.name,
                         ne.name_en,
-                        COALESCE(cc.center_lat, %s) AS lat,
-                        COALESCE(cc.center_lng, %s) AS lng,
+                        COALESCE(ne.lat, cc.center_lat, %s) AS lat,
+                        COALESCE(ne.lng, cc.center_lng, %s) AS lng,
                         'event' AS category,
                         ne.address,
                         ne.address_en,
@@ -1294,30 +1340,30 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                             ST_Distance(
                                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
                                 ST_SetSRID(
-                                    ST_MakePoint(COALESCE(cc.center_lng, %s), COALESCE(cc.center_lat, %s)),
+                                    ST_MakePoint(COALESCE(ne.lng, cc.center_lng, %s), COALESCE(ne.lat, cc.center_lat, %s)),
                                     4326
                                 )::geography
                             )::NUMERIC,
                             0
                         )::INT AS distance_m,
                         ne.image_url AS image_url,
-                        TRUE AS is_approximate_location,
+                        (ne.lat IS NULL) AS is_approximate_location,
                         ne.event_start_date::TEXT AS event_start_date,
                         ne.event_end_date::TEXT AS event_end_date,
-                        ne.event_url
+                        ne.event_url,
+                        (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE) AS is_ongoing
                     FROM normalized_events ne
                     LEFT JOIN city_centers cc
                       ON cc.city_name = ne.region
-                    WHERE (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE)
-                      AND ST_DWithin(
+                    WHERE ST_DWithin(
                         ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
                         ST_SetSRID(
-                            ST_MakePoint(COALESCE(cc.center_lng, %s), COALESCE(cc.center_lat, %s)),
+                            ST_MakePoint(COALESCE(ne.lng, cc.center_lng, %s), COALESCE(ne.lat, cc.center_lat, %s)),
                             4326
                         )::geography,
                         %s
                       )
-                    ORDER BY distance_m
+                    ORDER BY CASE WHEN (ne.event_end_date IS NULL OR ne.event_end_date >= CURRENT_DATE) THEN 0 ELSE 1 END, distance_m
                     LIMIT %s
                     """,
                     (
@@ -1337,7 +1383,11 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
                 )
                 results.extend(_normalize_place_row(dict(row)) for row in cursor.fetchall())
 
-    results.sort(key=lambda row: row.get("distance_m") or 0)
+    def _sort_key(row):
+        is_ongoing_event = row.get("category") == "event" and row.get("is_ongoing") is True
+        return (0 if is_ongoing_event else 1, row.get("distance_m") or 0)
+
+    results.sort(key=_sort_key)
     if category == "all":
         return results
     return results[: max(limit, 1)]

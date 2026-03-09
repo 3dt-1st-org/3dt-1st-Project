@@ -16,6 +16,8 @@
     <button class="map-chip" data-category="event">{{ t('map_filter_event') }}</button>
   </div>
 
+  <button id="planner-btn" class="map-pill-btn map-planner-btn" aria-label="하루 일정">🗓️ 하루 일정</button>
+
   <div class="map-top-stack">
     <div id="card-panel" class="map-card-panel"></div>
     <div class="map-weather-row">
@@ -23,7 +25,6 @@
         <span id="weather-icon">🌡️</span>
         <span class="map-weather-copy">
           <span id="weather-temp">--°C</span>
-          <span id="weather-dust">미세먼지 --</span>
         </span>
       </button>
     </div>
@@ -47,6 +48,11 @@
     </button>
     <button id="loc-btn" class="fab-circle" aria-label="{{ t('map_current_location') }}">◎</button>
   </div>
+
+  <div id="intervention-toast" class="intervention-toast" style="display:none;">
+    <span id="intervention-toast-text"></span>
+    <button id="intervention-toast-close" class="intervention-toast__close" aria-label="닫기">✕</button>
+  </div>
 </div>
 
 <div id="sheet-backdrop" class="sheet-backdrop"></div>
@@ -54,18 +60,35 @@
 <section id="detail-sheet" class="bottom-sheet" aria-hidden="true">
   <h3 id="detail-title" class="sheet-title"></h3>
   <p id="detail-sub" class="sheet-sub"></p>
-  <img id="detail-image" class="detail-sheet__image" alt="place" />
+  <img id="detail-image" class="detail-sheet__image" alt="place"
+       onerror="this.setAttribute('data-broken','1'); this.style.display='none';" />
   <p id="detail-recommend" class="info-body" style="margin-top:10px;"></p>
+  <div id="detail-event-info" style="display:none;">
+    <p id="detail-event-status" style="font-size:.8rem; font-weight:800; margin-top:8px;"></p>
+    <p id="detail-event-dates" class="sheet-sub" style="font-size:.82rem; margin-top:4px;"></p>
+    <a id="detail-event-link" href="#" target="_blank" rel="noopener noreferrer"
+       class="btn-primary"
+       style="display:block; text-align:center; margin-top:8px; text-decoration:none;">행사 상세 보기 →</a>
+    <p id="detail-event-approx" style="display:none; font-size:.75rem; color:#aaa; margin-top:6px;">📍 정확한 위치 정보가 없어 시 중심 위치로 표시돼요</p>
+  </div>
   <div class="btn-row">
     <button id="detail-more-btn" class="btn-primary" style="width:100%;">{{ t('map_more_info') }}</button>
   </div>
 </section>
 
+<section id="planner-sheet" class="bottom-sheet planner-sheet" aria-hidden="true">
+  <div class="planner-sheet__header">
+    <h3 class="sheet-title">🗓️ 하루 일정</h3>
+    <p id="planner-location" class="sheet-sub"></p>
+    <p id="planner-weather" class="planner-weather-badge"></p>
+  </div>
+  <div id="planner-slots" class="planner-slots"></div>
+</section>
+
 <section id="weather-sheet" class="bottom-sheet" aria-hidden="true">
   <h3 class="sheet-title">{{ t('map_weather_title') }}</h3>
   <p id="weather-now" class="sheet-sub"></p>
-  <p id="weather-dust-detail" class="sheet-sub weather-dust-line"></p>
-  <div id="forecast-list" class="forecast-list"></div>
+  <div id="forecast-chart" class="forecast-chart-wrap"></div>
 </section>
 
 <div id="location-overlay" class="location-overlay">
