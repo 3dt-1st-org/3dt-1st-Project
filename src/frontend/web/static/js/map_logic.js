@@ -394,8 +394,8 @@
     const level = APP.map ? APP.map.getLevel() : 99;
     APP.markers.forEach((item) => {
       const isSelected = APP.selectedPlace && APP.selectedPlace.id === item.placeId;
-      // 레벨 6 이하(충분히 확대)이면 전체 말풍선 표시, 아니면 선택 마커만
-      const showBalloon = isSelected || level <= 6;
+      // 레벨 4 이하(충분히 확대)이면 전체 말풍선 표시, 아니면 선택 마커만
+      const showBalloon = isSelected || level <= 4;
       item.marker.setImage(makePlaceMarkerSvg(item.place, showBalloon));
     });
   }
