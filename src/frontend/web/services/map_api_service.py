@@ -20,11 +20,14 @@ VALID_PLACE_LANGUAGES = {"ko", "en"}
 
 
 def _apply_language(places: list[dict[str, Any]], language: str) -> None:
-    """language='en'이면 각 place의 name/address 필드를 영어 값으로 교체 (in-place)."""
+    """language='en'이면 각 place의 name/address 필드를 영어 값으로 교체 (in-place).
+    한국어 원본은 name_ko로 보존하여 JS에서 restaurant_names(bizplc_nm) 매칭에 사용할 수 있도록 한다.
+    """
     if language != "en":
         return
     for place in places:
         if place.get("name_en"):
+            place["name_ko"] = place["name"]  # 한국어 원본 보존 (restaurant_names lookup용)
             place["name"] = place["name_en"]
         if place.get("address_en"):
             place["address"] = place["address_en"]

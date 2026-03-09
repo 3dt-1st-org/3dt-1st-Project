@@ -840,7 +840,32 @@
     }
   }
 
+  /** 투어 오디오를 멈추고 play 버튼 UI를 다시 재생 보이기로 사용한다. */
+  function _stopTourAudio() {
+    if (!APP.tourAudio) return;
+    APP.tourAudio.pause();
+    if (APP.tourAudio._url) URL.revokeObjectURL(APP.tourAudio._url);
+    APP.tourAudio = null;
+    const playBtn = document.getElementById('tour-play-btn');
+    if (playBtn) {
+      playBtn.textContent = TEXT.tourPlayAgain || '▶ 다시 재생';
+      playBtn.disabled = false;
+      if (APP.tourDocent) {
+        playBtn.onclick = () => _playTourAudio(APP.tourDocent.script);
+      }
+    }
+  }
+
+  /** 도슨트 오디오를 멈춘다. */
+  function _stopCurrentAudio() {
+    if (!APP.currentAudio) return;
+    APP.currentAudio.pause();
+    APP.currentAudio = null;
+  }
+
   async function requestDocentAudio(script) {
+    // 투어 오디오와 겹치지 않도록 먼저 정지
+    _stopTourAudio();
     try {
       const response = await fetch('/api/docent/audio', {
         method: 'POST',
@@ -1128,8 +1153,10 @@
     document.getElementById('voice-btn').addEventListener('click', () => {
       APP.isVoiceGuidanceEnabled = !APP.isVoiceGuidanceEnabled;
       setVoiceButtonState();
-      if (!APP.isVoiceGuidanceEnabled && APP.currentAudio) {
-        APP.currentAudio.pause();
+      if (!APP.isVoiceGuidanceEnabled) {
+        // 도슨트 오디오와 투어가이드 오디오 모두 정지
+        _stopCurrentAudio();
+        _stopTourAudio();
       }
     });
 
@@ -1304,9 +1331,17 @@
   function _renderTourSheet(data) {
     // 식당 태그 목록
     const names = data.restaurant_names || [];
-    const tagsHtml = names.map((n) =>
-      `<span class="tour-tag">${escapeHtml(n)}</span>`
-    ).join('');
+    // 영문 모드일 때 APP.places에서 name_ko(한국어 원본) 매칭으로 영어명 표시
+    const tagsHtml = names.map((n) => {
+      let displayName = n;
+      if (APP.selectedLanguage === 'en') {
+        const match = APP.places.find(
+          (p) => (p.name_ko != null ? p.name_ko === n : p.name === n)
+        );
+        if (match) displayName = match.name;  // en 모드에서 name은 이미 영어
+      }
+      return `<span class="tour-tag">${escapeHtml(displayName)}</span>`;
+    }).join('');
 
     const body = document.getElementById('tour-body');
     body.className = 'tour-body';
@@ -1333,6 +1368,8 @@
   }
 
   async function _playTourAudio(script) {
+    // 도슨트 오디오와 겹치지 않도록 먼저 정지
+    _stopCurrentAudio();
     const playBtn = document.getElementById('tour-play-btn');
     playBtn.textContent = TEXT.tourConverting || '⏳ 오디오 변환 중...';
     playBtn.disabled = true;
