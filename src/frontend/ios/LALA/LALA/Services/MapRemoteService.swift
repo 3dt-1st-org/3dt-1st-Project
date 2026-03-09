@@ -338,15 +338,8 @@ final class MapRemoteService: MapDataProviding {
         let addressKo = normalized(item.address) ?? ""
         let addressEn = normalized(item.addressEn) ?? ""
 
-        let distanceGuideKo: String
-        let distanceGuideEn: String
-        if let distance = item.distanceM {
-            distanceGuideKo = "현재 위치에서 약 \(distance)m 거리에 있어요."
-            distanceGuideEn = "It is about \(distance)m away from your current location."
-        } else {
-            distanceGuideKo = "현재 위치 근처 추천 장소입니다."
-            distanceGuideEn = "This is a recommended place near your location."
-        }
+        let distanceGuideKo = "현재 위치 근처 추천 장소입니다."
+        let distanceGuideEn = "This is a recommended place near your location."
 
         let guideKo = "\(nameKo) \(distanceGuideKo) \(regionKo) \(addressKo)"
         let guideEn = "\(nameEn). \(distanceGuideEn) \(regionEn) \(addressEn)"
@@ -363,7 +356,7 @@ final class MapRemoteService: MapDataProviding {
             guideKo: guideKo,
             guideEn: guideEn,
             coordinate: CLLocationCoordinate2D(latitude: item.lat, longitude: item.lng),
-            distanceMeters: item.distanceM,
+            distanceMeters: nil,
             addressKo: addressKo,
             addressEn: addressEn,
             imageURL: Self.makeImageURL(from: item.imageURL),

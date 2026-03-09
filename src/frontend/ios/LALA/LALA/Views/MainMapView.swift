@@ -37,6 +37,9 @@ struct MainMapView: View {
                 }
             }
             .mapStyle(.standard(pointsOfInterest: .excludingAll))
+            .onMapCameraChange(frequency: .onEnd) { context in
+                viewModel.handleMapCameraInteractionEnded(center: context.region.center)
+            }
             .ignoresSafeArea()
 
             overlayContent
@@ -250,6 +253,7 @@ struct MainMapView: View {
                 }
                 .padding(.horizontal, 14)
             }
+            .id(viewModel.placesRenderID)
             .onChange(of: viewModel.selectedPlaceID) { _, selectedID in
                 guard let selectedID else { return }
                 withAnimation(.easeInOut(duration: 0.35)) {

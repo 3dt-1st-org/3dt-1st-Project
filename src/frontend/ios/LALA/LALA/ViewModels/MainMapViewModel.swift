@@ -34,6 +34,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     @Published var selectedPlaceID: String?
     @Published private(set) var userCoordinate: CLLocationCoordinate2D?
     @Published private(set) var places: [PlaceRecommendation]
+    @Published private(set) var placesRenderID = UUID()
     @Published var selectedFilter: MapPlaceFilter = .all
     @Published private(set) var isLoadingPlaces = false
     @Published private(set) var mapStatus: MapStatus = .none
@@ -51,6 +52,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private let autoDocentTriggerRadiusMeters: CLLocationDistance = 100
     private let autoDocentRequestCooldownSeconds: Double = 12
     private let placesReloadThresholdMeters: CLLocationDistance = 250
+    private let userDrivenPlacesReloadDistanceMeters: CLLocationDistance = 500
+    private let userDrivenPlacesReloadCooldownSeconds: Double = 12
+    private let manualMapContextHoldSeconds: Double = 18
+    private let mapCenteredOnUserThresholdMeters: CLLocationDistance = 1_200
     private let weatherReloadThresholdMeters: CLLocationDistance = WeatherReloadPolicy.defaultDistanceThresholdMeters
     private let weatherMaxAgeSeconds: TimeInterval = WeatherReloadPolicy.defaultMaxAgeSeconds
     private let placesLoadingMaxSeconds: Double = 20
@@ -91,6 +96,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private var lastWeatherFailureCoordinate: CLLocationCoordinate2D?
     private var weatherFailureRetryTask: Task<Void, Never>?
     private var suppressNextRegionDrivenReload = false
+    private var suppressMapCameraReloadUntil: Date?
+    private var lastMapCameraInteractionAt: Date?
+    private var lastUserDrivenPlacesCoordinate: CLLocationCoordinate2D?
+    private var lastUserDrivenPlacesReloadAt: Date?
 
     private let initialRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 37.2636, longitude: 127.0286),
@@ -361,6 +370,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         guard let coordinate = item.place.coordinate else { return }
         let focused = MKCoordinateRegion(center: coordinate, span: defaultMapSpan)
         let clamped = clampRegion(focused)
+        deferMapCameraReload()
         suppressNextRegionDrivenReload = true
         if animated {
             withAnimation(.easeInOut(duration: 0.4)) {
@@ -587,20 +597,32 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 suppressNextRegionDrivenReload = false
                 return
             }
-            schedulePlacesReloadForMapCenter()
+
+            schedulePlacesReloadForMapCenter(clamped.center)
         }
     }
 
-    private func schedulePlacesReloadForMapCenter() {
+    private func schedulePlacesReloadForMapCenter(_ center: CLLocationCoordinate2D) {
         guard isAppLocationConsentEnabled else { return }
+        guard !hasRuntimeConfigurationError else { return }
+
         mapCenterReloadDebounceTask?.cancel()
-        let targetCenter = region.center
         mapCenterReloadDebounceTask = Task { [weak self] in
             guard let self else { return }
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled else { return }
-            reloadPlaces(force: true, anchorCenter: targetCenter)
+
+            lastMapCameraInteractionAt = Date()
+            reloadPlaces(force: true, anchorCenter: center)
         }
+    }
+
+    func handleMapCameraInteractionEnded(center: CLLocationCoordinate2D) {
+        if isMapCameraReloadSuppressed {
+            return
+        }
+        lastMapCameraInteractionAt = Date()
+        schedulePlacesReloadForMapCenter(center)
     }
 
     private func refreshData(forcePlaces: Bool = false, forceWeather: Bool = false) {
@@ -698,11 +720,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     private func applyPlacesAfterFetch() {
-        if let userCoordinate {
-            refreshDistancesForCurrentLocation(userCoordinate)
-        } else {
-            places = allPlaces
-        }
+        let distanceApplied = placesApplyingUserDistance(from: userCoordinate, source: allPlaces)
+        allPlaces = distanceApplied
+        places = distanceApplied
+        placesRenderID = UUID()
 
         mapStatus = places.isEmpty ? .noResults : .none
 
@@ -887,8 +908,13 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             weatherTask?.cancel()
             placesFailureRetryTask?.cancel()
             weatherFailureRetryTask?.cancel()
+            mapCenterReloadDebounceTask?.cancel()
             isLoadingPlaces = false
             isLocationOverlayVisible = false
+            suppressMapCameraReloadUntil = nil
+            lastMapCameraInteractionAt = nil
+            lastUserDrivenPlacesCoordinate = nil
+            lastUserDrivenPlacesReloadAt = nil
             return
         }
 
@@ -930,6 +956,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
         let focused = MKCoordinateRegion(center: coordinate, span: defaultMapSpan)
         let clamped = clampRegion(focused)
+        deferMapCameraReload()
         suppressNextRegionDrivenReload = true
         if animated {
             withAnimation(.easeInOut(duration: 0.55)) {
@@ -944,6 +971,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     func centerOnPlace(_ place: PlaceRecommendation, animated: Bool) {
         let focused = MKCoordinateRegion(center: place.coordinate, span: defaultMapSpan)
         let clamped = clampRegion(focused)
+        deferMapCameraReload()
         suppressNextRegionDrivenReload = true
         if animated {
             withAnimation(.easeInOut(duration: 0.45)) {
@@ -973,6 +1001,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         if !hasAppliedInitialUserFocus {
             hasAppliedInitialUserFocus = true
             let focused = MKCoordinateRegion(center: latest.coordinate, span: defaultMapSpan)
+            deferMapCameraReload()
             suppressNextRegionDrivenReload = true
             region = clampRegion(focused)
         }
@@ -982,8 +1011,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         if pendingInitialLocationBootstrap || pendingForceReloadFromLocationRequest {
             pendingInitialLocationBootstrap = false
             pendingForceReloadFromLocationRequest = false
+            lastUserDrivenPlacesCoordinate = latest.coordinate
+            lastUserDrivenPlacesReloadAt = Date()
             refreshData(forcePlaces: true, forceWeather: true)
         } else {
+            reloadPlacesForUserMovementIfNeeded(latest.coordinate)
             reloadWeather(force: false)
             runAutoDocentIfNeeded(language: activeLanguage, forceAnnounce: false)
         }
@@ -1028,6 +1060,44 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         loadDocentScriptAndAudio(for: nearest.place, language: language, mode: .brief)
     }
 
+    private func reloadPlacesForUserMovementIfNeeded(_ coordinate: CLLocationCoordinate2D) {
+        guard shouldReloadPlacesForUserMovement(coordinate) else { return }
+        lastUserDrivenPlacesCoordinate = coordinate
+        lastUserDrivenPlacesReloadAt = Date()
+        reloadPlaces(force: true, anchorCenter: coordinate)
+    }
+
+    private func shouldReloadPlacesForUserMovement(_ coordinate: CLLocationCoordinate2D) -> Bool {
+        if hasRuntimeConfigurationError || !isAppLocationConsentEnabled {
+            return false
+        }
+
+        if let lastMapCameraInteractionAt {
+            let elapsed = Date().timeIntervalSince(lastMapCameraInteractionAt)
+            if elapsed < manualMapContextHoldSeconds {
+                return false
+            }
+        }
+
+        let mapUserDistance = distance(from: region.center, to: coordinate)
+        if mapUserDistance > mapCenteredOnUserThresholdMeters {
+            return false
+        }
+
+        if let lastReloadAt = lastUserDrivenPlacesReloadAt {
+            let elapsed = Date().timeIntervalSince(lastReloadAt)
+            if elapsed < userDrivenPlacesReloadCooldownSeconds {
+                return false
+            }
+        }
+
+        guard let lastUserDrivenPlacesCoordinate else {
+            return true
+        }
+        let moved = distance(from: lastUserDrivenPlacesCoordinate, to: coordinate)
+        return moved >= userDrivenPlacesReloadDistanceMeters
+    }
+
     private func nearestPlace(to userCoordinate: CLLocationCoordinate2D) -> (place: PlaceRecommendation, distance: CLLocationDistance)? {
         places
             .map { place in
@@ -1045,13 +1115,42 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     private func refreshDistancesForCurrentLocation(_ coordinate: CLLocationCoordinate2D) {
         guard !allPlaces.isEmpty else { return }
-        allPlaces = allPlaces
-            .map { place in
-                let nextDistance = Int(distance(from: coordinate, to: place.coordinate).rounded())
-                return place.updatingDistanceMeters(nextDistance)
-            }
-            .sorted { ($0.distanceMeters ?? Int.max) < ($1.distanceMeters ?? Int.max) }
-        places = allPlaces
+        let distanceApplied = placesApplyingUserDistance(from: coordinate, source: allPlaces)
+        allPlaces = distanceApplied
+        places = distanceApplied
+    }
+
+    private func placesApplyingUserDistance(
+        from coordinate: CLLocationCoordinate2D?,
+        source: [PlaceRecommendation]
+    ) -> [PlaceRecommendation] {
+        guard let coordinate else {
+            // Prevent map-center-based distance from being shown as user distance.
+            return source.map { $0.updatingDistanceMeters(nil) }
+        }
+
+        // Keep API order (map-center relevance), update only distance label source.
+        return source.map { place in
+            let nextDistance = Int(distance(from: coordinate, to: place.coordinate).rounded())
+            return place.updatingDistanceMeters(nextDistance)
+        }
+    }
+
+    private var isMapCameraReloadSuppressed: Bool {
+        guard let suppressMapCameraReloadUntil else {
+            return false
+        }
+
+        if Date() < suppressMapCameraReloadUntil {
+            return true
+        }
+
+        self.suppressMapCameraReloadUntil = nil
+        return false
+    }
+
+    private func deferMapCameraReload(seconds: TimeInterval = 0.8) {
+        suppressMapCameraReloadUntil = Date().addingTimeInterval(seconds)
     }
 
     private func applyRuntimeConfigurationStatus() {
