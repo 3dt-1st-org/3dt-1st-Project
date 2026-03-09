@@ -75,8 +75,9 @@ struct MainMapView: View {
         }
         .sheet(isPresented: $viewModel.isWeatherDetailPresented) {
             weatherForecastSheet
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.height(weatherSheetHeight)])
                 .presentationDragIndicator(.visible)
+                .presentationBackground(.clear)
         }
         .sheet(isPresented: $viewModel.isPlannerPresented) {
             plannerSheet
@@ -303,15 +304,17 @@ struct MainMapView: View {
             } else {
                 weatherForecastChartCard(items: viewModel.weatherForecast)
             }
-
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)
         .padding(.top, 20)
-        .background(
-            Color(UIColor.systemGroupedBackground)
-                .ignoresSafeArea()
-        )
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var weatherSheetHeight: CGFloat {
+        let baseHeight: CGFloat = 336
+        let scaled = baseHeight + ((appViewModel.fontScale - 1.0) * 42)
+        return min(max(scaled, 318), 390)
     }
 
     private func weatherForecastChartCard(items: [WeatherForecastItem]) -> some View {
