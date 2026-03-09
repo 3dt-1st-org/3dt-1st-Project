@@ -102,7 +102,7 @@ final class DocentRemoteService: DocentRemoteProviding {
         language: AppLanguage,
         mode: DocentScriptMode
     ) async throws -> DocentScriptResponse {
-        let url = try makeURL(path: "/api/ios/v1/docent/script")
+        let url = try makeURL(path: "/api/docent/script")
         let payload = DocentScriptRequest(
             placeID: placeID,
             category: category.rawValue,
@@ -119,7 +119,7 @@ final class DocentRemoteService: DocentRemoteProviding {
     }
 
     private func requestDocentAudio(script: String, language: AppLanguage) async throws -> Data {
-        let url = try makeURL(path: "/api/ios/v1/docent/audio")
+        let url = try makeURL(path: "/api/docent/audio")
         let payload = DocentAudioRequest(script: script, language: language.rawValue)
 
         var request = try makeRequest(url: url, method: "POST", timeout: 20)

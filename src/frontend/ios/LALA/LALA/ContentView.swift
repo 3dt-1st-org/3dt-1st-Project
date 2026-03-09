@@ -206,9 +206,9 @@ private struct PrivacyNoticeSheet: View {
     private var sheetTitle: String {
         switch language {
         case .korean:
-            return "동의 안내"
+            return "개인정보 및 위치기반서비스 동의 안내"
         case .english:
-            return "Terms of Agree"
+            return "Privacy and Location Consent Notice"
         }
     }
 

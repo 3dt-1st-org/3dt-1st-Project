@@ -161,6 +161,10 @@ def rank_restaurants(candidate_names: list[str], cursor) -> list[str]:
             rows, columns=["restaurant_name", "card_score_raw", "daangn_score_raw"]
         )
 
+        # [수정] Decimal -> float 변환 (연산 오류 방지)
+        df["card_score_raw"] = pd.to_numeric(df["card_score_raw"], errors='coerce').fillna(0.0)
+        df["daangn_score_raw"] = pd.to_numeric(df["daangn_score_raw"], errors='coerce').fillna(0.0)
+
         # IQR Capping — 카드 매출 이상치가 전체 랭킹을 왜곡하는 것을 방지
         q1, q3 = df["card_score_raw"].quantile([0.25, 0.75])
         df["card_score_raw"] = df["card_score_raw"].clip(upper=q3 + 1.5 * (q3 - q1))
@@ -172,7 +176,9 @@ def rank_restaurants(candidate_names: list[str], cursor) -> list[str]:
 
         # 가중합: 카드 40% + 당근 60%
         df["final_score"] = df["norm_card"] * 0.4 + df["norm_daangn"] * 0.6
-        return df.sort_values("final_score", ascending=False)["restaurant_name"].head(10).tolist()
+        # 동일 식당명이 여러 도시 행으로 중복될 수 있으므로 이름 기준 최고 점수만 유지
+        df = df.sort_values("final_score", ascending=False).drop_duplicates(subset="restaurant_name", keep="first")
+        return df["restaurant_name"].head(10).tolist()
 
     except Exception as exc:
         logger.warning("rank_restaurants 쿼리 실패, 입력 순서 그대로 사용: %s", exc)
@@ -302,26 +308,43 @@ def generate_tour_script(
         raise ValueError("language must be 'ko' or 'en'")
 
     full_context = "\n\n".join(_build_context_block(ctx) for ctx in context_list)
-    language_name = "Korean" if language == "ko" else "English"
     count = len(restaurant_names)
 
-    system_message = (
-        "당신은 'LALA AI Guide', 경기도 근처 맛집을 소개하는 전문 오디오 투어 도슨트입니다.\n"
-        "[대본 작성 원칙]\n"
-        f"1. 내러티브 구조: {count}개 식당을 하나의 여정으로 — 단순 나열 금지."
-        "   분위기·메뉴 특성에 따라 흐름 있게 연결하세요.\n"
-        "2. 구성: 도입(지역 소개 + 기대감 조성) → 음식 여정(각 식당을 스토리로 이어줌)"
-        "   → 마무리(방문 독려)\n"
-        "3. 데이터 기반: 키워드·요약·분위기 정보를 문장에 자연스럽게 녹여 생생함을 더하세요.\n"
-        "4. 말투: 이어폰으로 듣는 오디오 가이드 — 리듬감 있는 구어체, 청자에게 직접 말하는 형식.\n"
-        "5. 없는 사실을 지어내지 마세요.\n"
-        f"6. 분량: 약 2분 분량(300~400 단어). 언어: {language_name}."
-    )
-
-    user_message = (
-        f"아래 TOP {count}개 맛집 데이터를 바탕으로 통합 오디오 투어 가이드 대본을 작성해주세요.\n\n"
-        f"{full_context}"
-    )
+    if language == "ko":
+        system_message = (
+            "당신은 'LALA AI Guide', 경기도 근처 맛집을 소개하는 전문 오디오 투어 도슨트입니다.\n"
+            "[대본 작성 원칙]\n"
+            f"1. 내러티브 구조: {count}개 식당을 하나의 여정으로 — 단순 나열 금지. "
+            "   분위기·메뉴 특성에 따라 흐름 있게 연결하세요.\n"
+            "2. 구성: 도입(지역 소개 + 기대감 조성) → 음식 여정(각 식당을 스토리로 이어줌)"
+            "   → 마무리(방문 독려)\n"
+            "3. 데이터 기반: 키워드·요약·분위기 정보를 문장에 자연스럽게 녹여 생생함을 더하세요.\n"
+            "4. 말투: 이어폰으로 듣는 오디오 가이드 — 리듬감 있는 구어체, 청자에게 직접 말하는 형식.\n"
+            "5. 없는 사실을 지어내지 마세요.\n"
+            "6. 분량: 약 2분 분량(300~400 단어).\n"
+            "7. [필수] 반드시 한국어로만 작성하세요. 영어를 사용하면 안 됩니다."
+        )
+        user_message = (
+            f"아래 TOP {count}개 맛집 데이터를 바탕으로 통합 오디오 투어 가이드 대본을 한국어로 작성해주세요.\n\n"
+            f"{full_context}"
+        )
+    else:
+        system_message = (
+            "You are 'LALA AI Guide', a professional audio tour docent introducing local restaurants near Gyeonggi-do, Korea.\n"
+            "[Script Guidelines]\n"
+            f"1. Narrative structure: Connect {count} restaurants as one journey — no simple listing. "
+            "   Link them by atmosphere and menu characteristics.\n"
+            "2. Structure: Intro (region intro + anticipation) → Food journey (each restaurant as a story) → Closing (encourage visit)\n"
+            "3. Data-driven: Weave keywords, summaries, and atmosphere info naturally into sentences.\n"
+            "4. Tone: Audio guide listened through earphones — rhythmic conversational style, speak directly to the listener.\n"
+            "5. Do not fabricate facts.\n"
+            "6. Length: ~2 minutes (~300-400 words).\n"
+            "7. [REQUIRED] Write entirely in English. Do not use Korean."
+        )
+        user_message = (
+            f"Based on the TOP {count} restaurant data below, write a unified audio tour guide script in English.\n\n"
+            f"{full_context}"
+        )
 
     max_tokens = _int_env("DOCENT_TOUR_MAX_TOKENS", _LLM_DEFAULT_MAX_TOKENS)
     client, deploy = _get_llm_client()
@@ -427,6 +450,9 @@ def generate_restaurant_tour_docent(
             audio_bytes = synthesize_tour_audio(script, language)
         except Exception as exc:
             logger.warning("tour_docent TTS 실패: %s", exc)
+
+    # [추가] 서버 로그에 성공 메시지 출력 (사용자 확인용)
+    print(f"✅ [Tour Docent] 생성 완료: {len(names)}개 식당 (Source: {source}, Audio: {len(audio_bytes) if audio_bytes else 0} bytes)")
 
     return TourDocentResult(
         restaurant_names=names,

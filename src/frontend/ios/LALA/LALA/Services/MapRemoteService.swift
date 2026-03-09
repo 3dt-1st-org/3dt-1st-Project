@@ -36,12 +36,14 @@ struct WeatherSnapshot {
     let symbolName: String
     let temperatureText: String
     let dustText: String
+    let outdoorStatus: String
     let forecast: [WeatherForecastItem]
 
     static let placeholder = WeatherSnapshot(
         symbolName: "cloud.sun.fill",
         temperatureText: "--°C",
         dustText: "--",
+        outdoorStatus: "",
         forecast: []
     )
 }
@@ -62,8 +64,7 @@ protocol MapDataProviding {
     func fetchPlaces(
         center: CLLocationCoordinate2D,
         radiusMeters: Int,
-        category: MapPlaceFilter,
-        cityHint: String?
+        category: MapPlaceFilter
     ) async throws -> PlacesSnapshot
 
     func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot
@@ -130,8 +131,7 @@ final class MapRemoteService: MapDataProviding {
     func fetchPlaces(
         center: CLLocationCoordinate2D,
         radiusMeters: Int,
-        category: MapPlaceFilter,
-        cityHint: String?
+        category: MapPlaceFilter
     ) async throws -> PlacesSnapshot {
         guard baseURL != nil else {
             throw MapServiceError.missingBaseURL
@@ -140,23 +140,19 @@ final class MapRemoteService: MapDataProviding {
             throw MapServiceError.missingAPIKey
         }
 
-        var queryItems: [URLQueryItem] = [
+        let query = PlacesReloadPolicy.makeDefaultQuery(category: category.apiValue)
+        let boundedRadius = max(1, radiusMeters)
+        let queryItems: [URLQueryItem] = [
             URLQueryItem(name: "lat", value: String(center.latitude)),
             URLQueryItem(name: "lng", value: String(center.longitude)),
-            URLQueryItem(name: "scope", value: "city"),
-            URLQueryItem(name: "radius", value: String(radiusMeters)),
-            URLQueryItem(name: "category", value: category.apiValue),
-            URLQueryItem(name: "limit", value: "100")
+            URLQueryItem(name: "scope", value: query.scope),
+            URLQueryItem(name: "radius", value: String(boundedRadius)),
+            URLQueryItem(name: "category", value: query.category),
+            URLQueryItem(name: "limit", value: String(query.limit))
         ]
-        if let cityHint {
-            let normalizedCityHint = cityHint.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !normalizedCityHint.isEmpty {
-                queryItems.append(URLQueryItem(name: "city", value: normalizedCityHint))
-            }
-        }
 
         let requestURL = try makeURL(
-            path: "/api/ios/v1/places",
+            path: "/api/places",
             queryItems: queryItems
         )
 
@@ -191,7 +187,7 @@ final class MapRemoteService: MapDataProviding {
         }
 
         let requestURL = try makeURL(
-            path: "/api/ios/v1/weather",
+            path: "/api/weather",
             queryItems: [
                 URLQueryItem(name: "lat", value: String(coordinate.latitude)),
                 URLQueryItem(name: "lng", value: String(coordinate.longitude))
@@ -203,7 +199,19 @@ final class MapRemoteService: MapDataProviding {
             try validate(response: response)
 
             let decoded = try decoder.decode(RemoteWeatherResponse.self, from: data)
+            let normalizedTemp = decoded.temp.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedIcon = decoded.icon.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedOutdoorStatus = (decoded.outdoorStatus ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             let filteredForecast = Self.filterFutureForecast(decoded.forecast)
+            let hasRenderableWeather = !normalizedTemp.isEmpty ||
+                !normalizedIcon.isEmpty ||
+                !normalizedOutdoorStatus.isEmpty ||
+                !filteredForecast.isEmpty
+            guard hasRenderableWeather else {
+                throw MapServiceError.invalidResponse
+            }
+
             let forecast = filteredForecast.map {
                 WeatherForecastItem(
                     id: $0.time,
@@ -216,6 +224,7 @@ final class MapRemoteService: MapDataProviding {
                 symbolName: Self.weatherSymbolName(from: decoded.icon),
                 temperatureText: Self.temperatureText(from: decoded.temp),
                 dustText: Self.dustText(from: decoded.dust),
+                outdoorStatus: normalizedOutdoorStatus,
                 forecast: forecast
             )
         }
@@ -329,15 +338,8 @@ final class MapRemoteService: MapDataProviding {
         let addressKo = normalized(item.address) ?? ""
         let addressEn = normalized(item.addressEn) ?? ""
 
-        let distanceGuideKo: String
-        let distanceGuideEn: String
-        if let distance = item.distanceM {
-            distanceGuideKo = "현재 위치에서 약 \(distance)m 거리에 있어요."
-            distanceGuideEn = "It is about \(distance)m away from your current location."
-        } else {
-            distanceGuideKo = "현재 위치 근처 추천 장소입니다."
-            distanceGuideEn = "This is a recommended place near your location."
-        }
+        let distanceGuideKo = "현재 위치 근처 추천 장소입니다."
+        let distanceGuideEn = "This is a recommended place near your location."
 
         let guideKo = "\(nameKo) \(distanceGuideKo) \(regionKo) \(addressKo)"
         let guideEn = "\(nameEn). \(distanceGuideEn) \(regionEn) \(addressEn)"
@@ -354,10 +356,15 @@ final class MapRemoteService: MapDataProviding {
             guideKo: guideKo,
             guideEn: guideEn,
             coordinate: CLLocationCoordinate2D(latitude: item.lat, longitude: item.lng),
-            distanceMeters: item.distanceM,
+            distanceMeters: nil,
             addressKo: addressKo,
             addressEn: addressEn,
-            imageURL: Self.makeImageURL(from: item.imageURL)
+            imageURL: Self.makeImageURL(from: item.imageURL),
+            isOngoing: item.isOngoing,
+            eventStartDate: normalized(item.eventStartDate),
+            eventEndDate: normalized(item.eventEndDate),
+            eventURL: Self.makeImageURL(from: item.eventURL),
+            isApproximateLocation: item.isApproximateLocation ?? false
         )
     }
 
@@ -390,19 +397,22 @@ final class MapRemoteService: MapDataProviding {
     private static func dustText(from dust: RemoteWeatherDust?) -> String {
         guard let dust else { return "--" }
 
-        let grade: String
-        switch dust.grade {
-        case "good":
-            grade = "좋음"
-        case "normal":
-            grade = "보통"
-        case "bad":
-            grade = "나쁨"
-        case "very_bad":
-            grade = "매우나쁨"
-        default:
-            grade = "정보없음"
-        }
+        let grade = dust.gradeKo?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? dust.gradeKo!.trimmingCharacters(in: .whitespacesAndNewlines)
+            : {
+                switch dust.grade {
+                case "good":
+                    return "좋음"
+                case "normal":
+                    return "보통"
+                case "bad":
+                    return "나쁨"
+                case "very_bad":
+                    return "매우나쁨"
+                default:
+                    return "정보없음"
+                }
+            }()
 
         if let pm10 = dust.pm10, let pm25 = dust.pm25 {
             return "미세먼지 \(grade) (PM10 \(pm10) / PM2.5 \(pm25))"
@@ -555,7 +565,12 @@ final class MapRemoteService: MapDataProviding {
                 distanceMeters: distance,
                 addressKo: seed.addressKo,
                 addressEn: seed.addressEn,
-                imageURL: URL(string: seed.image)
+                imageURL: URL(string: seed.image),
+                isOngoing: nil,
+                eventStartDate: nil,
+                eventEndDate: nil,
+                eventURL: nil,
+                isApproximateLocation: false
             )
         }
         .sorted { ($0.distanceMeters ?? Int.max) < ($1.distanceMeters ?? Int.max) }
@@ -687,6 +702,11 @@ private struct RemotePlaceItem: Decodable {
     let regionEn: String?
     let distanceM: Int?
     let imageURL: String?
+    let isApproximateLocation: Bool?
+    let eventStartDate: String?
+    let eventEndDate: String?
+    let eventURL: String?
+    let isOngoing: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -701,6 +721,11 @@ private struct RemotePlaceItem: Decodable {
         case regionEn = "region_en"
         case distanceM = "distance_m"
         case imageURL = "image_url"
+        case isApproximateLocation = "is_approximate_location"
+        case eventStartDate = "event_start_date"
+        case eventEndDate = "event_end_date"
+        case eventURL = "event_url"
+        case isOngoing = "is_ongoing"
     }
 }
 
@@ -709,16 +734,124 @@ private struct RemoteWeatherResponse: Decodable {
     let icon: String
     let dust: RemoteWeatherDust?
     let forecast: [RemoteWeatherForecast]
+    let outdoorStatus: String?
+
+    enum CodingKeys: String, CodingKey {
+        case temp
+        case icon
+        case dust
+        case forecast
+        case outdoorStatus = "outdoor_status"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        temp = try container.decodeLossyString(forKey: .temp) ?? ""
+        icon = try container.decodeLossyString(forKey: .icon) ?? ""
+        dust = try container.decodeIfPresent(RemoteWeatherDust.self, forKey: .dust)
+        forecast = try container.decodeIfPresent([RemoteWeatherForecast].self, forKey: .forecast) ?? []
+        outdoorStatus = try container.decodeLossyString(forKey: .outdoorStatus)
+    }
 }
 
 private struct RemoteWeatherDust: Decodable {
     let pm10: String?
     let pm25: String?
     let grade: String
+    let gradeKo: String?
+
+    enum CodingKeys: String, CodingKey {
+        case pm10
+        case pm25
+        case grade
+        case gradeKo = "grade_ko"
+    }
 }
 
 private struct RemoteWeatherForecast: Decodable {
     let time: String
     let temp: String
     let icon: String
+
+    enum CodingKeys: String, CodingKey {
+        case time
+        case temp
+        case icon
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        time = try container.decodeLossyString(forKey: .time) ?? ""
+        temp = try container.decodeLossyString(forKey: .temp) ?? ""
+        icon = try container.decodeLossyString(forKey: .icon) ?? ""
+    }
+}
+
+extension KeyedDecodingContainer {
+    func decodeLossyString(forKey key: Key) throws -> String? {
+        guard contains(key) else { return nil }
+        if try decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? decode(String.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Double.self, forKey: key) {
+            return String(value)
+        }
+        if let value = try? decode(Int.self, forKey: key) {
+            return String(value)
+        }
+        if let value = try? decode(Bool.self, forKey: key) {
+            return value ? "true" : "false"
+        }
+        return nil
+    }
+
+    func decodeLossyDouble(forKey key: Key) throws -> Double? {
+        guard contains(key) else { return nil }
+        if try decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? decode(Double.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Int.self, forKey: key) {
+            return Double(value)
+        }
+        if let value = try? decode(String.self, forKey: key) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return nil
+            }
+            return Double(trimmed)
+        }
+        return nil
+    }
+
+    func decodeLossyInt(forKey key: Key) throws -> Int? {
+        guard contains(key) else { return nil }
+        if try decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? decode(Int.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Double.self, forKey: key) {
+            return Int(value.rounded())
+        }
+        if let value = try? decode(String.self, forKey: key) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return nil
+            }
+            if let intValue = Int(trimmed) {
+                return intValue
+            }
+            if let doubleValue = Double(trimmed) {
+                return Int(doubleValue.rounded())
+            }
+        }
+        return nil
+    }
 }

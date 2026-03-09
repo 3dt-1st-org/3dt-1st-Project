@@ -57,6 +57,9 @@ _STATUS_CATEGORY: dict[str, str] = {
     "미세먼지 나쁨":   "poor",
     "미세먼지 매우나쁨": "poor",
     "비/눈":         "rain",
+    "폭염":          "poor",
+    "한파":          "poor",
+    "강풍":          "poor",
 }
 
 
@@ -130,8 +133,15 @@ def api_dashboard_data():
         # 1) 33개 도시 최신 레코드 한 방에 (지도 + 도넛 + TOP5)
         cur.execute("""
             SELECT DISTINCT ON (location)
-                location, record_time, temperature, pm10, pm25,
-                wind_speed, outdoor_status
+                location, record_time, temperature, pm10, pm25, wind_speed,
+                CASE
+                    WHEN is_rain_snow = 1 THEN '비/눈'
+                    WHEN is_heatwave   = 1 THEN '폭염'
+                    WHEN is_coldwave   = 1 THEN '한파'
+                    WHEN is_strong_wind= 1 THEN '강풍'
+                    WHEN is_bad_dust   = 1 THEN '미세먼지 나쁨'
+                    ELSE '보통'
+                END AS outdoor_status
             FROM locallink.realtime_weather_conditions
             ORDER BY location, record_time DESC
         """)
@@ -140,8 +150,15 @@ def api_dashboard_data():
         # 2) KPI 현재값
         if location:
             cur.execute("""
-                SELECT temperature, pm10, pm25, wind_speed,
-                       outdoor_status, record_time
+                SELECT temperature, pm10, pm25, wind_speed, record_time,
+                    CASE
+                        WHEN is_rain_snow = 1 THEN '비/눈'
+                        WHEN is_heatwave   = 1 THEN '폭염'
+                        WHEN is_coldwave   = 1 THEN '한파'
+                        WHEN is_strong_wind= 1 THEN '강풍'
+                        WHEN is_bad_dust   = 1 THEN '미세먼지 나쁨'
+                        ELSE '보통'
+                    END AS outdoor_status
                 FROM locallink.realtime_weather_conditions
                 WHERE location = %s
                 ORDER BY record_time DESC
@@ -220,19 +237,29 @@ def api_dashboard_data():
         trend_rows = cur.fetchall()
 
         # 4) Raw data 최근 20개
+        _STATUS_CASE = """
+            CASE
+                WHEN is_rain_snow = 1 THEN '비/눈'
+                WHEN is_heatwave   = 1 THEN '폭염'
+                WHEN is_coldwave   = 1 THEN '한파'
+                WHEN is_strong_wind= 1 THEN '강풍'
+                WHEN is_bad_dust   = 1 THEN '미세먼지 나쁨'
+                ELSE '보통'
+            END AS outdoor_status
+        """
         if location:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT location, record_time, temperature,
-                       pm10, pm25, wind_speed, outdoor_status
+                       pm10, pm25, wind_speed, {_STATUS_CASE}
                 FROM locallink.realtime_weather_conditions
                 WHERE location = %s
                 ORDER BY record_time DESC
                 LIMIT 20
             """, (location,))
         else:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT location, record_time, temperature,
-                       pm10, pm25, wind_speed, outdoor_status
+                       pm10, pm25, wind_speed, {_STATUS_CASE}
                 FROM locallink.realtime_weather_conditions
                 ORDER BY record_time DESC
                 LIMIT 20

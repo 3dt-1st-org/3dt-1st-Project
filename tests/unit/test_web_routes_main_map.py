@@ -174,3 +174,270 @@ def test_api_docent_audio_validation_error(client, monkeypatch):
 
     assert response.status_code == 400
     assert response.get_json()["error"] == "language must be ko|en"
+
+
+def test_api_places_event_name_en_uses_title_en(client, monkeypatch):
+    """행사 장소의 name_en 필드가 title_en(영문 번역) 값을 우선하여 반환해야 한다."""
+    sample_event_with_translation = {
+        "id": "event-translated",
+        "name": "경기 벚꽃 축제",
+        "name_en": "Gyeonggi Cherry Blossom Festival",
+        "lat": 37.26,
+        "lng": 127.02,
+        "category": "event",
+        "address": "경기도 수원시",
+        "address_en": "Suwon-si, Gyeonggi-do",
+        "region": "수원시",
+        "region_en": "Suwon-si",
+        "distance_m": 500,
+        "image_url": None,
+        "is_approximate_location": False,
+        "event_start_date": "2026-03-15",
+        "event_end_date": "2026-03-31",
+        "event_url": "https://example.com/cherry",
+        "is_ongoing": True,
+    }
+
+    def _fake_places_payload(**_kwargs):
+        return {"count": 1, "places": [sample_event_with_translation], "scope": "city", "city": "수원시"}, 200
+
+    monkeypatch.setattr(
+        "src.frontend.web.routes.main_map.create_places_payload",
+        _fake_places_payload,
+    )
+
+    response = client.get("/api/places?category=event&scope=city")
+    assert response.status_code == 200
+    payload = response.get_json()
+    place = payload["places"][0]
+
+    # name_en은 영어 번역 제목이어야 한다 (한국어 name과 달라야 함)
+    assert place["name"] == "경기 벚꽃 축제"
+    assert place["name_en"] == "Gyeonggi Cherry Blossom Festival"
+    assert place["name_en"] != place["name"]
+
+
+def test_api_places_event_name_en_falls_back_to_name(client, monkeypatch):
+    """title_en이 없는 행사는 name_en이 name(한국어 제목)과 동일해야 한다."""
+    sample_event_no_translation = {
+        "id": "event-no-translation",
+        "name": "미번역 행사",
+        "name_en": "미번역 행사",
+        "lat": 37.26,
+        "lng": 127.02,
+        "category": "event",
+        "address": "경기도",
+        "address_en": "Gyeonggi-do",
+        "region": "수원시",
+        "region_en": "Suwon-si",
+        "distance_m": 1200,
+        "image_url": None,
+        "is_approximate_location": True,
+        "event_start_date": None,
+        "event_end_date": None,
+        "event_url": "",
+        "is_ongoing": True,
+    }
+
+    def _fake_places_payload(**_kwargs):
+        return {"count": 1, "places": [sample_event_no_translation], "scope": "city", "city": "수원시"}, 200
+
+    monkeypatch.setattr(
+        "src.frontend.web.routes.main_map.create_places_payload",
+        _fake_places_payload,
+    )
+
+    response = client.get("/api/places?category=event&scope=city")
+    assert response.status_code == 200
+    place = response.get_json()["places"][0]
+
+    # title_en이 없으면 name_en은 name과 동일해도 됨 (한국어 fallback)
+    assert place["name_en"] is not None
+    assert place["name_en"] == place["name"]
+
+
+# ---------------------------------------------------------------------------
+# Tour docent language priority tests
+# ---------------------------------------------------------------------------
+
+def test_tour_docent_client_language_overrides_session(client, monkeypatch):
+    """JS에서 보낸 language 값이 Flask session["lang"] 보다 우선해야 한다.
+
+    재현 시나리오:
+    - 사용자가 영어로 전환 → session["lang"] = "en"
+    - 사용자가 한국어로 전환 → localStorage = "ko", 하지만 session이 아직 "en"일 수 있음
+    - JS가 language="ko" 를 페이로드에 담아 전송할 때 "ko" 가 사용돼야 함
+    """
+    received_language = {}
+
+    def _fake_tour_payload(payload):
+        received_language["lang"] = payload.get("language")
+        return {"restaurant_names": ["맛집A"], "script": "대본", "source": "llm", "language": payload.get("language")}, 200, "application/json"
+
+    monkeypatch.setattr(
+        "src.frontend.web.routes.main_map.create_tour_docent_payload",
+        _fake_tour_payload,
+    )
+
+    with client.session_transaction() as sess:
+        sess["lang"] = "en"  # 세션은 영어로 남아있음
+
+    response = client.post(
+        "/api/docent/tour",
+        json={"lat": 37.5, "lng": 127.0, "language": "ko"},  # JS는 한국어 전송
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    assert received_language["lang"] == "ko", (
+        "Client-sent language='ko' should take priority over session lang='en'"
+    )
+
+
+def test_tour_docent_session_lang_used_as_fallback(client, monkeypatch):
+    """language 미전송 시 session["lang"]이 fallback으로 사용돼야 한다."""
+    received_language = {}
+
+    def _fake_tour_payload(payload):
+        received_language["lang"] = payload.get("language")
+        return {"restaurant_names": ["맛집A"], "script": "script", "source": "llm", "language": payload.get("language")}, 200, "application/json"
+
+    monkeypatch.setattr(
+        "src.frontend.web.routes.main_map.create_tour_docent_payload",
+        _fake_tour_payload,
+    )
+
+    with client.session_transaction() as sess:
+        sess["lang"] = "en"
+
+    response = client.post(
+        "/api/docent/tour",
+        json={"lat": 37.5, "lng": 127.0},  # language 미전송
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    assert received_language["lang"] == "en", (
+        "Session lang should be used as fallback when client does not send language"
+    )
+
+
+# ---------------------------------------------------------------------------
+# /api/places language 파라미터 처리
+# ---------------------------------------------------------------------------
+
+def test_api_places_language_en_replaces_name_with_name_en(client, monkeypatch):
+    """language=en 이면 name 필드가 name_en 값으로 교체돼야 한다."""
+    sample_place = {
+        "id": "rest-1",
+        "name": "한국식당",
+        "name_en": "Korean Restaurant",
+        "lat": 37.26,
+        "lng": 127.02,
+        "category": "restaurant",
+        "address": "경기도 수원시",
+        "address_en": "Suwon-si, Gyeonggi-do",
+        "region": "수원시",
+        "region_en": "수원시",
+        "distance_m": 500,
+        "image_url": None,
+        "is_approximate_location": False,
+        "event_start_date": None,
+        "event_end_date": None,
+        "event_url": None,
+    }
+
+    def _fake_places_payload(**kwargs):
+        from src.frontend.web.services.map_api_service import _apply_language
+        places = [dict(sample_place)]
+        _apply_language(places, kwargs.get("language", "ko"))
+        return {"count": len(places), "places": places, "scope": "radius", "city": None}, 200
+
+    monkeypatch.setattr(
+        "src.frontend.web.routes.main_map.create_places_payload",
+        _fake_places_payload,
+    )
+
+    response = client.get("/api/places?language=en")
+    assert response.status_code == 200
+    place = response.get_json()["places"][0]
+    assert place["name"] == "Korean Restaurant", "language=en 이면 name이 name_en으로 교체돼야 함"
+    assert place["address"] == "Suwon-si, Gyeonggi-do", "language=en 이면 address가 address_en으로 교체돼야 함"
+
+
+def test_api_places_language_ko_keeps_korean_name(client, monkeypatch):
+    """language=ko (기본값) 이면 name 필드가 한국어 그대로여야 한다."""
+    sample_place = {
+        "id": "rest-2",
+        "name": "한국식당",
+        "name_en": "Korean Restaurant",
+        "lat": 37.26,
+        "lng": 127.02,
+        "category": "restaurant",
+        "address": "경기도 수원시",
+        "address_en": "Suwon-si, Gyeonggi-do",
+        "region": "수원시",
+        "region_en": "수원시",
+        "distance_m": 500,
+        "image_url": None,
+        "is_approximate_location": False,
+        "event_start_date": None,
+        "event_end_date": None,
+        "event_url": None,
+    }
+
+    def _fake_places_payload(**kwargs):
+        from src.frontend.web.services.map_api_service import _apply_language
+        places = [dict(sample_place)]
+        _apply_language(places, kwargs.get("language", "ko"))
+        return {"count": len(places), "places": places, "scope": "radius", "city": None}, 200
+
+    monkeypatch.setattr(
+        "src.frontend.web.routes.main_map.create_places_payload",
+        _fake_places_payload,
+    )
+
+    response = client.get("/api/places")  # language 미전송 → ko 기본값
+    assert response.status_code == 200
+    place = response.get_json()["places"][0]
+    assert place["name"] == "한국식당", "language=ko 이면 원래 한국어 이름이 유지돼야 함"
+    assert place["address"] == "경기도 수원시"
+
+
+def test_api_places_language_en_no_name_en_keeps_korean(client, monkeypatch):
+    """name_en이 없으면 language=en 에서도 한국어 name이 유지돼야 한다."""
+    sample_place = {
+        "id": "rest-3",
+        "name": "이름없는식당",
+        "name_en": "",  # 비어있음
+        "lat": 37.26,
+        "lng": 127.02,
+        "category": "restaurant",
+        "address": "경기도 용인시",
+        "address_en": "",  # 비어있음
+        "region": "용인시",
+        "region_en": "용인시",
+        "distance_m": 1200,
+        "image_url": None,
+        "is_approximate_location": False,
+        "event_start_date": None,
+        "event_end_date": None,
+        "event_url": None,
+    }
+
+    def _fake_places_payload(**kwargs):
+        from src.frontend.web.services.map_api_service import _apply_language
+        places = [dict(sample_place)]
+        _apply_language(places, kwargs.get("language", "ko"))
+        return {"count": len(places), "places": places, "scope": "radius", "city": None}, 200
+
+    monkeypatch.setattr(
+        "src.frontend.web.routes.main_map.create_places_payload",
+        _fake_places_payload,
+    )
+
+    response = client.get("/api/places?language=en")
+    assert response.status_code == 200
+    place = response.get_json()["places"][0]
+    # name_en이 비어 있으면 name_en으로 교체되지 않아야 함
+    assert place["name"] == "이름없는식당"
+    assert place["address"] == "경기도 용인시"
+

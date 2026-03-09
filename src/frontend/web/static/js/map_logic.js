@@ -38,8 +38,48 @@
     currentAudio: null,
     watchId: null,
     hasPlayedDetailForPlace: new Set(),
-    dailyPlan: null
+    dailyPlan: null,
+    tourDocent: null,   // { script, restaurant_names, source }
+    clusterers: { attraction: null, restaurant: null, event: null },
+    tourAudio: null
   };
+
+  // ── 유저 행동 로그 ──────────────────────────────────────────────────────
+  // 세션 ID: 탭을 닫기 전까지 유지. 새 탭/재시작 시 새 UUID 발급 → DAU 집계.
+  const _SESSION_ID = (() => {
+    const KEY = 'lala_session_id';
+    let id = sessionStorage.getItem(KEY);
+    if (!id) {
+      id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      });
+      sessionStorage.setItem(KEY, id);
+    }
+    return id;
+  })();
+
+  /**
+   * 유저 행동을 비동기(fire-and-forget)로 DB에 기록.
+   * @param {string} action_type  - 이벤트 종류 (예: 'click_place_card')
+   * @param {Object} [extra={}]   - place_id, place_name, sigun_nm 등 선택 필드
+   */
+  function logAction(action_type, extra = {}) {
+    const body = {
+      session_id:  _SESSION_ID,
+      action_type,
+      latitude:    APP.userPosition?.lat ?? null,
+      longitude:   APP.userPosition?.lng ?? null,
+      sigun_nm:    extra.sigun_nm   ?? null,
+      place_id:    extra.place_id   ?? null,
+      place_name:  extra.place_name ?? null,
+    };
+    fetch('/api/log/action', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    }).catch(() => {/* 로그 실패는 UI에 영향 없이 무시 */});
+  }
 
   function guardRoute() {
     if (!S.getBool(S.keys.hasAcceptedPrivacyNotice, false)) {
@@ -127,21 +167,114 @@
     return '로컬 장소';
   }
 
-  function makePinSvg(color, active) {
-    const size = active ? 42 : 34;
-    const inner = active ? 7.5 : 6;
-    const glow = active
-      ? `<circle cx="16" cy="16" r="15" fill="${color}" opacity="0.18"/>`
-      : '';
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 40">${glow}
-      <path d="M16 0C7.163 0 0 7.163 0 16c0 10 16 24 16 24s16-14 16-24C32 7.163 24.837 0 16 0z" fill="${color}"/>
-      <circle cx="16" cy="16" r="${inner}" fill="#fff"/>
+  // iOS PlacePinView와 동일한 원형 마커
+  // active=false : 원형 아이콘만 렌더링 (클린 상태)
+  // active=true  : 원형 + 상단 말풍선(장소명) 표시
+  const _CATEGORY_ICON = {
+    attraction: '🏛',
+    restaurant: '🍴',
+    event:      '🗓',
+  };
+
+  // 말풍선(레이블) — 흰 배경 pill + 그림자 + 장소명
+  // 줌 레벨과 무관하게 픽셀 크기 고정: SVG 고정 width/height 사용
+  function makePlaceMarkerSvg(place, active) {
+    const isExpired = place.category === 'event' && place.is_ongoing === false;
+    const color  = isExpired ? '#9ca3af' : categoryColor(place.category);
+    const icon   = _CATEGORY_ICON[place.category] || '📍';
+
+    // 원 크기 — 줌 비례 없이 고정 크기 사용 (줌인/줌아웃에도 동일한 픽셀)
+    const outerR = active ? 20 : 17;
+    const innerR = Math.round(outerR * 0.64);
+    const iconSz = Math.round(outerR * 0.72);
+    const pad    = 4;   // 그림자 여백
+    const cx     = outerR + pad;
+    const circleDiam = (outerR + pad) * 2;
+
+    if (!active) {
+      // ── 비활성: 원형 마커만 ─────────────────────────────────────
+      const svgW = circleDiam;
+      const svgH = circleDiam;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}">
+        <defs>
+          <filter id="sh" x="-60%" y="-60%" width="220%" height="220%">
+            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.2"/>
+          </filter>
+        </defs>
+        <circle cx="${cx}" cy="${cx}" r="${outerR}" fill="white" filter="url(#sh)"/>
+        <circle cx="${cx}" cy="${cx}" r="${innerR}" fill="${color}"/>
+        <text x="${cx}" y="${cx}" text-anchor="middle" dominant-baseline="central"
+              font-family="system-ui,-apple-system,sans-serif"
+              font-size="${iconSz}" fill="white">${icon}</text>
+      </svg>`;
+      const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+      return new kakao.maps.MarkerImage(
+        src,
+        new kakao.maps.Size(svgW, svgH),
+        { offset: new kakao.maps.Point(cx, cx) }
+      );
+    }
+
+    // ── 활성: 상단 말풍선 + 원형 마커 ─────────────────────────────
+    const rawName   = placeName(place);   // 언어 설정에 맞게 name_en 우선 사용
+    const maxChars  = 14;
+    const labelText = rawName.length > maxChars ? rawName.slice(0, maxChars) + '…' : rawName;
+
+    const labelFontSz = 11;   // px 고정 — 줌 무관
+    const labelPadH   = 10;
+    const labelPadV   = 5;
+    const charW       = labelFontSz * 0.95;  // 한글 자폭 근사
+    const labelInnerW = Math.max(48, labelText.length * charW);
+    const labelW      = Math.ceil(labelInnerW + labelPadH * 2);
+    const labelH      = Math.ceil(labelFontSz + labelPadV * 2);  // pill 높이
+    const rx          = Math.round(labelH / 2);  // 완전 pill
+    const gap         = 5;   // 말풍선 ↔ 원 간격
+    // 말풍선 아래에 뾰족한 꼬리
+    const tailW = 8;
+    const tailH = 5;
+    const tailTotalH = labelH + tailH;
+
+    const svgW = Math.max(circleDiam, labelW);
+    const svgH = tailTotalH + gap + circleDiam;
+    const circleX = svgW / 2;
+    const circleY = tailTotalH + gap + outerR + pad;
+    const labelX  = (svgW - labelW) / 2;
+    const tailMid = svgW / 2;
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}">
+      <defs>
+        <filter id="sh" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.18"/>
+        </filter>
+        <filter id="csh" x="-60%" y="-60%" width="220%" height="220%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.2"/>
+        </filter>
+      </defs>
+      <!-- 말풍선 배경(흰 pill + 꼬리) -->
+      <g filter="url(#sh)">
+        <rect x="${labelX.toFixed(1)}" y="0" width="${labelW}" height="${labelH}" rx="${rx}" fill="white"/>
+        <polygon points="${(tailMid - tailW / 2).toFixed(1)},${labelH} ${(tailMid + tailW / 2).toFixed(1)},${labelH} ${tailMid.toFixed(1)},${tailTotalH}" fill="white"/>
+      </g>
+      <!-- 장소명 -->
+      <text x="${(svgW / 2).toFixed(1)}" y="${(labelH / 2).toFixed(1)}"
+            text-anchor="middle" dominant-baseline="central"
+            font-family="system-ui,-apple-system,sans-serif"
+            font-size="${labelFontSz}" font-weight="700" fill="#1a1a1a"
+      >${labelText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</text>
+      <!-- 원형 마커 -->
+      <circle cx="${circleX.toFixed(1)}" cy="${circleY.toFixed(1)}" r="${outerR}" fill="white" filter="url(#csh)"/>
+      <circle cx="${circleX.toFixed(1)}" cy="${circleY.toFixed(1)}" r="${innerR}" fill="${color}"/>
+      <text x="${circleX.toFixed(1)}" y="${circleY.toFixed(1)}"
+            text-anchor="middle" dominant-baseline="central"
+            font-family="system-ui,-apple-system,sans-serif"
+            font-size="${iconSz}" fill="white">${icon}</text>
     </svg>`;
+
     const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
     return new kakao.maps.MarkerImage(
       src,
-      new kakao.maps.Size(size, size + 10),
-      { offset: new kakao.maps.Point(size / 2, size + 10) }
+      new kakao.maps.Size(svgW, svgH),
+      { offset: new kakao.maps.Point(circleX, circleY) }
     );
   }
 
@@ -161,6 +294,7 @@
   }
 
   function clearMarkers() {
+    Object.values(APP.clusterers).forEach((c) => { if (c) c.clear(); });
     APP.markers.forEach((item) => item.marker.setMap(null));
     APP.markers = [];
   }
@@ -229,23 +363,40 @@
 
   function drawMarkers(places) {
     clearMarkers();
+    const byCategory = { attraction: [], restaurant: [], event: [] };
     places.forEach((place) => {
       const marker = new kakao.maps.Marker({
         position: new kakao.maps.LatLng(place.lat, place.lng),
-        image: makePinSvg((place.category === 'event' && place.is_ongoing === false) ? '#9ca3af' : categoryColor(place.category), false),
-        map: APP.map
+        image: makePlaceMarkerSvg(place, false),
       });
       kakao.maps.event.addListener(marker, 'click', () => {
         selectPlace(place, { from: 'marker', openDetail: true });
       });
       APP.markers.push({ placeId: place.id, marker, place });
+      const cat = place.category in byCategory ? place.category : 'attraction';
+      byCategory[cat].push(marker);
     });
+
+    Object.entries(byCategory).forEach(([cat, markers]) => {
+      if (!markers.length) return;
+      const c = APP.clusterers[cat];
+      if (c) {
+        c.addMarkers(markers);
+      } else {
+        markers.forEach((m) => m.setMap(APP.map));
+      }
+    });
+    // 마커 추가 후 현재 줌 레벨에 맞게 말풍선 상태 동기화
+    syncMarkerState();
   }
 
   function syncMarkerState() {
+    const level = APP.map ? APP.map.getLevel() : 99;
     APP.markers.forEach((item) => {
-      const active = APP.selectedPlace && APP.selectedPlace.id === item.placeId;
-      item.marker.setImage(makePinSvg((item.place.category === 'event' && item.place.is_ongoing === false) ? '#9ca3af' : categoryColor(item.place.category), active));
+      const isSelected = APP.selectedPlace && APP.selectedPlace.id === item.placeId;
+      // 레벨 2 이하(충분히 확대)이면 전체 말풍선 표시, 아니면 선택 마커만
+      const showBalloon = isSelected || level <= 2;
+      item.marker.setImage(makePlaceMarkerSvg(item.place, showBalloon));
     });
   }
 
@@ -268,7 +419,9 @@
     if (distance) metaParts.push(`<span>${escapeHtml(distance)}</span>`);
     let categoryLabel = placeCategoryLabel(place);
     if (place.category === 'event') {
-      categoryLabel += isExpiredEvent ? ' · 종료됨' : ' · 진행중';
+      categoryLabel += isExpiredEvent
+        ? ` · ${TEXT.eventStatusEnded || '종료됨'}`
+        : ` · ${TEXT.eventStatusOngoing || '진행중'}`;
     }
 
     wrapper.innerHTML = `
@@ -284,6 +437,11 @@
 
     wrapper.addEventListener('click', () => {
       const alreadySelected = APP.selectedPlace && APP.selectedPlace.id === place.id;
+      logAction('click_place_card', {
+        place_id:   place.id,
+        place_name: place.name,
+        sigun_nm:   place.region || null,
+      });
       selectPlace(place, { from: 'card', openDetail: !alreadySelected });
     });
     return wrapper;
@@ -333,6 +491,27 @@
       hour: 'numeric',
       minute: '2-digit'
     }).format(date);
+  }
+
+  function outdoorStatusLabel(status) {
+    if (!status) return '';
+    if (APP.selectedLanguage !== 'en') return status;
+    const MAP = {
+      '\uc57c\uc678\ud65c\ub3d9 \ucf8c\uc801': TEXT.outdoorComfortable || 'Comfortable Outdoors',
+      '\ube44/\ub208': TEXT.outdoorRain || 'Rain/Snow',
+      '\ubbf8\uc138\uba3c\uc9c0 \ub098\uc068': TEXT.outdoorPmBad || 'Poor Air Quality',
+      '\ubbf8\uc138\uba3c\uc9c0 \ub9e4\uc6b0\ub098\uc068': TEXT.outdoorPmVeryBad || 'Very Poor Air Quality',
+      '\ubcf4\ud1b5': TEXT.outdoorModerate || 'Moderate',
+    };
+    return MAP[status] || status;
+  }
+
+  function periodLabel(period) {
+    if (APP.selectedLanguage !== 'en') return period;
+    if (period === '\uc624\uc804') return TEXT.plannerPeriodMorning || 'Morning';
+    if (period === '\uc624\ud6c4') return TEXT.plannerPeriodAfternoon || 'Afternoon';
+    if (period === '\uc800\ub141') return TEXT.plannerPeriodEvening || 'Evening';
+    return period;
   }
 
   function dustGradeLabel(dust) {
@@ -390,11 +569,32 @@
     ) >= APP.weatherReloadThresholdMeters;
   }
 
+  function outdoorStatusLabel(status) {
+    if (!status) return '';
+    if (APP.selectedLanguage !== 'en') return status;
+    const MAP = {
+      '야외활동 쾌적': TEXT.outdoorComfortable || 'Comfortable Outdoors',
+      '비/눈': TEXT.outdoorRain || 'Rain/Snow',
+      '미세먼지 나쁨': TEXT.outdoorPmBad || 'Poor Air Quality',
+      '미세먼지 매우나쁨': TEXT.outdoorPmVeryBad || 'Very Poor Air Quality',
+      '보통': TEXT.outdoorModerate || 'Moderate',
+    };
+    return MAP[status] || status;
+  }
+
+  function periodLabel(period) {
+    if (APP.selectedLanguage !== 'en') return period;
+    if (period === '오전') return TEXT.plannerPeriodMorning || 'Morning';
+    if (period === '오후') return TEXT.plannerPeriodAfternoon || 'Afternoon';
+    if (period === '저녁') return TEXT.plannerPeriodEvening || 'Evening';
+    return period;
+  }
+
   function renderWeatherSummary(payload) {
     APP.weather = payload;
     const tempText = payload && payload.temp != null && payload.temp !== '' ? payload.temp : '--';
     const outdoorStatus = payload && payload.outdoor_status ? payload.outdoor_status : '';
-    const tempAndStatus = [outdoorStatus, `${tempText}°C`].filter(Boolean).join(' · ');
+    const tempAndStatus = [outdoorStatusLabel(outdoorStatus), `${tempText}°C`].filter(Boolean).join(' · ');
     document.getElementById('weather-icon').textContent = payload.icon || '🌡️';
     document.getElementById('weather-temp').textContent = tempAndStatus;
   }
@@ -403,8 +603,8 @@
     document.getElementById('sheet-backdrop').classList.add('active');
     document.getElementById(id).classList.add('active');
     // [UX개선] 시트가 열리면 카드 패널 + 자막 패널 숨기기 (Google Maps 방식)
-    const cardPanel = document.getElementById('card-panel');
-    if (cardPanel) cardPanel.classList.add('hidden');
+    const cardWrapper = document.querySelector('.map-card-wrapper');
+    if (cardWrapper) cardWrapper.classList.add('hidden');
     const subtitlePanel = document.getElementById('status-panel');
     if (subtitlePanel) subtitlePanel.classList.add('hidden');
   }
@@ -415,8 +615,8 @@
       sheet.classList.remove('active');
     });
     // [UX개선] 시트가 닫히면 카드 패널 + 자막 패널 복원
-    const cardPanel = document.getElementById('card-panel');
-    if (cardPanel) cardPanel.classList.remove('hidden');
+    const cardWrapper = document.querySelector('.map-card-wrapper');
+    if (cardWrapper) cardWrapper.classList.remove('hidden');
     const subtitlePanel = document.getElementById('status-panel');
     if (subtitlePanel) subtitlePanel.classList.remove('hidden');
   }
@@ -425,6 +625,10 @@
     if (!dateStr) return '';
     const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (!m) return dateStr;
+    if (APP.selectedLanguage === 'en') {
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return `${months[parseInt(m[2], 10) - 1]} ${parseInt(m[3], 10)}, ${m[1]}`;
+    }
     return `${m[1]}년 ${m[2]}월 ${m[3]}일`;
   }
 
@@ -447,7 +651,7 @@
     if (hasEvent) {
       const isOngoing = place.is_ongoing !== false;
       const statusEl = document.getElementById('detail-event-status');
-      statusEl.textContent = isOngoing ? '🟢 진행 중' : '⛔ 종료된 행사';
+      statusEl.textContent = isOngoing ? (TEXT.eventOngoing || '🟢 진행 중') : (TEXT.eventEnded || '⛔ 종료된 행사');
       statusEl.style.color = isOngoing ? '#2B6CB0' : '#9ca3af';
 
       const hasDates = !!(place.event_start_date || place.event_end_date);
@@ -457,8 +661,8 @@
         const end   = _fmtEventDate(place.event_end_date);
         let dateText = '🗓️';
         if (start && end)  dateText += ` ${start} ~ ${end}`;
-        else if (start)    dateText += ` ${start}부터`;
-        else if (end)      dateText += ` ~${end}까지`;
+        else if (start)    dateText += ` ${start} ${TEXT.eventDateFrom || '부터'}`;
+        else if (end)      dateText += ` ~${end} ${TEXT.eventDateUntil || '까지'}`;
         datesEl.textContent = dateText;
         datesEl.style.display = 'block';
       } else {
@@ -480,6 +684,11 @@
     moreBtn.style.display = canMore ? 'inline-block' : 'none';
     moreBtn.onclick = () => {
       APP.hasPlayedDetailForPlace.add(place.id);
+      logAction('click_docent_detail', {
+        place_id:   place.id,
+        place_name: place.name,
+        sigun_nm:   place.region || null,
+      });
       closeSheets();
       requestDocent(place, 'detail');
     };
@@ -498,7 +707,7 @@
 
     // 야외활동 상태 표시
     const outdoorStatus = APP.weather && APP.weather.outdoor_status ? APP.weather.outdoor_status : '';
-    nowText.textContent = [TEXT.weatherNow || '', outdoorStatus, `${APP.weather.temp}°C`].filter(Boolean).join(' ');
+    nowText.textContent = [TEXT.weatherNow || '', outdoorStatusLabel(outdoorStatus), `${APP.weather.temp}°C`].filter(Boolean).join(' ');
 
     const list = Array.isArray(APP.weather.forecast) ? APP.weather.forecast : [];
     if (!list.length) {
@@ -564,11 +773,12 @@
   function _chartHourLabel(value) {
     const raw = String(value || '').trim();
     if (!raw) return '';
+    const suffix = APP.selectedLanguage === 'en' ? 'h' : '시';
     const m = raw.match(/T(\d{2}):/);
-    if (m) return `${m[1]}시`;
+    if (m) return `${m[1]}${suffix}`;
     const date = new Date(/[zZ+]/.test(raw) ? raw : raw + '+09:00');
     if (isNaN(date.getTime())) return raw;
-    return `${String(date.getHours()).padStart(2, '0')}시`;
+    return `${String(date.getHours()).padStart(2, '0')}${suffix}`;
   }
 
   function setVoiceButtonState() {
@@ -630,7 +840,32 @@
     }
   }
 
+  /** 투어 오디오를 멈추고 play 버튼 UI를 다시 재생 보이기로 사용한다. */
+  function _stopTourAudio() {
+    if (!APP.tourAudio) return;
+    APP.tourAudio.pause();
+    if (APP.tourAudio._url) URL.revokeObjectURL(APP.tourAudio._url);
+    APP.tourAudio = null;
+    const playBtn = document.getElementById('tour-play-btn');
+    if (playBtn) {
+      playBtn.textContent = TEXT.tourPlayAgain || '▶ 다시 재생';
+      playBtn.disabled = false;
+      if (APP.tourDocent) {
+        playBtn.onclick = () => _playTourAudio(APP.tourDocent.script);
+      }
+    }
+  }
+
+  /** 도슨트 오디오를 멈춘다. */
+  function _stopCurrentAudio() {
+    if (!APP.currentAudio) return;
+    APP.currentAudio.pause();
+    APP.currentAudio = null;
+  }
+
   async function requestDocentAudio(script) {
+    // 투어 오디오와 겹치지 않도록 먼저 정지
+    _stopTourAudio();
     try {
       const response = await fetch('/api/docent/audio', {
         method: 'POST',
@@ -717,6 +952,7 @@
 
   async function loadPlaces() {
     if (!APP.map) return;
+    APP.tourDocent = null;   // 위치·카테고리 변경 시 투어 캐시 초기화
     showLoading(true);
     try {
       const center = APP.map.getCenter();
@@ -728,7 +964,8 @@
         radius: '20000',
         category: APP.selectedCategory,
         scope: 'radius',
-        limit: '100'
+        limit: '100',
+        language: APP.selectedLanguage
       });
 
       const response = await fetch('/api/places?' + query.toString());
@@ -738,6 +975,17 @@
       }
 
       APP.places = Array.isArray(payload.places) ? payload.places : [];
+
+      // distance_m을 항상 사용자 실제 위치 기준으로 재계산
+      // (API는 지도 center 기준으로 계산하므로 지도를 이동하면 틀어짐)
+      if (APP.userPosition) {
+        APP.places.forEach((place) => {
+          place.distance_m = Math.round(
+            distanceMeters(APP.userPosition.lat, APP.userPosition.lng, place.lat, place.lng)
+          );
+        });
+      }
+
       drawMarkers(APP.places);
       renderCards();
 
@@ -775,7 +1023,7 @@
 
     const requestPromise = (async () => {
       try {
-        const response = await fetch(`/api/weather?lat=${APP.userPosition.lat}&lng=${APP.userPosition.lng}`);
+        const response = await fetch(`/api/weather?lat=${APP.userPosition.lat}&lng=${APP.userPosition.lng}${options.force ? '&force=1' : ''}`);
         const payload = await response.json();
         if (!response.ok) {
           return APP.weather;
@@ -786,17 +1034,9 @@
             const res = await fetch(`/api/planner/intervention?lat=${APP.userPosition.lat}&lng=${APP.userPosition.lng}`);
             const data = await res.json();
             if (res.ok && data.intervention) {
-              const label = ALERT_LABEL[data.intervention.type];
-              if (label) {
-                let statusText = '';
-                if (label.includes('—')) {
-                  statusText = label.split('—')[1].trim();
-                } else if (label.includes('!')) {
-                  statusText = label.split('!')[1].trim();
-                }
-                if (statusText) {
-                  payload.outdoor_status = statusText;
-                }
+              const statusKo = _INTERVENTION_STATUS[data.intervention.type];
+              if (statusKo) {
+                payload.outdoor_status = statusKo;
               }
             }
           } catch (_) { /* ignore intervention fetch error */ }
@@ -902,7 +1142,8 @@
 
   function bindEvents() {
     document.getElementById('weather-btn').addEventListener('click', async () => {
-      await loadWeather();
+      logAction('click_weather');
+      await loadWeather({ force: true });
       renderWeatherSheet();
       openSheet('weather-sheet');
     });
@@ -912,8 +1153,10 @@
     document.getElementById('voice-btn').addEventListener('click', () => {
       APP.isVoiceGuidanceEnabled = !APP.isVoiceGuidanceEnabled;
       setVoiceButtonState();
-      if (!APP.isVoiceGuidanceEnabled && APP.currentAudio) {
-        APP.currentAudio.pause();
+      if (!APP.isVoiceGuidanceEnabled) {
+        // 도슨트 오디오와 투어가이드 오디오 모두 정지
+        _stopCurrentAudio();
+        _stopTourAudio();
       }
     });
 
@@ -949,11 +1192,45 @@
         document.querySelectorAll('.map-chip').forEach((el) => el.classList.remove('active'));
         btn.classList.add('active');
         APP.selectedCategory = btn.dataset.category;
+        logAction('click_category_filter');
+        _syncTourBtn();
         loadPlaces();
       });
     });
 
+    document.getElementById('tour-btn').addEventListener('click', () => {
+      logAction('click_tour_guide');
+      openTourSheet();
+    });
+
+    // 맛집 투어 가이드 - 음식점 태그 클릭 시 해당 음식점 세부정보 팝업 열기
+    document.getElementById('tour-body').addEventListener('click', (e) => {
+      const tag = e.target.closest('.tour-tag');
+      if (!tag) return;
+      const tagName = tag.textContent.trim();
+      const found = APP.places.find(
+        (p) => (p.name || '') === tagName || (p.name_en || '') === tagName
+      );
+      if (found) {
+        closeSheets();
+        selectPlace(found, { from: 'tour_tag', openDetail: true });
+      }
+    });
+
+    const cardHandle = document.getElementById('card-handle');
+    if (cardHandle) {
+      cardHandle.addEventListener('click', () => {
+        const wrapper = document.querySelector('.map-card-wrapper');
+        if (!wrapper) return;
+        const isExpanded = wrapper.classList.contains('expanded');
+        wrapper.classList.toggle('expanded');
+        const chevron = document.getElementById('card-chevron');
+        if (chevron) chevron.textContent = isExpanded ? '▼' : '▲';
+      });
+    }
+
     document.getElementById('planner-btn').addEventListener('click', () => {
+      logAction('click_daily_plan');
       if (APP.dailyPlan) {
         // 기존 계획 있으면 바로 시트를 열고, 재생성 여부를 확인
         openSheet('planner-sheet');
@@ -998,19 +1275,163 @@
     );
   }
 
+  // ── 맛집 투어 가이드 ────────────────────────────────────────────────────
+
+  function _syncTourBtn() {
+    const btn = document.getElementById('tour-btn');
+    if (!btn) return;
+    btn.style.display = APP.selectedCategory === 'restaurant' ? 'block' : 'none';
+  }
+
+  function openTourSheet() {
+    openSheet('tour-sheet');
+    // 캐시된 결과가 있으면 바로 표시
+    if (APP.tourDocent) {
+      _renderTourSheet(APP.tourDocent);
+      return;
+    }
+    _fetchTourDocent();
+  }
+
+  async function _fetchTourDocent() {
+    _setTourBody('loading', TEXT.tourLoading || '맛집 투어 가이드를 생성하는 중이에요...');
+    document.getElementById('tour-audio-bar').style.display = 'none';
+    document.getElementById('tour-subtitle').textContent = '';
+
+    const center = APP.map ? APP.map.getCenter() : null;
+    const lat = center ? center.getLat() : APP.userPosition?.lat;
+    const lng = center ? center.getLng() : APP.userPosition?.lng;
+    if (!lat || !lng) {
+      _setTourBody('error', TEXT.tourNoLocation || '위치 정보를 가져올 수 없습니다.');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/docent/tour', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lat,
+          lng,
+          language: APP.selectedLanguage,
+          with_audio: false
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.script) {
+        throw new Error(data.error || 'tour-failed');
+      }
+      APP.tourDocent = data;
+      _renderTourSheet(data);
+    } catch (err) {
+      _setTourBody('error', TEXT.tourError || String(err));
+    }
+  }
+
+  function _renderTourSheet(data) {
+    // 식당 태그 목록
+    const names = data.restaurant_names || [];
+    // 영문 모드일 때 APP.places에서 name_ko(한국어 원본) 매칭으로 영어명 표시
+    const tagsHtml = names.map((n) => {
+      let displayName = n;
+      if (APP.selectedLanguage === 'en') {
+        const match = APP.places.find(
+          (p) => (p.name_ko != null ? p.name_ko === n : p.name === n)
+        );
+        if (match) displayName = match.name;  // en 모드에서 name은 이미 영어
+      }
+      return `<span class="tour-tag">${escapeHtml(displayName)}</span>`;
+    }).join('');
+
+    const body = document.getElementById('tour-body');
+    body.className = 'tour-body';
+    body.innerHTML =
+      (tagsHtml ? `<div class="tour-restaurant-tags">${tagsHtml}</div>` : '') +
+      `<p>${escapeHtml(data.script)}</p>`;
+
+    document.getElementById('tour-subtitle').textContent =
+      `${names.length}${TEXT.tourRestaurantsSuffix || '개 맛집'} · ` + (data.source === 'llm' ? (TEXT.tourSourceLlm || 'AI 생성') : (TEXT.tourSourceDefault || '기본 안내'));
+
+    // 오디오 재생 버튼
+    const audioBar = document.getElementById('tour-audio-bar');
+    audioBar.style.display = 'block';
+    const playBtn = document.getElementById('tour-play-btn');
+    playBtn.textContent = TEXT.tourPlayAudio || '▶ 오디오 재생';
+    playBtn.disabled = false;
+    playBtn.onclick = () => _playTourAudio(data.script);
+  }
+
+  function _setTourBody(type, text) {
+    const body = document.getElementById('tour-body');
+    body.className = 'tour-body tour-body--' + type;
+    body.textContent = text;
+  }
+
+  async function _playTourAudio(script) {
+    // 도슨트 오디오와 겹치지 않도록 먼저 정지
+    _stopCurrentAudio();
+    const playBtn = document.getElementById('tour-play-btn');
+    playBtn.textContent = TEXT.tourConverting || '⏳ 오디오 변환 중...';
+    playBtn.disabled = true;
+
+    try {
+      const res = await fetch('/api/docent/audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ script, language: APP.selectedLanguage })
+      });
+      if (!res.ok) throw new Error('audio-failed');
+
+      const blob = await res.blob();
+      if (APP.tourAudio) {
+        APP.tourAudio.pause();
+        URL.revokeObjectURL(APP.tourAudio._url);
+      }
+      const url = URL.createObjectURL(blob);
+      APP.tourAudio = new Audio(url);
+      APP.tourAudio._url = url;
+      APP.tourAudio.onended = () => {
+        URL.revokeObjectURL(url);
+        playBtn.textContent = TEXT.tourPlayAgain || '▶ 다시 재생';
+        playBtn.disabled = false;
+      };
+      APP.tourAudio.play().catch(() => {
+        URL.revokeObjectURL(url);
+      });
+      playBtn.textContent = TEXT.tourPlaying || '⏹ 재생 중...';
+      playBtn.disabled = false;
+      playBtn.onclick = () => {
+        if (APP.tourAudio) {
+          APP.tourAudio.pause();
+          playBtn.textContent = TEXT.tourPlayAgain || '▶ 다시 재생';
+          playBtn.onclick = () => _playTourAudio(script);
+        }
+      };
+    } catch (_err) {
+      playBtn.textContent = TEXT.tourAudioFailed || '⚠️ 오디오 실패';
+      playBtn.disabled = false;
+      playBtn.onclick = () => _playTourAudio(script);
+    }
+  }
+
   // ── 하루 일정 플래너 ────────────────────────────────────────────────────
 
   const PERIOD_ICON = { '오전': '🌅', '오후': '☀️', '저녁': '🌙' };
+  const _INTERVENTION_STATUS = {
+    rain_alert: '비/눈',
+    pm_alert: '미세먼지 나쁨',
+    clear_sky_alert: '야외활동 쾌적',
+  };
   const ALERT_LABEL = {
-    rain_alert: '☔ 비가 옵니다 — 실내 장소를 추천해요',
-    pm_alert: '😷 미세먼지가 나빠요 — 실내 장소를 추천해요',
-    clear_sky_alert: '☀️ 날씨가 맑아요! 야외 활동하기 좋아요',
+    rain_alert: TEXT.alertRain || '☔ 비가 옵니다 — 실내 장소를 추천해요',
+    pm_alert: TEXT.alertPm || '😷 미세먼지가 나빠요 — 실내 장소를 추천해요',
+    clear_sky_alert: TEXT.alertClearSky || '☀️ 날씨가 맑아요! 야외 활동하기 좋아요',
   };
 
   async function fetchDailyPlan(lat, lng) {
     openSheet('planner-sheet');
     const slotsEl = document.getElementById('planner-slots');
-    slotsEl.innerHTML = '<div class="planner-skeleton">일정을 생성하는 중…<br><small style="opacity:.6;font-size:.75rem">처음 방문하는 장소는 최대 30~60초 소요돼요</small></div>';
+    slotsEl.innerHTML = `<div class="planner-skeleton">${TEXT.plannerLoading || '일정을 생성하는 중…'}<br><small style="opacity:.6;font-size:.75rem">${TEXT.plannerLoadingHint || '처음 방문하는 장소는 최대 5~10초 소요돼요'}</small></div>`;
     document.getElementById('planner-location').textContent = '';
     document.getElementById('planner-weather').textContent = '';
 
@@ -1026,7 +1447,7 @@
       renderPlannerSheet(data);
       _showPlannerRefreshBtn();
     } catch (err) {
-      slotsEl.innerHTML = `<p class="planner-error">일정을 가져오지 못했어요. 다시 시도해주세요.</p>`;
+      slotsEl.innerHTML = `<p class="planner-error">${TEXT.plannerError || '일정을 가져오지 못했어요. 다시 시도해주세요.'}</p>`;
     }
   }
 
@@ -1037,9 +1458,9 @@
     if (!btn) {
       btn = document.createElement('button');
       btn.className = 'map-pill-btn planner-refresh-btn';
-      btn.textContent = '🔄 일정 재생성';
+      btn.textContent = TEXT.plannerRefresh || '🔄 일정 재생성';
       btn.addEventListener('click', () => {
-        if (!confirm('하루 일정을 다시 생성할까요?\n현재 지도의 위치를 기준으로 새 일정이 만들어집니다.')) return;
+        if (!confirm(TEXT.plannerConfirmRegen || '하루 일정을 다시 생성할까요?\n현재 지도의 위치를 기준으로 새 일정이 만들어집니다.')) return;
         APP.dailyPlan = null;
         const center = APP.map ? APP.map.getCenter() : null;
         const lat = center ? center.getLat() : APP.userPosition?.lat;
@@ -1054,7 +1475,7 @@
   function renderPlannerSheet(data) {
     document.getElementById('planner-location').textContent = data.location || '';
     const w = data.weather || {};
-    const badge = [w.outdoor_status, w.temperature ? `${w.temperature}°C` : null]
+    const badge = [outdoorStatusLabel(w.outdoor_status), w.temperature ? `${w.temperature}°C` : null]
       .filter(Boolean).join('  ');
     document.getElementById('planner-weather').textContent = badge;
 
@@ -1063,18 +1484,19 @@
 
     const plan = data.plan || [];
     if (!plan.length) {
-      slotsEl.innerHTML = '<p class="planner-error">추천 장소가 없어요.</p>';
+      slotsEl.innerHTML = `<p class="planner-error">${TEXT.plannerEmpty || '추천 장소가 없어요.'}</p>`;
       return;
     }
 
     plan.forEach((item) => {
       const icon = PERIOD_ICON[item.period] || '📍';
+      const periodText = periodLabel(item.period);
       const place = item.place || {};
       const card = document.createElement('div');
       card.className = 'plan-slot-card';
       card.innerHTML = `
-        <div class="plan-slot-card__period">${icon} <strong>${escapeHtml(item.period)}</strong><span class="plan-slot-card__time">${escapeHtml(item.time || '')}</span></div>
-        <div class="plan-slot-card__name">${escapeHtml(place.name || '')}</div>
+        <div class="plan-slot-card__period">${icon} <strong>${escapeHtml(periodText)}</strong><span class="plan-slot-card__time">${escapeHtml(item.time || '')}</span></div>
+        <div class="plan-slot-card__name">${escapeHtml(placeName(place))}</div>
         ${place.road_addr ? `<div class="plan-slot-card__addr">${escapeHtml(place.road_addr)}</div>` : ''}
         ${item.script ? `<p class="plan-slot-card__script">${escapeHtml(item.script)}</p>` : ''}
       `;
@@ -1107,7 +1529,7 @@
   }
 
   function showInterventionToast(intervention) {
-    const label = ALERT_LABEL[intervention.type] || '날씨가 바뀌었어요';
+    const label = ALERT_LABEL[intervention.type] || TEXT.alertGeneric || '날씨가 바뀌었어요';
     const toast = document.getElementById('intervention-toast');
     document.getElementById('intervention-toast-text').textContent = label;
     toast.style.display = 'flex';
@@ -1134,10 +1556,44 @@
       center: new kakao.maps.LatLng(APP.userPosition.lat, APP.userPosition.lng),
       level: 5
     });
+
+    // MarkerClusterer: 카테고리별 색상 클러스터링 (레벨 7 이상 축소 시 활성화)
+    if (kakao.maps.MarkerClusterer) {
+      const _CLUSTER_STYLES = {
+        attraction: { border: '#C53030', color: '#742a2a' },
+        restaurant:  { border: '#C87F11', color: '#744210' },
+        event:       { border: '#2B6CB0', color: '#1a365d' },
+      };
+      Object.entries(_CLUSTER_STYLES).forEach(([cat, s]) => {
+        APP.clusterers[cat] = new kakao.maps.MarkerClusterer({
+          map: APP.map,
+          averageCenter: true,
+          minLevel: 7,
+          disableClickZoom: false,
+          styles: [{
+            width: '44px', height: '44px',
+            background: 'rgba(255,255,255,0.93)',
+            border: `2px solid ${s.border}`,
+            borderRadius: '50%',
+            color: s.color,
+            textAlign: 'center',
+            lineHeight: '40px',
+            fontSize: '13px',
+            fontWeight: '700',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+          }]
+        });
+      });
+    }
+
     renderUserLocation();
 
     kakao.maps.event.addListener(APP.map, 'dragend', function () {
       loadPlaces();
+    });
+    kakao.maps.event.addListener(APP.map, 'zoom_changed', function () {
+      // syncMarkerState가 줌 레벨 기반으로 말풍선 ON/OFF를 처리
+      syncMarkerState();
     });
 
     bindEvents();

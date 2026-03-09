@@ -109,4 +109,34 @@ final class SettingsViewModel: ObservableObject {
             return "Font Size"
         }
     }
+
+    func aboutTitle(in language: AppLanguage) -> String {
+        switch language {
+        case .korean:
+            return "앱 정보"
+        case .english:
+            return "About"
+        }
+    }
+
+    func versionTitle(in language: AppLanguage) -> String {
+        switch language {
+        case .korean:
+            return "버전"
+        case .english:
+            return "Version"
+        }
+    }
+
+    var appVersionText: String {
+        if let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+           !short.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return short
+        }
+        if let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+           !build.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return build
+        }
+        return "1.0.0"
+    }
 }

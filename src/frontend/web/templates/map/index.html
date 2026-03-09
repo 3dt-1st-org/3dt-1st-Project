@@ -2,7 +2,7 @@
 {% block title %}LALA — Map{% endblock %}
 
 {% block head %}
-<script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={{ kakao_js_key }}&autoload=false"></script>
+<script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={{ kakao_js_key }}&autoload=false&libraries=clusterer"></script>
 {% endblock %}
 
 {% block content %}
@@ -16,17 +16,22 @@
     <button class="map-chip" data-category="event">{{ t('map_filter_event') }}</button>
   </div>
 
-  <button id="planner-btn" class="map-pill-btn map-planner-btn" aria-label="하루 일정">🗓️ 하루 일정</button>
+  <button id="planner-btn" class="map-pill-btn map-planner-btn" aria-label="하루 일정">{{ t('map_planner_btn') }}</button>
+  <button id="tour-btn" class="map-pill-btn map-tour-btn" aria-label="맛집 투어 가이드" style="display:none;">{{ t('map_tour_btn') }}</button>
+
+  <div class="map-weather-row">
+    <button id="weather-btn" class="map-pill-btn map-weather-btn" aria-label="Weather">
+      <span id="weather-icon">🌡️</span>
+      <span class="map-weather-copy">
+        <span id="weather-temp">--°C</span>
+      </span>
+    </button>
+  </div>
 
   <div class="map-top-stack">
-    <div id="card-panel" class="map-card-panel"></div>
-    <div class="map-weather-row">
-      <button id="weather-btn" class="map-pill-btn map-weather-btn" aria-label="Weather">
-        <span id="weather-icon">🌡️</span>
-        <span class="map-weather-copy">
-          <span id="weather-temp">--°C</span>
-        </span>
-      </button>
+    <button id="card-handle" class="map-card-handle" aria-label="추체론 장소 보기">{{ t('map_recommend_toggle') }} <span id="card-chevron">▼</span></button>
+    <div class="map-card-wrapper">
+      <div id="card-panel" class="map-card-panel"></div>
     </div>
   </div>
 
@@ -68,17 +73,28 @@
     <p id="detail-event-dates" class="sheet-sub" style="font-size:.82rem; margin-top:4px;"></p>
     <a id="detail-event-link" href="#" target="_blank" rel="noopener noreferrer"
        class="btn-primary"
-       style="display:block; text-align:center; margin-top:8px; text-decoration:none;">행사 상세 보기 →</a>
-    <p id="detail-event-approx" style="display:none; font-size:.75rem; color:#aaa; margin-top:6px;">📍 정확한 위치 정보가 없어 시 중심 위치로 표시돼요</p>
+       style="display:block; text-align:center; margin-top:8px; text-decoration:none;">{{ t('map_event_detail_link') }}</a>
+    <p id="detail-event-approx" style="display:none; font-size:.75rem; color:#aaa; margin-top:6px;">{{ t('map_event_approx') }}</p>
   </div>
   <div class="btn-row">
     <button id="detail-more-btn" class="btn-primary" style="width:100%;">{{ t('map_more_info') }}</button>
   </div>
 </section>
 
+<section id="tour-sheet" class="bottom-sheet" aria-hidden="true">
+  <div class="tour-sheet__header">
+    <h3 class="sheet-title">{{ t('map_tour_title') }}</h3>
+    <p id="tour-subtitle" class="sheet-sub"></p>
+  </div>
+  <div id="tour-body" class="tour-body"></div>
+  <div id="tour-audio-bar" class="tour-audio-bar" style="display:none;">
+    <button id="tour-play-btn" class="btn-primary tour-play-btn">{{ t('map_tour_play_audio') }}</button>
+  </div>
+</section>
+
 <section id="planner-sheet" class="bottom-sheet planner-sheet" aria-hidden="true">
   <div class="planner-sheet__header">
-    <h3 class="sheet-title">🗓️ 하루 일정</h3>
+    <h3 class="sheet-title">{{ t('map_planner_title') }}</h3>
     <p id="planner-location" class="sheet-sub"></p>
     <p id="planner-weather" class="planner-weather-badge"></p>
   </div>
@@ -121,9 +137,44 @@
     docentLoading: "{{ t('map_docent_loading') }}",
     docentUnavailable: "{{ t('map_docent_unavailable') }}",
     moreInfo: "{{ t('map_more_info') }}",
+    tourLoading: "{{ t('map_docent_loading') }}",
+    tourError: "{{ t('map_docent_unavailable') }}",
     weatherTitle: "{{ t('map_weather_title') }}",
     weatherNow: "{{ t('map_weather_now') }}",
-    weatherEmpty: "{{ t('map_weather_empty') }}"
+    weatherEmpty: "{{ t('map_weather_empty') }}",
+    eventOngoing: "{{ t('map_event_ongoing') }}",
+    eventEnded: "{{ t('map_event_ended') }}",
+    eventStatusOngoing: "{{ t('map_event_status_ongoing') }}",
+    eventStatusEnded: "{{ t('map_event_status_ended') }}",
+    eventDateFrom: "{{ t('map_event_date_from') }}",
+    eventDateUntil: "{{ t('map_event_date_until') }}",
+    plannerRefresh: "{{ t('map_planner_refresh') }}",
+    plannerConfirmRegen: "{{ t('map_planner_confirm_regen') }}",
+    plannerLoading: "{{ t('map_planner_loading') }}",
+    plannerLoadingHint: "{{ t('map_planner_loading_hint') }}",
+    plannerError: "{{ t('map_planner_error') }}",
+    plannerEmpty: "{{ t('map_planner_empty') }}",
+    plannerPeriodMorning: "{{ t('map_planner_period_morning') }}",
+    plannerPeriodAfternoon: "{{ t('map_planner_period_afternoon') }}",
+    plannerPeriodEvening: "{{ t('map_planner_period_evening') }}",
+    tourPlayAudio: "{{ t('map_tour_play_audio') }}",
+    tourPlayAgain: "{{ t('map_tour_play_again') }}",
+    tourConverting: "{{ t('map_tour_converting') }}",
+    tourPlaying: "{{ t('map_tour_playing') }}",
+    tourAudioFailed: "{{ t('map_tour_audio_failed') }}",
+    tourNoLocation: "{{ t('map_tour_no_location') }}",
+    tourSourceLlm: "{{ t('map_tour_source_llm') }}",
+    tourSourceDefault: "{{ t('map_tour_source_default') }}",
+    tourRestaurantsSuffix: "{{ t('map_tour_restaurants_suffix') }}",
+    alertRain: "{{ t('map_alert_rain') }}",
+    alertPm: "{{ t('map_alert_pm') }}",
+    alertClearSky: "{{ t('map_alert_clear_sky') }}",
+    alertGeneric: "{{ t('map_alert_generic') }}",
+    outdoorComfortable: "{{ t('map_outdoor_comfortable') }}",
+    outdoorRain: "{{ t('map_outdoor_rain') }}",
+    outdoorPmBad: "{{ t('map_outdoor_pm_bad') }}",
+    outdoorPmVeryBad: "{{ t('map_outdoor_pm_very_bad') }}",
+    outdoorModerate: "{{ t('map_outdoor_moderate') }}",
   };
 </script>
 <script src="{{ url_for('static', filename='js/map_logic.js') }}"></script>

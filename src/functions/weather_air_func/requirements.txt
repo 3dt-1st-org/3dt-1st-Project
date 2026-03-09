@@ -5,3 +5,4 @@
 azure-functions
 azure-eventhub>=5.11
 aiohttp
+pyproj
