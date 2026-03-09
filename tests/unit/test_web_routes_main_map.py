@@ -255,3 +255,67 @@ def test_api_places_event_name_en_falls_back_to_name(client, monkeypatch):
     assert place["name_en"] is not None
     assert place["name_en"] == place["name"]
 
+
+# ---------------------------------------------------------------------------
+# Tour docent language priority tests
+# ---------------------------------------------------------------------------
+
+def test_tour_docent_client_language_overrides_session(client, monkeypatch):
+    """JS에서 보낸 language 값이 Flask session["lang"] 보다 우선해야 한다.
+
+    재현 시나리오:
+    - 사용자가 영어로 전환 → session["lang"] = "en"
+    - 사용자가 한국어로 전환 → localStorage = "ko", 하지만 session이 아직 "en"일 수 있음
+    - JS가 language="ko" 를 페이로드에 담아 전송할 때 "ko" 가 사용돼야 함
+    """
+    received_language = {}
+
+    def _fake_tour_payload(payload):
+        received_language["lang"] = payload.get("language")
+        return {"restaurant_names": ["맛집A"], "script": "대본", "source": "llm", "language": payload.get("language")}, 200, "application/json"
+
+    monkeypatch.setattr(
+        "src.frontend.web.routes.main_map.create_tour_docent_payload",
+        _fake_tour_payload,
+    )
+
+    with client.session_transaction() as sess:
+        sess["lang"] = "en"  # 세션은 영어로 남아있음
+
+    response = client.post(
+        "/api/docent/tour",
+        json={"lat": 37.5, "lng": 127.0, "language": "ko"},  # JS는 한국어 전송
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    assert received_language["lang"] == "ko", (
+        "Client-sent language='ko' should take priority over session lang='en'"
+    )
+
+
+def test_tour_docent_session_lang_used_as_fallback(client, monkeypatch):
+    """language 미전송 시 session["lang"]이 fallback으로 사용돼야 한다."""
+    received_language = {}
+
+    def _fake_tour_payload(payload):
+        received_language["lang"] = payload.get("language")
+        return {"restaurant_names": ["맛집A"], "script": "script", "source": "llm", "language": payload.get("language")}, 200, "application/json"
+
+    monkeypatch.setattr(
+        "src.frontend.web.routes.main_map.create_tour_docent_payload",
+        _fake_tour_payload,
+    )
+
+    with client.session_transaction() as sess:
+        sess["lang"] = "en"
+
+    response = client.post(
+        "/api/docent/tour",
+        json={"lat": 37.5, "lng": 127.0},  # language 미전송
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    assert received_language["lang"] == "en", (
+        "Session lang should be used as fallback when client does not send language"
+    )
+

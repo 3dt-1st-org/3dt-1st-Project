@@ -124,11 +124,13 @@ def create_tour_docent_payload(
     if not places:
         return {"error": "주변 맛집 데이터가 없습니다."}, 404, "application/json"
 
-    candidate_names: list[str] = [
-        p.get("name") or p.get("name_en") or ""
-        for p in places
-        if (p.get("name") or p.get("name_en") or "")
-    ]
+    _seen: set[str] = set()
+    candidate_names: list[str] = []
+    for p in places:
+        _name = p.get("name") or p.get("name_en") or ""
+        if _name and _name not in _seen:
+            _seen.add(_name)
+            candidate_names.append(_name)
     if not candidate_names:
         return {"error": "식당 이름을 가져오지 못했습니다."}, 404, "application/json"
 

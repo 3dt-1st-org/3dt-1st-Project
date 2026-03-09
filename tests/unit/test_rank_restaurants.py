@@ -1,9 +1,11 @@
 """
 Tests for rank_restaurants() in src/services/restaurant_docent.py
 
-Covers the Decimal -> float conversion fix (PR #124):
-card_score_raw and daangn_score_raw from PostgreSQL may arrive as
-decimal.Decimal objects, which caused TypeError during IQR arithmetic.
+Covers:
+- Decimal -> float conversion fix (PR #124): card_score_raw / daangn_score_raw
+  from PostgreSQL may arrive as decimal.Decimal, causing TypeError in IQR arithmetic.
+- Duplicate restaurant name deduplication: same name from multiple cities must not
+  appear more than once in the top-10 result.
 """
 from __future__ import annotations
 
@@ -79,3 +81,50 @@ class TestRankRestaurantsDecimalFix:
         result = rank_restaurants(["IntScore", "FloatScore", "DecScore"], cursor)
         assert isinstance(result, list)
         assert len(result) > 0
+
+
+class TestRankRestaurantsDeduplicate:
+    """Same restaurant name from multiple cities must appear once in the result."""
+
+    def test_duplicate_names_from_multiple_cities_removed(self):
+        """동경 appears in Suwon AND Yongin rows → must appear only once in result."""
+        rows = [
+            ("동경", Decimal("500000"), Decimal("20")),   # Suwon row
+            ("동경", Decimal("300000"), Decimal("10")),   # Yongin row (same name)
+            ("우리집", Decimal("800000"), Decimal("50")),
+            ("우리집", Decimal("600000"), Decimal("30")),
+            ("우리집", Decimal("400000"), Decimal("15")),
+            ("벙커", Decimal("1200000"), Decimal("80")),
+        ]
+        cursor = _make_cursor(rows)
+        names = ["동경", "동경", "우리집", "우리집", "우리집", "벙커"]
+        result = rank_restaurants(names, cursor)
+        assert result.count("동경") == 1
+        assert result.count("우리집") == 1
+        assert result.count("벙커") == 1
+
+    def test_no_duplicates_in_result_at_all(self):
+        """Regardless of how many duplicate DB rows exist, result has unique names."""
+        rows = [
+            ("A식당", Decimal("100"), Decimal("10")),
+            ("A식당", Decimal("200"), Decimal("20")),
+            ("B식당", Decimal("300"), Decimal("30")),
+            ("B식당", Decimal("400"), Decimal("40")),
+            ("C식당", Decimal("500"), Decimal("50")),
+        ]
+        cursor = _make_cursor(rows)
+        result = rank_restaurants(["A식당", "A식당", "B식당", "B식당", "C식당"], cursor)
+        assert len(result) == len(set(result)), "Result contains duplicate names"
+
+    def test_top10_limit_after_dedup(self):
+        """After deduplication, result is still capped at 10."""
+        # 15 unique restaurants, each with 2 city rows = 30 raw rows
+        names = [f"식당{i}" for i in range(15)]
+        rows = []
+        for i, name in enumerate(names):
+            rows.append((name, Decimal(str(i * 100000)), Decimal(str(i * 10))))
+            rows.append((name, Decimal(str(i * 50000)),  Decimal(str(i * 5))))
+        cursor = _make_cursor(rows)
+        result = rank_restaurants(names * 2, cursor)
+        assert len(result) <= 10
+        assert len(result) == len(set(result))
