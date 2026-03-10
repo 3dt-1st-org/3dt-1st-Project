@@ -1,0 +1,203 @@
+table 'monitoring vw_overview_latest'
+	lineageTag: 8f19ea2b-f309-4bc5-a0b5-210275ce4e81
+
+	measure m_stream_delay_seconds = COALESCE(MAX('monitoring vw_overview_latest'[stream_delay_seconds]), 0)
+		formatString: 0
+		lineageTag: a8f6d39d-f738-4a9f-9b66-f5055db404a2
+
+	measure m_stream_event_count_1m = COALESCE(SUM('monitoring vw_overview_latest'[stream_event_count_1m]), 0)
+		formatString: 0
+		lineageTag: 1d4fb95f-6256-41f7-8f35-c5db8f15eb3e
+
+	measure m_stream_http5xx_count_1m = COALESCE(SUM('monitoring vw_overview_latest'[stream_http5xx_count_1m]), 0)
+		formatString: 0
+		lineageTag: 9bed0f9a-4a25-4469-b5fc-4b4e761f7285
+
+	measure m_stream_error_count_1m = COALESCE(SUM('monitoring vw_overview_latest'[stream_error_count_1m]), 0)
+		formatString: 0
+		lineageTag: ae1e4f22-8837-41e1-a7cd-8989554ed7e8
+
+	measure m_today_cost_krw = COALESCE(SUM('monitoring vw_overview_latest'[today_cost_krw]), 0)
+		formatString: #,0"₩"
+		lineageTag: 6418758f-80a2-4a8b-bbdb-6c06f54cb9bb
+
+	measure m_mtd_cost_krw = COALESCE(SUM('monitoring vw_overview_latest'[mtd_cost_krw]), 0)
+		formatString: #,0"₩"
+		lineageTag: 4104376e-8d8e-4337-973c-acb93506f629
+
+	measure m_health_ratio_pct = DIVIDE(SUM('monitoring vw_overview_latest'[healthy_service_count]), SUM('monitoring vw_overview_latest'[total_service_count]), 0)
+		formatString: 0%
+		lineageTag: d20f8399-7368-4cb6-bc2b-6ba758f505a0
+
+	measure m_unhealthy_service_count = COALESCE(SUM('monitoring vw_overview_latest'[total_service_count]), 0) - COALESCE(SUM('monitoring vw_overview_latest'[healthy_service_count]), 0)
+		formatString: 0
+		lineageTag: 4acc640e-3f09-45f1-b34f-1c8f57d8f502
+
+	measure m_failed_requests_5m = COALESCE(SUM('monitoring vw_overview_latest'[failed_requests_5m]), 0)
+		formatString: 0
+		lineageTag: 4fcad88f-bf86-4a7d-a37a-5f2c3d93d378
+
+	measure m_exceptions_5m = COALESCE(SUM('monitoring vw_overview_latest'[exceptions_5m]), 0)
+		formatString: 0
+		lineageTag: 0accdfe1-f70e-4f7f-abcf-12f686f5683a
+
+	measure m_max_p95_duration_ms = COALESCE(MAX('monitoring vw_overview_latest'[max_p95_duration_ms]), 0)
+		formatString: #,0
+		lineageTag: 2a3497a8-1022-4317-9f57-e1f5cc6e1181
+
+	measure m_stream_error_rate_pct = DIVIDE([m_stream_error_count_1m], [m_stream_event_count_1m], 0)
+		formatString: 0%
+		lineageTag: 7f5a4c47-8a22-453b-8d2e-74430a87bd46
+
+	measure m_stream_http5xx_rate_pct = DIVIDE([m_stream_http5xx_count_1m], [m_stream_event_count_1m], 0)
+		formatString: 0%
+		lineageTag: 00441d4c-67bf-43e6-b0d6-e8de9930d48a
+
+	measure m_last_stream_window_utc = MAX('monitoring vw_overview_latest'[stream_window_end_utc])
+		formatString: General Date
+		lineageTag: 14bca67a-334a-4ca7-a4f7-e367949f6aa8
+
+	measure m_last_snapshot_utc = MAX('monitoring vw_overview_latest'[as_of_utc])
+		formatString: General Date
+		lineageTag: 27872ce7-c2f6-420f-aed4-56f193f04566
+
+	column as_of_utc
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 9726fd5d-db11-4196-9815-abf299069cd3
+		summarizeBy: none
+		sourceColumn: as_of_utc
+
+		annotation SummarizationSetBy = Automatic
+
+	column kpi_bucket_utc
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 0f608242-2cc5-4d9e-8de6-9e9a41f7c928
+		summarizeBy: none
+		sourceColumn: kpi_bucket_utc
+
+		annotation SummarizationSetBy = Automatic
+
+	column today_cost_krw
+		dataType: double
+		lineageTag: 21c9d49b-6eb6-463e-a056-be179c327f13
+		summarizeBy: sum
+		sourceColumn: today_cost_krw
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column mtd_cost_krw
+		dataType: double
+		lineageTag: 555aea56-5c63-41cd-b1ac-a9dfb30c2a07
+		summarizeBy: sum
+		sourceColumn: mtd_cost_krw
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column healthy_service_count
+		dataType: int64
+		formatString: 0
+		lineageTag: d2528d28-1e09-42c9-a51b-57324e3315ba
+		summarizeBy: sum
+		sourceColumn: healthy_service_count
+
+		annotation SummarizationSetBy = Automatic
+
+	column total_service_count
+		dataType: int64
+		formatString: 0
+		lineageTag: add81fb1-c3b6-4bcb-9d86-14c8b97e7e3b
+		summarizeBy: sum
+		sourceColumn: total_service_count
+
+		annotation SummarizationSetBy = Automatic
+
+	column failed_requests_5m
+		dataType: int64
+		formatString: 0
+		lineageTag: fa5fd845-7730-40fd-97dc-2a6450c747f3
+		summarizeBy: sum
+		sourceColumn: failed_requests_5m
+
+		annotation SummarizationSetBy = Automatic
+
+	column exceptions_5m
+		dataType: int64
+		formatString: 0
+		lineageTag: b5c278ca-0df4-4398-8ab8-cb153b928208
+		summarizeBy: sum
+		sourceColumn: exceptions_5m
+
+		annotation SummarizationSetBy = Automatic
+
+	column max_p95_duration_ms
+		dataType: double
+		lineageTag: 5cd134ee-b796-4e2b-bd4d-c7b502262686
+		summarizeBy: sum
+		sourceColumn: max_p95_duration_ms
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column stream_window_end_utc
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 4a24d23e-4d3b-4a02-9890-4496d94b9a2f
+		summarizeBy: none
+		sourceColumn: stream_window_end_utc
+
+		annotation SummarizationSetBy = Automatic
+
+	column stream_event_count_1m
+		dataType: int64
+		formatString: 0
+		lineageTag: 12790aeb-e3e4-4f0b-8905-b3ece26625b9
+		summarizeBy: sum
+		sourceColumn: stream_event_count_1m
+
+		annotation SummarizationSetBy = Automatic
+
+	column stream_http5xx_count_1m
+		dataType: int64
+		formatString: 0
+		lineageTag: 30d18a8a-e444-40a5-b5de-1d38afdafe64
+		summarizeBy: sum
+		sourceColumn: stream_http5xx_count_1m
+
+		annotation SummarizationSetBy = Automatic
+
+	column stream_error_count_1m
+		dataType: int64
+		formatString: 0
+		lineageTag: 002229cc-beef-47a9-8875-1c7254b6f973
+		summarizeBy: sum
+		sourceColumn: stream_error_count_1m
+
+		annotation SummarizationSetBy = Automatic
+
+	column stream_delay_seconds
+		dataType: int64
+		formatString: 0
+		lineageTag: 83ed9194-6a1e-4ebb-8158-ca9e76c2c1bd
+		summarizeBy: sum
+		sourceColumn: stream_delay_seconds
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'monitoring vw_overview_latest' = m
+		mode: directQuery
+		source =
+				let
+				    원본 = PostgreSQL.Database("lala-db.postgres.database.azure.com", "postgres"),
+				    monitoring_vw_overview_latest = 원본{[Schema="monitoring",Item="vw_overview_latest"]}[Data]
+				in
+				    monitoring_vw_overview_latest
+
+	annotation PBI_ResultType = Table
+

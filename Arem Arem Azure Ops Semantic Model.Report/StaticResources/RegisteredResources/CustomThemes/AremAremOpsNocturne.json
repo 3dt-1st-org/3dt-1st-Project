@@ -1,0 +1,219 @@
+{
+  "name": "AremArem Ops Nocturne",
+  "background": "#050B18",
+  "foreground": "#E2E8F0",
+  "tableAccent": "#22D3EE",
+  "dataColors": [
+    "#22D3EE",
+    "#38BDF8",
+    "#818CF8",
+    "#34D399",
+    "#F59E0B",
+    "#FB7185",
+    "#F472B6",
+    "#A78BFA",
+    "#4ADE80",
+    "#FBBF24"
+  ],
+  "visualStyles": {
+    "*": {
+      "*": {
+        "title": [
+          {
+            "show": true,
+            "fontColor": {
+              "solid": {
+                "color": "#E2E8F0"
+              }
+            },
+            "fontSize": 11
+          }
+        ],
+        "background": [
+          {
+            "show": true,
+            "color": {
+              "solid": {
+                "color": "#0F172A"
+              }
+            },
+            "transparency": 10
+          }
+        ],
+        "border": [
+          {
+            "show": true,
+            "color": {
+              "solid": {
+                "color": "#334155"
+              }
+            },
+            "radius": 8
+          }
+        ]
+      }
+    },
+    "card": {
+      "*": {
+        "labels": [
+          {
+            "fontSize": 28,
+            "color": {
+              "solid": {
+                "color": "#F8FAFC"
+              }
+            }
+          }
+        ],
+        "categoryLabels": [
+          {
+            "show": true,
+            "color": {
+              "solid": {
+                "color": "#94A3B8"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "lineChart": {
+      "*": {
+        "categoryAxis": [
+          {
+            "show": true,
+            "labelColor": {
+              "solid": {
+                "color": "#CBD5E1"
+              }
+            },
+            "axisColor": {
+              "solid": {
+                "color": "#94A3B8"
+              }
+            },
+            "gridlineColor": {
+              "solid": {
+                "color": "#475569"
+              }
+            }
+          }
+        ],
+        "valueAxis": [
+          {
+            "show": true,
+            "labelColor": {
+              "solid": {
+                "color": "#CBD5E1"
+              }
+            },
+            "axisColor": {
+              "solid": {
+                "color": "#94A3B8"
+              }
+            },
+            "gridlineColor": {
+              "solid": {
+                "color": "#475569"
+              }
+            }
+          }
+        ],
+        "dataPoint": [
+          {
+            "showMarkers": true
+          }
+        ]
+      }
+    },
+    "clusteredColumnChart": {
+      "*": {
+        "categoryAxis": [
+          {
+            "show": true,
+            "labelColor": {
+              "solid": {
+                "color": "#CBD5E1"
+              }
+            },
+            "axisColor": {
+              "solid": {
+                "color": "#94A3B8"
+              }
+            }
+          }
+        ],
+        "valueAxis": [
+          {
+            "show": true,
+            "labelColor": {
+              "solid": {
+                "color": "#CBD5E1"
+              }
+            },
+            "axisColor": {
+              "solid": {
+                "color": "#94A3B8"
+              }
+            },
+            "gridlineColor": {
+              "solid": {
+                "color": "#475569"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "tableEx": {
+      "*": {
+        "columnHeaders": [
+          {
+            "fontColor": {
+              "solid": {
+                "color": "#F8FAFC"
+              }
+            },
+            "backgroundColor": {
+              "solid": {
+                "color": "#1E293B"
+              }
+            },
+            "bold": true
+          }
+        ],
+        "values": [
+          {
+            "fontColor": {
+              "solid": {
+                "color": "#E2E8F0"
+              }
+            },
+            "backgroundColor": {
+              "solid": {
+                "color": "#0B1223"
+              }
+            },
+            "wordWrap": true
+          }
+        ],
+        "grid": [
+          {
+            "gridVertical": true,
+            "gridHorizontal": true,
+            "gridVerticalColor": {
+              "solid": {
+                "color": "#334155"
+              }
+            },
+            "gridHorizontalColor": {
+              "solid": {
+                "color": "#334155"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

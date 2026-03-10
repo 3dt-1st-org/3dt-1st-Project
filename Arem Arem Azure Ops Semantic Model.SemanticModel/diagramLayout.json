@@ -1,0 +1,100 @@
+{
+  "version": "1.1.0",
+  "diagrams": [
+    {
+      "ordinal": 0,
+      "scrollPosition": {
+        "x": 0,
+        "y": 0
+      },
+      "nodes": [
+        {
+          "location": {
+            "x": 0,
+            "y": 0
+          },
+          "nodeIndex": "monitoring resource_inventory_snapshot",
+          "nodeLineageTag": "58a2434d-2c91-4671-b13a-d483b0a6cb19",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 284,
+            "y": 14
+          },
+          "nodeIndex": "monitoring vw_cost_burn_daily",
+          "nodeLineageTag": "284741d8-221c-4efa-808c-df48c8e17a96",
+          "size": {
+            "height": 272,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 568,
+            "y": 14
+          },
+          "nodeIndex": "monitoring vw_incidents_5m",
+          "nodeLineageTag": "d25ce3b1-b55d-48ee-b2af-392d719c4dbf",
+          "size": {
+            "height": 272,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 852,
+            "y": 2
+          },
+          "nodeIndex": "monitoring vw_overview_latest",
+          "nodeLineageTag": "8f19ea2b-f309-4bc5-a0b5-210275ce4e81",
+          "size": {
+            "height": 296,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 1136,
+            "y": 0
+          },
+          "nodeIndex": "monitoring vw_service_health_5m",
+          "nodeLineageTag": "00f25ddd-26b3-4284-adb1-73dbee662d90",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 1420,
+            "y": 0
+          },
+          "nodeIndex": "monitoring vw_realtime_kpi_1m",
+          "nodeLineageTag": "3fbfd589-8c0c-4477-8ca0-d7a9d791a9cb",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        }
+      ],
+      "name": "모든 테이블",
+      "zoomValue": 100,
+      "pinKeyFieldsToTop": false,
+      "showExtraHeaderInfo": false,
+      "hideKeyFieldsWhenCollapsed": false,
+      "tablesLocked": false
+    }
+  ],
+  "selectedDiagram": "모든 테이블",
+  "defaultDiagram": "모든 테이블"
+}

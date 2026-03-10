@@ -1,0 +1,177 @@
+table 'monitoring vw_service_health_5m'
+	lineageTag: 00f25ddd-26b3-4284-adb1-73dbee662d90
+
+	measure m_request_total = COALESCE(SUM('monitoring vw_service_health_5m'[request_or_execution_total]), 0)
+		formatString: #,0
+		lineageTag: fd93f3c1-f4a6-48d8-9777-62137eb10b9d
+
+	measure m_http5xx_total = COALESCE(SUM('monitoring vw_service_health_5m'[http5xx_total]), 0)
+		formatString: #,0
+		lineageTag: 353af27d-0a48-40e1-9d40-73d7bd9f2a72
+
+	measure m_avg_response_sec = COALESCE(AVERAGE('monitoring vw_service_health_5m'[average_response_sec]), 0)
+		formatString: 0.000
+		lineageTag: d01cc8f4-f31f-4f16-a52e-704eac7d3718
+
+	measure m_health_score = COALESCE(AVERAGE('monitoring vw_service_health_5m'[health_check_status]), 0)
+		formatString: 0.00
+		lineageTag: 3f23301d-9d6e-42db-ba9e-005b795eb0a9
+
+	measure m_cpu_percent = COALESCE(AVERAGE('monitoring vw_service_health_5m'[cpu_percent]), 0)
+		formatString: 0.00
+		lineageTag: 57b7cd80-d09a-4fa6-9a0d-799bb4bdb0e0
+
+	measure m_memory_percent = COALESCE(AVERAGE('monitoring vw_service_health_5m'[memory_percent]), 0)
+		formatString: 0.00
+		lineageTag: c56f3ecc-db6d-4d90-af67-d6f0c6d36d92
+
+	measure m_storage_percent = COALESCE(AVERAGE('monitoring vw_service_health_5m'[storage_percent]), 0)
+		formatString: 0.00
+		lineageTag: 3494d82f-a76c-442c-b29d-bb63a0dd174b
+
+	measure m_service_http5xx_rate_pct = DIVIDE([m_http5xx_total], [m_request_total], 0)
+		formatString: 0%
+		lineageTag: 26de74aa-3f8f-4f05-8fbe-f37f42630eb8
+
+	measure m_db_alive_ratio = COALESCE(AVERAGE('monitoring vw_service_health_5m'[is_db_alive]), 0)
+		formatString: 0%
+		lineageTag: 6846f936-eec8-468f-af0a-94fcfa7f928f
+
+	measure m_active_connections = COALESCE(AVERAGE('monitoring vw_service_health_5m'[active_connections]), 0)
+		formatString: #,0
+		lineageTag: 584f467b-b30d-4111-9f17-ec6124c4ab35
+
+	measure m_resource_pressure_pct = DIVIDE([m_cpu_percent] + [m_memory_percent] + [m_storage_percent], 300, 0)
+		formatString: 0%
+		lineageTag: 0c422583-2399-4d17-9a88-f130d4cca766
+
+	measure m_unhealthy_flag = IF([m_health_score] < 1 || [m_http5xx_total] > 0 || [m_avg_response_sec] > 1 || [m_db_alive_ratio] < 1, 1, 0)
+		formatString: 0
+		lineageTag: 0f73336d-2f3f-4fd5-820d-c122053e75e7
+
+	measure m_health_risk_score = ([m_http5xx_total] * 10) + ([m_avg_response_sec] * 100) + ((1 - [m_db_alive_ratio]) * 1000) + ([m_resource_pressure_pct] * 100)
+		formatString: 0.00
+		lineageTag: 72ea00e8-bb9d-4f4f-9baf-6a85cf489143
+
+	measure m_latest_metric_utc = MAX('monitoring vw_service_health_5m'[metric_timestamp_utc])
+		formatString: General Date
+		lineageTag: 6941ee2e-31eb-4cc9-bd15-a8f3598aee43
+
+	column metric_timestamp_utc
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 8db59c93-a361-4d44-b196-5d0b0c7b6633
+		summarizeBy: none
+		sourceColumn: metric_timestamp_utc
+
+		annotation SummarizationSetBy = Automatic
+
+	column service_name
+		dataType: string
+		lineageTag: 74db0c6e-d03f-4144-8489-31b153ba4718
+		summarizeBy: none
+		sourceColumn: service_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column request_or_execution_total
+		dataType: double
+		lineageTag: df9f26d5-d85c-475a-9060-4eb1f7f7845c
+		summarizeBy: sum
+		sourceColumn: request_or_execution_total
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column http5xx_total
+		dataType: double
+		lineageTag: a66a38f8-72ac-45d1-818e-e8a8a0fd89f9
+		summarizeBy: sum
+		sourceColumn: http5xx_total
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column average_response_sec
+		dataType: double
+		lineageTag: b563e5bc-fd8e-405a-9bf5-cea2dce219fd
+		summarizeBy: sum
+		sourceColumn: average_response_sec
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column health_check_status
+		dataType: double
+		lineageTag: c0d76fea-f8ea-4bcf-8241-0fbbc2d3017e
+		summarizeBy: sum
+		sourceColumn: health_check_status
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column is_db_alive
+		dataType: double
+		lineageTag: 4c0b8bc6-90ca-4bf7-9379-eaaf57b9460f
+		summarizeBy: sum
+		sourceColumn: is_db_alive
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column cpu_percent
+		dataType: double
+		lineageTag: 39abd15e-b7de-4ddb-a5a1-f02c28aa70ba
+		summarizeBy: sum
+		sourceColumn: cpu_percent
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column memory_percent
+		dataType: double
+		lineageTag: b12af6a7-fc20-4d06-be2e-6e0fe3c877fe
+		summarizeBy: sum
+		sourceColumn: memory_percent
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column storage_percent
+		dataType: double
+		lineageTag: 7b1dc28f-9941-41b7-a7db-699a3c3fcee1
+		summarizeBy: sum
+		sourceColumn: storage_percent
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column active_connections
+		dataType: double
+		lineageTag: 3877f5b9-162f-4399-b24a-da40831bfdb4
+		summarizeBy: sum
+		sourceColumn: active_connections
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	partition 'monitoring vw_service_health_5m' = m
+		mode: directQuery
+		source =
+				let
+				    원본 = PostgreSQL.Database("lala-db.postgres.database.azure.com", "postgres"),
+				    monitoring_vw_service_health_5m = 원본{[Schema="monitoring",Item="vw_service_health_5m"]}[Data]
+				in
+				    monitoring_vw_service_health_5m
+
+	annotation PBI_ResultType = Table
+

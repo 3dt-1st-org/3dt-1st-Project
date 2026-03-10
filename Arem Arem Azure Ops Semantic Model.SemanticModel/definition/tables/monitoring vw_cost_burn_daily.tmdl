@@ -1,0 +1,106 @@
+table 'monitoring vw_cost_burn_daily'
+	lineageTag: 284741d8-221c-4efa-808c-df48c8e17a96
+
+	measure m_cost_amount = COALESCE(SUM('monitoring vw_cost_burn_daily'[cost_amount]), 0)
+		formatString: #,0"₩"
+		lineageTag: e4f3a72d-f2f0-420f-9a2d-d495e6b2aeca
+
+	measure m_service_mtd_cumulative_cost = COALESCE(MAX('monitoring vw_cost_burn_daily'[service_mtd_cumulative_cost]), 0)
+		formatString: #,0"₩"
+		lineageTag: b544f1c4-4126-45ca-b97d-f4907f7a7fb7
+
+	measure m_avg_daily_cost = COALESCE(AVERAGE('monitoring vw_cost_burn_daily'[cost_amount]), 0)
+		formatString: #,0"₩"
+		lineageTag: a93ca685-a57d-4fa5-9ebf-52bf50c7aa0b
+
+	measure m_services_with_cost = DISTINCTCOUNT('monitoring vw_cost_burn_daily'[service_name])
+		formatString: 0
+		lineageTag: b1928ca5-2f4f-4585-8fcf-f55121b17735
+
+	measure m_latest_cost_collected_utc = MAX('monitoring vw_cost_burn_daily'[collected_at_utc])
+		formatString: General Date
+		lineageTag: c31a8ca1-7291-4fd0-b686-17e9fc31952d
+
+	column usage_date
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 9a44edae-a46e-41f2-a33b-13c9c8b9f064
+		summarizeBy: none
+		sourceColumn: usage_date
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column service_name
+		dataType: string
+		lineageTag: 60a8b82d-9a24-4711-802b-5535df3a7426
+		summarizeBy: none
+		sourceColumn: service_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column resource_type
+		dataType: string
+		lineageTag: 6d39e38a-b4d9-4f75-903b-ec53758ba409
+		summarizeBy: none
+		sourceColumn: resource_type
+
+		annotation SummarizationSetBy = Automatic
+
+	column currency
+		dataType: string
+		lineageTag: 58653540-afb3-444c-9cae-a4186aa4deab
+		summarizeBy: none
+		sourceColumn: currency
+
+		annotation SummarizationSetBy = Automatic
+
+	column cost_amount
+		dataType: double
+		lineageTag: 408ccacb-56c1-4b67-bc62-0bd82a479aef
+		summarizeBy: sum
+		sourceColumn: cost_amount
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column scope_resource_group
+		dataType: string
+		lineageTag: 3963adf3-3d60-40bd-8763-5598280ee2d0
+		summarizeBy: none
+		sourceColumn: scope_resource_group
+
+		annotation SummarizationSetBy = Automatic
+
+	column collected_at_utc
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: a9c73f12-f202-40e9-b7de-a0567385eeba
+		summarizeBy: none
+		sourceColumn: collected_at_utc
+
+		annotation SummarizationSetBy = Automatic
+
+	column service_mtd_cumulative_cost
+		dataType: double
+		lineageTag: 3c83c5c3-836b-4a65-9184-768701aa4902
+		summarizeBy: sum
+		sourceColumn: service_mtd_cumulative_cost
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	partition 'monitoring vw_cost_burn_daily' = m
+		mode: directQuery
+		source =
+				let
+				    원본 = PostgreSQL.Database("lala-db.postgres.database.azure.com", "postgres"),
+				    monitoring_vw_cost_burn_daily = 원본{[Schema="monitoring",Item="vw_cost_burn_daily"]}[Data]
+				in
+				    monitoring_vw_cost_burn_daily
+
+	annotation PBI_ResultType = Table
+

@@ -233,3 +233,6 @@ __blobstorage__/
 __queuestorage__/
 
 docker.env
+
+# Power BI local workspace settings (machine-specific)
+**/.pbi/localSettings.json

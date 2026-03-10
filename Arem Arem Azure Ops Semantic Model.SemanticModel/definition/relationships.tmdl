@@ -1,0 +1,5 @@
+relationship 6687ca57-7790-d357-de58-7d404a4f865f
+	isActive: false
+	fromColumn: 'monitoring vw_service_health_5m'.service_name
+	toColumn: 'monitoring vw_incidents_5m'.service_name
+

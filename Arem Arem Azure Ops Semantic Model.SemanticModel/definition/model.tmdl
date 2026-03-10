@@ -1,0 +1,23 @@
+model Model
+	culture: ko-KR
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	sourceQueryCulture: ko-KR
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation __PBI_TimeIntelligenceEnabled = 1
+
+annotation PBI_QueryOrder = ["monitoring vw_incidents_5m","monitoring vw_overview_latest","monitoring vw_cost_burn_daily","monitoring vw_service_health_5m","monitoring resource_inventory_snapshot","monitoring vw_realtime_kpi_1m"]
+
+annotation PBI_ProTooling = ["DevMode"]
+
+ref table 'monitoring vw_incidents_5m'
+ref table 'monitoring vw_overview_latest'
+ref table 'monitoring vw_cost_burn_daily'
+ref table 'monitoring vw_service_health_5m'
+ref table 'monitoring resource_inventory_snapshot'
+ref table 'monitoring vw_realtime_kpi_1m'
+
+ref cultureInfo ko-KR
+

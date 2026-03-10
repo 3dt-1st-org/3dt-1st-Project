@@ -1,0 +1,195 @@
+table 'monitoring vw_incidents_5m'
+	lineageTag: d25ce3b1-b55d-48ee-b2af-392d719c4dbf
+
+	measure m_failed_count = COALESCE(SUM('monitoring vw_incidents_5m'[failed_count]), 0)
+		formatString: 0
+		lineageTag: 31e76974-4ee8-48ab-81ec-a9277dad9c47
+
+	measure m_exception_count = COALESCE(SUM('monitoring vw_incidents_5m'[exception_count]), 0)
+		formatString: 0
+		lineageTag: d6bfce8e-768e-4a9a-a6b7-4e1575ea57f7
+
+	measure m_avg_p95_duration_ms = COALESCE(AVERAGE('monitoring vw_incidents_5m'[p95_duration_ms]), 0)
+		formatString: #,0
+		lineageTag: d6a7ff59-6f5d-444f-ae16-7a40bfc36921
+
+	measure m_incident_rows = COUNTROWS('monitoring vw_incidents_5m')
+		formatString: 0
+		lineageTag: c0870467-f4b0-4582-a50f-7b26506710fa
+
+	measure m_incident_rows_valid =
+			COALESCE(
+			    CALCULATE(
+			        COUNTROWS('monitoring vw_incidents_5m'),
+			        FILTER(
+			            'monitoring vw_incidents_5m',
+			            LEN(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) > 0
+			                && LEN(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) > 0
+			                && LEN(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) > 0
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) <> "(공백)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) <> "(공백)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) <> "(공백)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) <> "(blank)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) <> "(blank)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) <> "(blank)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) <> "blank"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) <> "blank"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) <> "blank"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) <> "null"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) <> "null"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) <> "null"
+			        )
+			    ),
+			    0
+			)
+		formatString: 0
+		lineageTag: 709c306e-5c5d-4bf8-96f7-e7dd7619f4a2
+
+	measure m_failed_count_valid =
+			COALESCE(
+			    CALCULATE(
+			        SUM('monitoring vw_incidents_5m'[failed_count]),
+			        FILTER(
+			            'monitoring vw_incidents_5m',
+			            LEN(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) > 0
+			                && LEN(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) > 0
+			                && LEN(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) > 0
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) <> "(공백)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) <> "(공백)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) <> "(공백)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) <> "(blank)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) <> "(blank)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) <> "(blank)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) <> "blank"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) <> "blank"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) <> "blank"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) <> "null"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) <> "null"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) <> "null"
+			        )
+			    ),
+			    0
+			)
+		formatString: 0
+		lineageTag: 5f820a57-3e6d-4f5e-8d65-4ea83d6f67ac
+
+	measure m_exception_count_valid =
+			COALESCE(
+			    CALCULATE(
+			        SUM('monitoring vw_incidents_5m'[exception_count]),
+			        FILTER(
+			            'monitoring vw_incidents_5m',
+			            LEN(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) > 0
+			                && LEN(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) > 0
+			                && LEN(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) > 0
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) <> "(공백)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) <> "(공백)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) <> "(공백)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) <> "(blank)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) <> "(blank)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) <> "(blank)"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) <> "blank"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) <> "blank"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) <> "blank"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[service_name], ""))) <> "null"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[incident_type], ""))) <> "null"
+			                && LOWER(TRIM(COALESCE('monitoring vw_incidents_5m'[severity], ""))) <> "null"
+			        )
+			    ),
+			    0
+			)
+		formatString: 0
+		lineageTag: 01ccfd03-0963-4436-af3e-9023be8f2f39
+
+	measure m_critical_incident_rows = COALESCE(CALCULATE(COUNTROWS('monitoring vw_incidents_5m'), 'monitoring vw_incidents_5m'[severity] = "CRITICAL"), 0)
+		formatString: 0
+		lineageTag: d8f67f2f-dfcb-44f8-8226-d6786e58c3d0
+
+	measure m_exception_ratio_pct = DIVIDE([m_exception_count], [m_exception_count] + [m_failed_count], 0)
+		formatString: 0%
+		lineageTag: 4f62084c-c05c-401d-b2eb-95d97a6fd9ef
+
+	measure m_latest_incident_utc = MAX('monitoring vw_incidents_5m'[incident_time_utc])
+		formatString: General Date
+		lineageTag: d13db0f1-29d3-4f3f-ae41-c73132190b8a
+
+	column incident_time_utc
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: cc2363d4-38a5-426e-99cd-b988438db104
+		summarizeBy: none
+		sourceColumn: incident_time_utc
+
+		annotation SummarizationSetBy = Automatic
+
+	column service_name
+		dataType: string
+		lineageTag: 135877dc-c425-4ae3-9373-17b23e52ecf1
+		summarizeBy: none
+		sourceColumn: service_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column severity
+		dataType: string
+		lineageTag: 71051bec-7870-433b-b56d-ca6b0ec34b12
+		summarizeBy: none
+		sourceColumn: severity
+
+		annotation SummarizationSetBy = Automatic
+
+	column incident_type
+		dataType: string
+		lineageTag: d7497b94-8a6c-4698-8b7d-54743dc1c21b
+		summarizeBy: none
+		sourceColumn: incident_type
+
+		annotation SummarizationSetBy = Automatic
+
+	column failed_count
+		dataType: int64
+		formatString: 0
+		lineageTag: 094745aa-3cb9-4af0-a00d-bc353c7ae65b
+		summarizeBy: none
+		sourceColumn: failed_count
+
+		annotation SummarizationSetBy = Automatic
+
+	column exception_count
+		dataType: int64
+		formatString: 0
+		lineageTag: e2f0b44f-18b4-4870-8d34-790bd237f5be
+		summarizeBy: none
+		sourceColumn: exception_count
+
+		annotation SummarizationSetBy = Automatic
+
+	column p95_duration_ms
+		dataType: double
+		lineageTag: 44155bcc-e897-4712-b67d-d2bfe4793533
+		summarizeBy: none
+		sourceColumn: p95_duration_ms
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column message
+		dataType: string
+		lineageTag: ef6ed5f3-f335-44df-9a11-a17ce2de6c7b
+		summarizeBy: none
+		sourceColumn: message
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'monitoring vw_incidents_5m' = m
+		mode: directQuery
+		source =
+				let
+				    원본 = PostgreSQL.Database("lala-db.postgres.database.azure.com", "postgres"),
+				    monitoring_vw_incidents_5m = 원본{[Schema="monitoring",Item="vw_incidents_5m"]}[Data]
+				in
+				    monitoring_vw_incidents_5m
+
+	annotation PBI_ResultType = Table
+
