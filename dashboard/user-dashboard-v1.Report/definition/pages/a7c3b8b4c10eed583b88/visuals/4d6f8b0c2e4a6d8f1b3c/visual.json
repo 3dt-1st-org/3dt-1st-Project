@@ -1,0 +1,107 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.6.0/schema.json",
+  "name": "4d6f8b0c2e4a6d8f1b3c",
+  "position": {
+    "x": 640,
+    "y": 420,
+    "z": 6000,
+    "height": 300,
+    "width": 640,
+    "tabOrder": 6000
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "맛집 추천"
+                    }
+                  },
+                  "Property": "sigun_nm"
+                }
+              },
+              "queryRef": "locallink gg_restaurant_info.sigun_nm",
+              "nativeQueryRef": "sigun_nm",
+              "displayName": "시/군"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "맛집 추천"
+                    }
+                  },
+                  "Property": "bizcond_div_nm_info"
+                }
+              },
+              "queryRef": "locallink gg_restaurant_info.bizcond_div_nm_info",
+              "nativeQueryRef": "bizcond_div_nm_info",
+              "displayName": "업종"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "맛집 추천"
+                    }
+                  },
+                  "Property": "m_restaurant_count"
+                }
+              },
+              "queryRef": "맛집 추천.m_restaurant_count",
+              "displayName": "매장 수"
+            }
+          ]
+        }
+      },
+      "sortDefinition": {
+        "sort": [
+          {
+            "field": {
+              "Measure": {
+                "Expression": {
+                  "SourceRef": {
+                    "Entity": "맛집 추천"
+                  }
+                },
+                "Property": "m_restaurant_count"
+              }
+            },
+            "direction": "Descending"
+          }
+        ]
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Actionable Insight: 지역·업종 우선순위'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "drillFilterOtherVisuals": true
+  }
+}

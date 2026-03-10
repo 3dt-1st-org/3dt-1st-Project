@@ -1,0 +1,48 @@
+{
+  "version": "1.1.0",
+  "diagrams": [
+    {
+      "ordinal": 0,
+      "scrollPosition": {
+        "x": 0,
+        "y": 10.399999618530273
+      },
+      "nodes": [
+        {
+          "location": {
+            "x": 465,
+            "y": 10
+          },
+          "nodeIndex": "관광지 추천",
+          "nodeLineageTag": "b067420e-cf0b-400b-a3ce-ebe05df1d0f0",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 485,
+            "y": 513
+          },
+          "nodeIndex": "맛집 추천",
+          "nodeLineageTag": "23dcaa3c-315f-4346-80c8-bb8e1b5a06d2",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        }
+      ],
+      "name": "모든 테이블",
+      "zoomValue": 100,
+      "pinKeyFieldsToTop": false,
+      "showExtraHeaderInfo": false,
+      "hideKeyFieldsWhenCollapsed": false,
+      "tablesLocked": false
+    }
+  ],
+  "selectedDiagram": "모든 테이블",
+  "defaultDiagram": "모든 테이블"
+}

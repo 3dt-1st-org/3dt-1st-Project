@@ -1,0 +1,59 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.6.0/schema.json",
+  "name": "2b4d6f8a0c1e3a5b7d9f",
+  "position": {
+    "x": 490,
+    "y": 0,
+    "z": 5001,
+    "height": 120,
+    "width": 170,
+    "tabOrder": 5001
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "관광지 추천"
+                    }
+                  },
+                  "Property": "m_tourist_spot_count"
+                }
+              },
+              "queryRef": "관광지 추천.m_tourist_spot_count",
+              "displayName": "총 관광지 수"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'총 관광지 수'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.6.0/schema.json",
+  "name": "d320fac81148d301e02b",
+  "position": {
+    "x": 850,
+    "y": 190,
+    "z": 1000,
+    "height": 220,
+    "width": 430,
+    "tabOrder": 1000
+  },
+  "visual": {
+    "visualType": "map",
+    "query": {
+      "queryState": {
+        "X": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "관광지 추천"
+                    }
+                  },
+                  "Property": "경도"
+                }
+              },
+              "queryRef": "locallink tourist_spot_info.경도",
+              "nativeQueryRef": "경도"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "관광지 추천"
+                    }
+                  },
+                  "Property": "위도"
+                }
+              },
+              "queryRef": "locallink tourist_spot_info.위도",
+              "nativeQueryRef": "위도"
+            }
+          ]
+        }
+      }
+    },
+    "objects": {
+      "bubbles": [
+        {
+          "properties": {
+            "bubbleSize": {
+              "expr": {
+                "Literal": {
+                  "Value": "-20L"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "dataPoint": [
+        {
+          "properties": {
+            "fill": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#3B82F6'"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Where: 관광지 위치'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "drillFilterOtherVisuals": true
+  },
+  "filterConfig": {
+    "filters": [
+      {
+        "name": "2df537dfea1e05098246",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "관광지 추천"
+              }
+            },
+            "Property": "경도"
+          }
+        },
+        "type": "Advanced"
+      },
+      {
+        "name": "acb8b885e556dd45aec8",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "관광지 추천"
+              }
+            },
+            "Property": "위도"
+          }
+        },
+        "type": "Advanced"
+      }
+    ]
+  }
+}
