@@ -11,6 +11,7 @@ import MapKit
 struct MainMapView: View {
     @ObservedObject var appViewModel: AppViewModel
     @StateObject private var viewModel = MainMapViewModel()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showSettings = false
     @State private var selectedDetailPlace: PlaceRecommendation?
     @State private var showPlannerRegenerateConfirm = false
@@ -81,6 +82,11 @@ struct MainMapView: View {
         }
         .onChange(of: appViewModel.isLocationConsentEnabled) { _, consent in
             viewModel.configureLocationUpdates(consentEnabled: consent)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                viewModel.handleAppDidBecomeActive()
+            }
         }
         .onChange(of: viewModel.placesRenderID) { _, _ in
             rebuildMapAnnotationItems(

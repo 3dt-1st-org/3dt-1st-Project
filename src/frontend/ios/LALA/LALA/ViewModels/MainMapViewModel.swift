@@ -61,6 +61,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private let placesLoadingMaxSeconds: Double = 20
     private let placesFailureRetryCooldownSeconds: Double = 8
     private let weatherFailureRetryCooldownSeconds: Double = 8
+    private let appActiveRefreshCooldownSeconds: Double = 2
     private let defaultMapSpan = MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.018)
 
     private var hasAppliedInitialUserFocus = false
@@ -100,6 +101,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private var lastMapCameraInteractionAt: Date?
     private var lastUserDrivenPlacesCoordinate: CLLocationCoordinate2D?
     private var lastUserDrivenPlacesReloadAt: Date?
+    private var lastAppActiveRefreshAt: Date?
 
     private let initialRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 37.2636, longitude: 127.0286),
@@ -968,6 +970,29 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             region = clamped
         }
         refreshData(forcePlaces: true, forceWeather: true)
+    }
+
+    func handleAppDidBecomeActive() {
+        guard isAppLocationConsentEnabled else { return }
+        applyRuntimeConfigurationStatus()
+        guard !hasRuntimeConfigurationError else { return }
+
+        let now = Date()
+        if let lastAppActiveRefreshAt,
+           now.timeIntervalSince(lastAppActiveRefreshAt) < appActiveRefreshCooldownSeconds {
+            return
+        }
+        self.lastAppActiveRefreshAt = now
+
+        locationManager.startUpdatingLocation()
+        reloadPlaces(force: false, anchorCenter: region.center)
+
+        if userCoordinate != nil {
+            reloadWeather(force: true)
+        }
+
+        pendingForceReloadFromLocationRequest = true
+        locationManager.requestLocation()
     }
 
     func centerOnPlace(_ place: PlaceRecommendation, animated: Bool) {
