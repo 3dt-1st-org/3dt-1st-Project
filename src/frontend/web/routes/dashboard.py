@@ -51,6 +51,49 @@ _CITY_COORDS: dict[str, tuple[float, float]] = {
 
 _VALID_LOCATIONS: frozenset[str] = frozenset(_CITY_COORDS.keys())
 
+_CITY_NAME_EN: dict[str, str] = {
+    "서울": "Seoul",
+    "인천": "Incheon",
+    "수원": "Suwon",
+    "성남": "Seongnam",
+    "의정부": "Uijeongbu",
+    "안양": "Anyang",
+    "부천": "Bucheon",
+    "광명": "Gwangmyeong",
+    "평택": "Pyeongtaek",
+    "동두천": "Dongducheon",
+    "안산": "Ansan",
+    "고양": "Goyang",
+    "과천": "Gwacheon",
+    "구리": "Guri",
+    "남양주": "Namyangju",
+    "오산": "Osan",
+    "시흥": "Siheung",
+    "군포": "Gunpo",
+    "의왕": "Uiwang",
+    "하남": "Hanam",
+    "용인": "Yongin",
+    "파주": "Paju",
+    "이천": "Icheon",
+    "안성": "Anseong",
+    "김포": "Gimpo",
+    "화성": "Hwaseong",
+    "광주": "Gwangju",
+    "양주": "Yangju",
+    "포천": "Pocheon",
+    "여주": "Yeoju",
+    "연천": "Yeoncheon",
+    "가평": "Gapyeong",
+    "양평": "Yangpyeong",
+    "전체": "All Metro Areas",
+}
+
+
+def _display_city(name: str, language: str) -> str:
+    if language == "en":
+        return _CITY_NAME_EN.get(name, name)
+    return name
+
 _STATUS_CATEGORY: dict[str, str] = {
     "야외활동 쾌적":    "good",
     "보통":          "fair",
@@ -405,6 +448,9 @@ def api_dashboard_narrative():
     bar_top5 = body.get("bar_top5") or []
     donut    = body.get("donut") or {}
     location = (body.get("selected_location") or "전체").strip()
+    language = str(body.get("language") or "ko").strip().lower()
+    if language not in ("ko", "en"):
+        language = "ko"
 
     temp_val  = (kpi.get("temperature") or {}).get("value")
     pm10_val  = (kpi.get("pm10") or {}).get("value")
@@ -415,21 +461,35 @@ def api_dashboard_narrative():
         parts = []
         if bar_top5:
             t = bar_top5[0]
-            parts.append(f"현재 PM10 농도가 가장 높은 지역은 {t['location']}({t['pm10']}㎍/㎥)입니다.")
+            if language == "en":
+                parts.append(f"The region with the highest PM10 right now is {t['location']} ({t['pm10']} ug/m3).")
+            else:
+                parts.append(f"현재 PM10 농도가 가장 높은 지역은 {t['location']}({t['pm10']}㎍/㎥)입니다.")
         if temp_val is not None:
             td = f" ({temp_delta_str})" if temp_delta_str and temp_delta_str != "—" else ""
-            parts.append(f"선택 지역의 현재 기온은 {temp_val}°C{td}입니다.")
+            if language == "en":
+                parts.append(f"The current temperature of the selected area is {temp_val}°C{td}.")
+            else:
+                parts.append(f"선택 지역의 현재 기온은 {temp_val}°C{td}입니다.")
         if pm10_val is not None:
             grade_ko = {"good": "좋음", "normal": "보통", "bad": "나쁨", "very_bad": "매우나쁨"}.get(
                 _pm10_grade(pm10_val), "보통"
             )
-            parts.append(f"PM10 {pm10_val}㎍/㎥(상태: {grade_ko}), PM2.5 {pm25_val}㎍/㎥입니다.")
+            if language == "en":
+                parts.append(f"PM10 is {pm10_val} ug/m3 and PM2.5 is {pm25_val} ug/m3.")
+            else:
+                parts.append(f"PM10 {pm10_val}㎍/㎥(상태: {grade_ko}), PM2.5 {pm25_val}㎍/㎥입니다.")
         donut_data = donut.get("data") or []
         if len(donut_data) >= 1:
             total = sum(donut_data) or 1
             good_pct = round(donut_data[0] / total * 100)
-            parts.append(f"수도권 {total}개 도시 중 {donut_data[0]}개({good_pct}%)가 야외활동 쾌적 상태입니다.")
-        return " ".join(parts) if parts else "현재 수도권 대기 데이터를 불러오는 중입니다."
+            if language == "en":
+                parts.append(f"Out of {total} metro cities, {donut_data[0]} ({good_pct}%) are currently comfortable for outdoor activity.")
+            else:
+                parts.append(f"수도권 {total}개 도시 중 {donut_data[0]}개({good_pct}%)가 야외활동 쾌적 상태입니다.")
+        if parts:
+            return " ".join(parts)
+        return "Loading metropolitan air-quality data." if language == "en" else "현재 수도권 대기 데이터를 불러오는 중입니다."
 
     try:
         from config.vault_manager import get_vault_manager
@@ -458,20 +518,29 @@ def api_dashboard_narrative():
         )
 
         top5_str = ", ".join(
-            f'{b["location"]}({b["pm10"]}㎍/㎥)' for b in bar_top5
+            f'{_display_city(b["location"], language)}({b["pm10"]}㎍/㎥)' for b in bar_top5
         )
         donut_data = donut.get("data") or []
         good_cnt = donut_data[0] if donut_data else 0
         poor_cnt = donut_data[2] if len(donut_data) > 2 else 0
         total_cnt = sum(donut_data) if donut_data else 0
 
-        summary = (
-            f"선택 지역: {location}\n"
-            f"현재 기온: {temp_val}°C ({temp_delta_str})\n"
-            f"PM10: {pm10_val}㎍/㎥ / PM2.5: {pm25_val}㎍/㎥\n"
-            f"PM10 상위 5개 도시: {top5_str}\n"
-            f"수도권 {total_cnt}개 도시 중 야외활동 쾌적: {good_cnt}개, 미세먼지 나쁨: {poor_cnt}개"
-        )
+        if language == "en":
+            summary = (
+                f"Selected region: {_display_city(location, language)}\n"
+                f"Current temperature: {temp_val}°C ({temp_delta_str})\n"
+                f"PM10: {pm10_val} ug/m3 / PM2.5: {pm25_val} ug/m3\n"
+                f"Top 5 cities by PM10: {top5_str}\n"
+                f"Out of {total_cnt} metro cities: comfortable outdoors={good_cnt}, poor air quality={poor_cnt}"
+            )
+        else:
+            summary = (
+                f"선택 지역: {_display_city(location, language)}\n"
+                f"현재 기온: {temp_val}°C ({temp_delta_str})\n"
+                f"PM10: {pm10_val}㎍/㎥ / PM2.5: {pm25_val}㎍/㎥\n"
+                f"PM10 상위 5개 도시: {top5_str}\n"
+                f"수도권 {total_cnt}개 도시 중 야외활동 쾌적: {good_cnt}개, 미세먼지 나쁨: {poor_cnt}개"
+            )
 
         response = client.chat.completions.create(
             model=deployment,
@@ -479,6 +548,9 @@ def api_dashboard_narrative():
                 {
                     "role": "system",
                     "content": (
+                        "You are an AI briefing assistant for a metropolitan weather and air-quality dashboard. "
+                        "Write 2-3 concise sentences in English with concrete numbers and include outdoor activity guidance."
+                        if language == "en" else
                         "당신은 수도권 실시간 날씨·대기질 대시보드의 AI 브리핑 도우미입니다. "
                         "주어진 데이터를 바탕으로 2~3문장의 자연스러운 한국어 브리핑을 작성하세요. "
                         "수치를 구체적으로 언급하고 야외활동 권장 여부를 포함해 주세요."
@@ -486,7 +558,11 @@ def api_dashboard_narrative():
                 },
                 {
                     "role": "user",
-                    "content": f"다음 데이터를 분석하여 브리핑 문장을 작성해 주세요:\n{summary}",
+                    "content": (
+                        f"Analyze the following data and write a brief dashboard narrative:\n{summary}"
+                        if language == "en" else
+                        f"다음 데이터를 분석하여 브리핑 문장을 작성해 주세요:\n{summary}"
+                    ),
                 },
             ],
             max_tokens=200,

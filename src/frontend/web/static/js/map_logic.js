@@ -13,7 +13,7 @@
     weather: null,
     selectedPlace: null,
     selectedCategory: 'all',
-    selectedLanguage: S.getString(S.keys.selectedLanguage, 'ko'),
+    selectedLanguage: S.getServerLang ? S.getServerLang() : S.getString(S.keys.selectedLanguage, 'ko'),
     fontScale: S.getNumber(S.keys.fontScale, 1.0),
     isVoiceGuidanceEnabled: S.getBool(S.keys.isVoiceGuidanceEnabled, true),
     isAutoDocentEnabled: S.getBool(S.keys.isAutoDocentEnabled, false),
@@ -132,16 +132,16 @@
 
   function placeRegion(place) {
     if (APP.selectedLanguage === 'en') {
-      return (place.region_en || place.region || '').trim();
+      return plannerLocationLabel(place.region_en || place.region || '').trim();
     }
     return (place.region || '').trim();
   }
 
   function placeAddress(place) {
     if (APP.selectedLanguage === 'en') {
-      return (place.address_en || place.address || '').trim();
+      return (place.address_en || place.road_addr_en || place.address || place.road_addr || '').trim();
     }
-    return (place.address || '').trim();
+    return (place.address || place.road_addr || '').trim();
   }
 
   function placeDistance(place) {
@@ -150,6 +150,46 @@
     if (!Number.isFinite(value)) return '';
     if (value >= 1000) return (value / 1000).toFixed(1) + 'km';
     return value + 'm';
+  }
+
+  function plannerLocationLabel(location) {
+    const raw = String(location || '').trim();
+    if (!raw || APP.selectedLanguage !== 'en') return raw;
+
+    const GYEONGGI_SIGUN_MAP = {
+      '수원시': 'Suwon-si',
+      '용인시': 'Yongin-si',
+      '성남시': 'Seongnam-si',
+      '고양시': 'Goyang-si',
+      '화성시': 'Hwaseong-si',
+      '평택시': 'Pyeongtaek-si',
+      '안산시': 'Ansan-si',
+      '안양시': 'Anyang-si',
+      '남양주시': 'Namyangju-si',
+      '시흥시': 'Siheung-si',
+      '파주시': 'Paju-si',
+      '김포시': 'Gimpo-si',
+      '의정부시': 'Uijeongbu-si',
+      '광명시': 'Gwangmyeong-si',
+      '하남시': 'Hanam-si',
+      '광주시': 'Gwangju-si',
+      '군포시': 'Gunpo-si',
+      '오산시': 'Osan-si',
+      '이천시': 'Icheon-si',
+      '안성시': 'Anseong-si',
+      '의왕시': 'Uiwang-si',
+      '여주시': 'Yeoju-si',
+      '동두천시': 'Dongducheon-si',
+      '과천시': 'Gwacheon-si',
+      '구리시': 'Guri-si',
+      '포천시': 'Pocheon-si',
+      '양주시': 'Yangju-si',
+      '양평군': 'Yangpyeong-gun',
+      '가평군': 'Gapyeong-gun',
+      '연천군': 'Yeoncheon-gun',
+    };
+
+    return GYEONGGI_SIGUN_MAP[raw] || raw;
   }
 
   function placeCategoryLabel(place) {
@@ -574,6 +614,7 @@
     if (APP.selectedLanguage !== 'en') return status;
     const MAP = {
       '야외활동 쾌적': TEXT.outdoorComfortable || 'Comfortable Outdoors',
+      '외출 지양': TEXT.outdoorAvoid || 'Avoid Going Outdoors',
       '비/눈': TEXT.outdoorRain || 'Rain/Snow',
       '미세먼지 나쁨': TEXT.outdoorPmBad || 'Poor Air Quality',
       '미세먼지 매우나쁨': TEXT.outdoorPmVeryBad || 'Very Poor Air Quality',
@@ -585,6 +626,7 @@
   function periodLabel(period) {
     if (APP.selectedLanguage !== 'en') return period;
     if (period === '오전') return TEXT.plannerPeriodMorning || 'Morning';
+    if (period === '점심') return TEXT.plannerPeriodLunch || 'Lunch';
     if (period === '오후') return TEXT.plannerPeriodAfternoon || 'Afternoon';
     if (period === '저녁') return TEXT.plannerPeriodEvening || 'Evening';
     return period;
@@ -1431,7 +1473,9 @@
   async function fetchDailyPlan(lat, lng) {
     openSheet('planner-sheet');
     const slotsEl = document.getElementById('planner-slots');
-    slotsEl.innerHTML = `<div class="planner-skeleton">${TEXT.plannerLoading || '일정을 생성하는 중…'}<br><small style="opacity:.6;font-size:.75rem">${TEXT.plannerLoadingHint || '처음 방문하는 장소는 최대 5~10초 소요돼요'}</small></div>`;
+    const loadingText = APP.selectedLanguage === 'en' ? 'Generating your daily plan...' : '일정을 생성하는 중...';
+    const loadingHint = APP.selectedLanguage === 'en' ? 'New locations may take 5-10 seconds' : '처음 방문하는 장소는 최대 5~10초 소요돼요';
+    slotsEl.innerHTML = `<div class="planner-skeleton">${TEXT.plannerLoading || loadingText}<br><small style="opacity:.6;font-size:.75rem">${TEXT.plannerLoadingHint || loadingHint}</small></div>`;
     document.getElementById('planner-location').textContent = '';
     document.getElementById('planner-weather').textContent = '';
 
@@ -1447,7 +1491,10 @@
       renderPlannerSheet(data);
       _showPlannerRefreshBtn();
     } catch (err) {
-      slotsEl.innerHTML = `<p class="planner-error">${TEXT.plannerError || '일정을 가져오지 못했어요. 다시 시도해주세요.'}</p>`;
+      const plannerErrorText = APP.selectedLanguage === 'en'
+        ? 'Could not load itinerary. Please try again.'
+        : '일정을 가져오지 못했어요. 다시 시도해주세요.';
+      slotsEl.innerHTML = `<p class="planner-error">${TEXT.plannerError || plannerErrorText}</p>`;
     }
   }
 
@@ -1458,22 +1505,28 @@
     if (!btn) {
       btn = document.createElement('button');
       btn.className = 'map-pill-btn planner-refresh-btn';
-      btn.textContent = TEXT.plannerRefresh || '🔄 일정 재생성';
-      btn.addEventListener('click', () => {
-        if (!confirm(TEXT.plannerConfirmRegen || '하루 일정을 다시 생성할까요?\n현재 지도의 위치를 기준으로 새 일정이 만들어집니다.')) return;
-        APP.dailyPlan = null;
-        const center = APP.map ? APP.map.getCenter() : null;
-        const lat = center ? center.getLat() : APP.userPosition?.lat;
-        const lng = center ? center.getLng() : APP.userPosition?.lng;
-        if (!lat || !lng) return;
-        fetchDailyPlan(lat, lng);
-      });
       header.appendChild(btn);
     }
+
+    const refreshText = APP.selectedLanguage === 'en' ? '🔄 Regenerate' : '🔄 일정 재생성';
+    const confirmText = APP.selectedLanguage === 'en'
+      ? 'Regenerate daily plan?\nA new plan will be created based on the current map center.'
+      : '하루 일정을 다시 생성할까요?\n현재 지도의 위치를 기준으로 새 일정이 만들어집니다.';
+
+    btn.textContent = TEXT.plannerRefresh || refreshText;
+    btn.onclick = () => {
+      if (!confirm(TEXT.plannerConfirmRegen || confirmText)) return;
+      APP.dailyPlan = null;
+      const center = APP.map ? APP.map.getCenter() : null;
+      const lat = center ? center.getLat() : APP.userPosition?.lat;
+      const lng = center ? center.getLng() : APP.userPosition?.lng;
+      if (!lat || !lng) return;
+      fetchDailyPlan(lat, lng);
+    };
   }
 
   function renderPlannerSheet(data) {
-    document.getElementById('planner-location').textContent = data.location || '';
+    document.getElementById('planner-location').textContent = plannerLocationLabel(data.location || '');
     const w = data.weather || {};
     const badge = [outdoorStatusLabel(w.outdoor_status), w.temperature ? `${w.temperature}°C` : null]
       .filter(Boolean).join('  ');
@@ -1484,7 +1537,10 @@
 
     const plan = data.plan || [];
     if (!plan.length) {
-      slotsEl.innerHTML = `<p class="planner-error">${TEXT.plannerEmpty || '추천 장소가 없어요.'}</p>`;
+      const plannerEmptyText = APP.selectedLanguage === 'en'
+        ? 'No recommended places found.'
+        : '추천 장소가 없어요.';
+      slotsEl.innerHTML = `<p class="planner-error">${TEXT.plannerEmpty || plannerEmptyText}</p>`;
       return;
     }
 
@@ -1494,10 +1550,11 @@
       const place = item.place || {};
       const card = document.createElement('div');
       card.className = 'plan-slot-card';
+      const addr = placeAddress(place);
       card.innerHTML = `
         <div class="plan-slot-card__period">${icon} <strong>${escapeHtml(periodText)}</strong><span class="plan-slot-card__time">${escapeHtml(item.time || '')}</span></div>
         <div class="plan-slot-card__name">${escapeHtml(placeName(place))}</div>
-        ${place.road_addr ? `<div class="plan-slot-card__addr">${escapeHtml(place.road_addr)}</div>` : ''}
+        ${addr ? `<div class="plan-slot-card__addr">${escapeHtml(addr)}</div>` : ''}
         ${item.script ? `<p class="plan-slot-card__script">${escapeHtml(item.script)}</p>` : ''}
       `;
       // 지도 이동
