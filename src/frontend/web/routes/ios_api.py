@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hmac
 import json
 import math
 import os
@@ -9,13 +10,26 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 from urllib.parse import quote, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 import psycopg2.extras
 import requests as http_requests
+from flask import Blueprint, Response, jsonify, request
 
 from src.frontend.web.services.db import get_db_connection
+from src.frontend.web.services.docent_api_service import (
+    create_docent_audio_payload,
+    create_docent_script_payload,
+)
+from src.frontend.web.services.map_api_service import (
+    create_places_payload,
+    create_weather_payload,
+)
+
+
+ios_api_bp = Blueprint("ios_api", __name__)
 
 _DEFAULT_LAT = 37.2636
 _DEFAULT_LNG = 127.0286
@@ -59,6 +73,9 @@ _DUST_GRADE_LABELS = {
 
 _VALID_PLACE_CATEGORIES = {"all", "attraction", "restaurant", "event"}
 _VALID_PLACE_SCOPES = {"radius", "city"}
+_VALID_DOCENT_CATEGORIES = {"attraction", "restaurant", "event"}
+_VALID_LANGUAGES = {"ko", "en"}
+_VALID_MODES = {"brief", "detail"}
 _RESTAURANT_IMAGE_COLUMN_CANDIDATES = (
     "image_url",
     "image_urls",
@@ -328,6 +345,36 @@ def _latlon_to_grid(lat: float, lon: float) -> tuple[int, int]:
     if theta < -math.pi:
         theta += 2 * math.pi
     return int(ra * math.sin(theta) + _XO + 0.5), int(ro - ra * math.cos(theta) + _YO + 0.5)
+
+
+def _require_api_key(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        expected = (os.getenv("IOS_API_KEY") or "").strip()
+        if not expected:
+            return jsonify({"error": "IOS_API_KEY is not configured"}), 503
+
+        provided = (request.headers.get("X-API-Key") or "").strip()
+        if not provided or not hmac.compare_digest(provided, expected):
+            return jsonify({"error": "unauthorized"}), 401
+
+        return fn(*args, **kwargs)
+
+    return wrapped
+
+
+def _parse_float_arg(name: str, default: float) -> float:
+    raw = request.args.get(name)
+    if raw is None:
+        return default
+    return float(raw)
+
+
+def _parse_int_arg(name: str, default: int) -> int:
+    raw = request.args.get(name)
+    if raw is None:
+        return default
+    return int(raw)
 
 
 def _weather_snapshot(lat: float, lng: float, force: bool = False) -> tuple[dict, int]:
@@ -1381,3 +1428,96 @@ def _fetch_places(lat: float, lng: float, radius: int, category: str, limit: int
         return results
     return results[: max(limit, 1)]
 
+
+@ios_api_bp.route("/api/ios/v1/places", methods=["GET"])
+@_require_api_key
+def api_ios_places():
+    try:
+        lat = _parse_float_arg("lat", _DEFAULT_LAT)
+        lng = _parse_float_arg("lng", _DEFAULT_LNG)
+        radius = _parse_int_arg("radius", _DEFAULT_RADIUS)
+        limit = _parse_int_arg("limit", _DEFAULT_LIMIT)
+    except ValueError:
+        return jsonify({"error": "invalid numeric query params"}), 400
+
+    payload, status_code = create_places_payload(
+        lat=lat,
+        lng=lng,
+        radius=radius,
+        category=(request.args.get("category", "all") or "all"),
+        scope=(request.args.get("scope", "radius") or "radius"),
+        city_hint=str(request.args.get("city") or ""),
+        limit=limit,
+    )
+    return jsonify(payload), status_code
+
+
+@ios_api_bp.route("/api/ios/v1/weather", methods=["GET"])
+@_require_api_key
+def api_ios_weather():
+    try:
+        lat = _parse_float_arg("lat", _DEFAULT_LAT)
+        lng = _parse_float_arg("lng", _DEFAULT_LNG)
+    except ValueError:
+        return jsonify({"error": "invalid numeric query params"}), 400
+
+    payload, status_code = create_weather_payload(lat=lat, lng=lng)
+    return jsonify(payload), status_code, {"Cache-Control": _WEATHER_HTTP_CACHE_CONTROL}
+
+
+@ios_api_bp.route("/api/ios/v1/docent/script", methods=["POST"])
+@_require_api_key
+def api_ios_docent_script():
+    payload = request.get_json(silent=True) or {}
+    response_payload, status_code = create_docent_script_payload(payload)
+    return jsonify(response_payload), status_code
+
+
+@ios_api_bp.route("/api/ios/v1/docent/audio", methods=["POST"])
+@_require_api_key
+def api_ios_docent_audio():
+    payload = request.get_json(silent=True) or {}
+    response_payload, status_code, mime_type = create_docent_audio_payload(payload)
+    if mime_type == "audio/mpeg":
+        return Response(response_payload, mimetype=mime_type, status=status_code)
+    return jsonify(response_payload), status_code
+
+
+@ios_api_bp.route("/api/ios/v1/health", methods=["GET"])
+@_require_api_key
+def api_ios_health():
+    db_status = "ok"
+    speech_status = "ok"
+    openai_status = "ok"
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+    except Exception:
+        db_status = "error"
+
+    if not (os.getenv("AZURE_SPEECH_KEY") and os.getenv("AZURE_SPEECH_REGION")):
+        speech_status = "missing_config"
+
+    if not (
+        os.getenv("AZURE_OPENAI_ENDPOINT")
+        and os.getenv("AZURE_OPENAI_KEY")
+        and os.getenv("AZURE_OPENAI_VERSION")
+        and (os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT"))
+    ):
+        openai_status = "missing_config"
+
+    status = "ok"
+    if any(value != "ok" for value in (db_status, speech_status, openai_status)):
+        status = "degraded"
+
+    return jsonify(
+        {
+            "status": status,
+            "db": db_status,
+            "speech": speech_status,
+            "openai": openai_status,
+        }
+    )

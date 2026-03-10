@@ -58,6 +58,7 @@ def create_app() -> Flask:
     from src.frontend.web.routes.onboarding import onboarding_bp
     from src.frontend.web.routes.main_map import main_map_bp
     from src.frontend.web.routes.settings import settings_bp
+    from src.frontend.web.routes.ios_api import ios_api_bp
     from src.frontend.web.routes.dashboard import dashboard_bp
     from src.frontend.web.routes.planner import planner_bp
     from src.frontend.web.routes.action_log import action_log_bp
@@ -65,6 +66,7 @@ def create_app() -> Flask:
     app.register_blueprint(onboarding_bp)
     app.register_blueprint(main_map_bp)
     app.register_blueprint(settings_bp)
+    app.register_blueprint(ios_api_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(planner_bp)
     app.register_blueprint(action_log_bp)
