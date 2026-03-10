@@ -599,10 +599,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
             if suppressNextRegionDrivenReload {
                 suppressNextRegionDrivenReload = false
-                return
             }
-
-            schedulePlacesReloadForMapCenter(clamped.center)
         }
     }
 
