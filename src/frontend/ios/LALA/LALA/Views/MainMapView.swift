@@ -14,6 +14,7 @@ struct MainMapView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var showSettings = false
     @State private var selectedDetailPlace: PlaceRecommendation?
+    @State private var selectedPlaceDetailDetent: PresentationDetent = .medium
     @State private var showPlannerRegenerateConfirm = false
     @State private var renderedMapAnnotationItems: [MapAnnotationDisplayItem] = []
     @State private var mapAnnotationCacheKey: MapAnnotationCacheKey?
@@ -129,7 +130,14 @@ struct MainMapView: View {
                     viewModel.playMoreInfo(for: place, language: appViewModel.selectedLanguage)
                 }
             )
-            .presentationDetents([.medium])
+            .onAppear {
+                selectedPlaceDetailDetent = preferredDetailDetent(
+                    for: place,
+                    language: appViewModel.selectedLanguage,
+                    showMoreInfoButton: viewModel.canPlayMoreInfo(for: place.id)
+                )
+            }
+            .presentationDetents([.medium, .large], selection: $selectedPlaceDetailDetent)
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $viewModel.isWeatherDetailPresented) {
@@ -160,6 +168,19 @@ struct MainMapView: View {
                 viewModel.updateRegionFromMap(newValue)
             }
         )
+    }
+
+    private func preferredDetailDetent(
+        for place: PlaceRecommendation,
+        language: AppLanguage,
+        showMoreInfoButton: Bool
+    ) -> PresentationDetent {
+        let hasEventDetails = place.categoryKind == .event &&
+            (place.eventURL != nil || place.eventStartDate?.isEmpty == false || place.eventEndDate?.isEmpty == false)
+        let hasLongText = place.name(in: language).count >= 22 ||
+            place.address(in: language).count >= 36
+
+        return (hasEventDetails || showMoreInfoButton || hasLongText) ? .large : .medium
     }
 
     private func rebuildMapAnnotationItems(
@@ -1325,64 +1346,68 @@ private struct PlaceDetailBottomSheet: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            heroImage
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                heroImage
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(place.name(in: language))
-                    .font(.system(size: 18 * fontScale, weight: .bold))
-                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(place.name(in: language))
+                        .font(.system(size: 18 * fontScale, weight: .bold))
+                        .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                        .lineLimit(2)
 
-                Text(place.category(in: language))
-                    .font(.system(size: 13 * fontScale, weight: .semibold))
-                    .foregroundStyle(categoryColor(for: place.categoryKind))
+                    Text(place.category(in: language))
+                        .font(.system(size: 13 * fontScale, weight: .semibold))
+                        .foregroundStyle(categoryColor(for: place.categoryKind))
 
-                HStack(spacing: 6) {
-                    Text(place.district(in: language))
-                        .font(.system(size: 12 * fontScale, weight: .medium))
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text(place.district(in: language))
+                            .font(.system(size: 12 * fontScale, weight: .medium))
+                            .foregroundStyle(.secondary)
 
-                    if let distance = place.distanceLabel(in: language) {
-                        Text(distance)
-                            .font(.system(size: 12 * fontScale, weight: .semibold))
-                            .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.75))
+                        if let distance = place.distanceLabel(in: language) {
+                            Text(distance)
+                                .font(.system(size: 12 * fontScale, weight: .semibold))
+                                .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.75))
+                        }
                     }
+
+                    Text(place.address(in: language))
+                        .font(.system(size: 12 * fontScale, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
 
-                Text(place.address(in: language))
-                    .font(.system(size: 12 * fontScale, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
+                Text(recommendationText)
+                    .font(.system(size: 13 * fontScale, weight: .medium))
+                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                    .lineLimit(4)
 
-            Text(recommendationText)
-                .font(.system(size: 13 * fontScale, weight: .medium))
-                .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                .lineLimit(4)
-
-            if place.categoryKind == .event {
-                eventInfo
-            }
-
-            if showMoreInfoButton {
-                Button(action: onPlayMoreInfo) {
-                    Text(moreInfoButtonTitle)
-                        .font(.system(size: 14 * fontScale, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color(AppThemeColor.east.rawValue))
-                        )
+                if place.categoryKind == .event {
+                    eventInfo
                 }
-                .buttonStyle(.plain)
+
+                if showMoreInfoButton {
+                    Button(action: onPlayMoreInfo) {
+                        Text(moreInfoButtonTitle)
+                            .font(.system(size: 14 * fontScale, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color(AppThemeColor.east.rawValue))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+            .padding(.bottom, 22)
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 16)
-        .padding(.bottom, 22)
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     private var eventInfo: some View {
