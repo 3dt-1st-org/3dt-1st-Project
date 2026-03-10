@@ -890,7 +890,7 @@
     APP.tourAudio = null;
     const playBtn = document.getElementById('tour-play-btn');
     if (playBtn) {
-      playBtn.textContent = TEXT.tourPlayAgain || '▶ 다시 재생';
+      playBtn.textContent = TEXT.tourPlayAgain || _tourFallback('playAgain');
       playBtn.disabled = false;
       if (APP.tourDocent) {
         playBtn.onclick = () => _playTourAudio(APP.tourDocent.script);
@@ -1335,8 +1335,23 @@
     _fetchTourDocent();
   }
 
+  function _tourFallback(type) {
+    const isEn = APP.selectedLanguage === 'en';
+    const table = {
+      loading: isEn ? 'Generating local restaurant tour guide...' : '맛집 투어 가이드를 생성하는 중이에요...',
+      error: isEn ? 'Unable to load tour guide right now.' : '투어 가이드를 불러오지 못했습니다.',
+      noLocation: isEn ? 'Location unavailable.' : '위치 정보를 가져올 수 없습니다.',
+      sourceLlm: isEn ? 'AI Guide' : 'AI 생성',
+      sourceDefault: isEn ? 'Default Guide' : '기본 안내',
+      restaurantsSuffix: isEn ? ' restaurants' : '개 맛집',
+      playAgain: isEn ? '▶ Play Again' : '▶ 다시 재생',
+      converting: isEn ? '⏳ Converting...' : '⏳ 오디오 변환 중...',
+    };
+    return table[type] || '';
+  }
+
   async function _fetchTourDocent() {
-    _setTourBody('loading', TEXT.tourLoading || '맛집 투어 가이드를 생성하는 중이에요...');
+    _setTourBody('loading', TEXT.tourLoading || _tourFallback('loading'));
     document.getElementById('tour-audio-bar').style.display = 'none';
     document.getElementById('tour-subtitle').textContent = '';
 
@@ -1344,7 +1359,7 @@
     const lat = center ? center.getLat() : APP.userPosition?.lat;
     const lng = center ? center.getLng() : APP.userPosition?.lng;
     if (!lat || !lng) {
-      _setTourBody('error', TEXT.tourNoLocation || '위치 정보를 가져올 수 없습니다.');
+      _setTourBody('error', TEXT.tourNoLocation || _tourFallback('noLocation'));
       return;
     }
 
@@ -1366,7 +1381,7 @@
       APP.tourDocent = data;
       _renderTourSheet(data);
     } catch (err) {
-      _setTourBody('error', TEXT.tourError || String(err));
+      _setTourBody('error', TEXT.tourError || _tourFallback('error'));
     }
   }
 
@@ -1392,7 +1407,8 @@
       `<p>${escapeHtml(data.script)}</p>`;
 
     document.getElementById('tour-subtitle').textContent =
-      `${names.length}${TEXT.tourRestaurantsSuffix || '개 맛집'} · ` + (data.source === 'llm' ? (TEXT.tourSourceLlm || 'AI 생성') : (TEXT.tourSourceDefault || '기본 안내'));
+      `${names.length}${TEXT.tourRestaurantsSuffix || _tourFallback('restaurantsSuffix')} · ` +
+      (data.source === 'llm' ? (TEXT.tourSourceLlm || _tourFallback('sourceLlm')) : (TEXT.tourSourceDefault || _tourFallback('sourceDefault')));
 
     // 오디오 재생 버튼
     const audioBar = document.getElementById('tour-audio-bar');
@@ -1413,7 +1429,7 @@
     // 도슨트 오디오와 겹치지 않도록 먼저 정지
     _stopCurrentAudio();
     const playBtn = document.getElementById('tour-play-btn');
-    playBtn.textContent = TEXT.tourConverting || '⏳ 오디오 변환 중...';
+    playBtn.textContent = TEXT.tourConverting || _tourFallback('converting');
     playBtn.disabled = true;
 
     try {
@@ -1434,7 +1450,7 @@
       APP.tourAudio._url = url;
       APP.tourAudio.onended = () => {
         URL.revokeObjectURL(url);
-        playBtn.textContent = TEXT.tourPlayAgain || '▶ 다시 재생';
+        playBtn.textContent = TEXT.tourPlayAgain || _tourFallback('playAgain');
         playBtn.disabled = false;
       };
       APP.tourAudio.play().catch(() => {
@@ -1445,7 +1461,7 @@
       playBtn.onclick = () => {
         if (APP.tourAudio) {
           APP.tourAudio.pause();
-          playBtn.textContent = TEXT.tourPlayAgain || '▶ 다시 재생';
+          playBtn.textContent = TEXT.tourPlayAgain || _tourFallback('playAgain');
           playBtn.onclick = () => _playTourAudio(script);
         }
       };
