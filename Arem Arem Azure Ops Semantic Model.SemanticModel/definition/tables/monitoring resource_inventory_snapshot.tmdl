@@ -1,0 +1,113 @@
+table 'monitoring resource_inventory_snapshot'
+	lineageTag: 58a2434d-2c91-4671-b13a-d483b0a6cb19
+
+	measure 지연(초) = COALESCE(MAX('monitoring vw_overview_latest'[stream_delay_seconds]), 0)
+		formatString: 0
+		lineageTag: c198c101-d6c6-4e05-ae04-8d4c88c71f8d
+
+	measure '1분 이벤트' = COALESCE(SUM('monitoring vw_overview_latest'[stream_event_count_1m]), 0)
+		formatString: 0
+		lineageTag: b388de05-8a62-4e24-b4da-ea377ecb6b3d
+
+	measure '1분 5xx' = COALESCE(SUM('monitoring vw_overview_latest'[stream_http5xx_count_1m]), 0)
+		formatString: 0
+		lineageTag: 0e84c536-ab70-4e6a-99b3-b679141f6461
+
+	measure '1분 에러' = COALESCE(SUM('monitoring vw_overview_latest'[stream_error_count_1m]), 0)
+		formatString: 0
+		lineageTag: 236584ef-28de-4792-a527-370b014ebaaa
+
+	column collected_at_utc
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: e8c020ea-583d-4354-95f2-05097679595d
+		summarizeBy: none
+		sourceColumn: collected_at_utc
+
+		annotation SummarizationSetBy = Automatic
+
+	column resource_id
+		dataType: string
+		lineageTag: db06c75f-a792-4516-b018-0c7bc6ba4d91
+		summarizeBy: none
+		sourceColumn: resource_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column resource_name
+		dataType: string
+		lineageTag: a550e2f9-6f43-4d1c-9278-d7b689c79341
+		summarizeBy: none
+		sourceColumn: resource_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column resource_type
+		dataType: string
+		lineageTag: 6c1642c3-c3c2-4fd4-bdff-3bc32e30713d
+		summarizeBy: none
+		sourceColumn: resource_type
+
+		annotation SummarizationSetBy = Automatic
+
+	column resource_kind
+		dataType: string
+		lineageTag: 5b779ea9-af6d-4ed1-9167-59e84aabe809
+		summarizeBy: none
+		sourceColumn: resource_kind
+
+		annotation SummarizationSetBy = Automatic
+
+	column resource_location
+		dataType: string
+		lineageTag: 40c799d9-5253-43b2-a223-435f2df02c15
+		summarizeBy: none
+		sourceColumn: resource_location
+
+		annotation SummarizationSetBy = Automatic
+
+	column service_name
+		dataType: string
+		lineageTag: 6c618b1f-3213-470a-9f2c-a91581a58ed8
+		summarizeBy: none
+		sourceColumn: service_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column in_scope
+		dataType: boolean
+		formatString: """TRUE"";""TRUE"";""FALSE"""
+		lineageTag: e8a12f93-3aa1-442d-9b0f-2d0bf13d8abd
+		summarizeBy: none
+		sourceColumn: in_scope
+
+		annotation SummarizationSetBy = Automatic
+
+	column tags_json
+		dataType: string
+		lineageTag: 3bc00f44-265c-496a-b361-65ecbaa4ca58
+		summarizeBy: none
+		sourceColumn: tags_json
+
+		annotation SummarizationSetBy = Automatic
+
+	column created_at_utc
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: e7d54b70-96d6-49ad-a122-64335630bde0
+		summarizeBy: none
+		sourceColumn: created_at_utc
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'monitoring resource_inventory_snapshot' = m
+		mode: directQuery
+		source =
+				let
+				    원본 = PostgreSQL.Database("lala-db.postgres.database.azure.com", "postgres"),
+				    monitoring_resource_inventory_snapshot = 원본{[Schema="monitoring",Item="resource_inventory_snapshot"]}[Data]
+				in
+				    monitoring_resource_inventory_snapshot
+
+	annotation PBI_ResultType = Table
+

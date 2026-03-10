@@ -1,0 +1,138 @@
+table 'monitoring vw_realtime_kpi_1m'
+	lineageTag: 3fbfd589-8c0c-4477-8ca0-d7a9d791a9cb
+
+	measure m_event_count = COALESCE(SUM('monitoring vw_realtime_kpi_1m'[event_count]), 0)
+		formatString: 0
+		lineageTag: e1620389-f4d5-43b6-856f-19c2f6c66786
+
+	measure m_http5xx_count = COALESCE(SUM('monitoring vw_realtime_kpi_1m'[http5xx_count]), 0)
+		formatString: 0
+		lineageTag: 7cd991dc-9451-434a-88aa-fef8e3611926
+
+	measure m_error_count = COALESCE(SUM('monitoring vw_realtime_kpi_1m'[error_count]), 0)
+		formatString: 0
+		lineageTag: 7b258530-9f58-4f57-870c-bd58ca30a2db
+
+	measure m_error_rate_pct = DIVIDE([m_error_count], [m_event_count], 0)
+		formatString: 0%
+		lineageTag: d88fb512-190b-46de-b4d0-aa7694210e90
+
+	measure m_success_count = MAX(0, MAX(COALESCE(SUM('monitoring vw_realtime_kpi_1m'[success_count]), 0), [m_event_count] - [m_error_count]))
+		formatString: 0
+		lineageTag: a7d0dc9a-f9e8-451d-b611-13f5b15db4b0
+
+	measure m_success_rate_pct = DIVIDE([m_success_count], [m_event_count], 0)
+		formatString: 0%
+		lineageTag: cdf4f3f4-ed6d-402f-94c1-f5a3566ddaf6
+
+	measure m_http5xx_rate_pct = DIVIDE([m_http5xx_count], [m_event_count], 0)
+		formatString: 0%
+		lineageTag: ce4c03c1-6eca-44c6-84e5-4b58971a9cc1
+
+	measure m_latest_window_end_utc = MAX('monitoring vw_realtime_kpi_1m'[window_end_utc])
+		formatString: General Date
+		lineageTag: ddc1715f-95de-4d25-8fe3-7fb5fbc5afed
+
+	column window_end_utc
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: c24e9d27-48bf-46f8-8412-34131cac1418
+		summarizeBy: none
+		sourceColumn: window_end_utc
+
+		annotation SummarizationSetBy = Automatic
+
+	column collected_at_utc
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 160e754d-0c34-40e2-8fd2-4de87e3b9d1e
+		summarizeBy: none
+		sourceColumn: collected_at_utc
+
+		annotation SummarizationSetBy = Automatic
+
+	column service_name
+		dataType: string
+		lineageTag: 92ebd127-ac44-4850-8731-89186425c149
+		summarizeBy: none
+		sourceColumn: service_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column category
+		dataType: string
+		lineageTag: b85dfdf7-5ae3-4555-a9bd-55d851ad79fb
+		summarizeBy: none
+		sourceColumn: category
+
+		annotation SummarizationSetBy = Automatic
+
+	column event_count
+		dataType: int64
+		formatString: 0
+		lineageTag: 4f44ce3d-ac0d-42c7-b4de-9a66b7b17d37
+		summarizeBy: sum
+		sourceColumn: event_count
+
+		annotation SummarizationSetBy = Automatic
+
+	column http5xx_count
+		dataType: int64
+		formatString: 0
+		lineageTag: 646a78a4-968d-4518-8a0b-c9af78508006
+		summarizeBy: sum
+		sourceColumn: http5xx_count
+
+		annotation SummarizationSetBy = Automatic
+
+	column error_count
+		dataType: int64
+		formatString: 0
+		lineageTag: 1ad84d8a-9402-4c29-a83f-7b484451f2e2
+		summarizeBy: sum
+		sourceColumn: error_count
+
+		annotation SummarizationSetBy = Automatic
+
+	column success_count
+		dataType: int64
+		formatString: 0
+		lineageTag: 226b8688-1f4e-48a7-9bdf-70c93596f50e
+		summarizeBy: sum
+		sourceColumn: success_count
+
+		annotation SummarizationSetBy = Automatic
+
+	column error_rate_pct
+		dataType: double
+		lineageTag: 527bd50f-78fe-4bae-b016-014bc8ce0512
+		summarizeBy: sum
+		sourceColumn: error_rate_pct
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column http5xx_rate_pct
+		dataType: double
+		lineageTag: 85bee2ff-720f-4d72-8da9-74a3aa44c101
+		summarizeBy: sum
+		sourceColumn: http5xx_rate_pct
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	partition 'monitoring vw_realtime_kpi_1m' = m
+		mode: directQuery
+		source =
+				let
+				    원본 = PostgreSQL.Database("lala-db.postgres.database.azure.com", "postgres"),
+				    monitoring_vw_realtime_kpi_1m = 원본{[Schema="monitoring",Item="vw_realtime_kpi_1m"]}[Data]
+				in
+				    monitoring_vw_realtime_kpi_1m
+
+	annotation PBI_NavigationStepName = 탐색
+
+	annotation PBI_ResultType = Table
+

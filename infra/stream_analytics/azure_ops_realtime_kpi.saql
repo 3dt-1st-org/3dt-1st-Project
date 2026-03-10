@@ -1,0 +1,45 @@
+WITH Flattened AS (
+    SELECT
+        CAST(COALESCE(ev.ArrayValue.time, src.time) AS datetime) AS event_time,
+        LOWER(CAST(COALESCE(ev.ArrayValue.resourceId, ev.ArrayValue.ResourceId, src.resourceId, src.ResourceId) AS nvarchar(max))) AS resource_id,
+        CAST(COALESCE(ev.ArrayValue.category, ev.ArrayValue.Category, src.category, src.Category) AS nvarchar(max)) AS category,
+        LOWER(CAST(COALESCE(ev.ArrayValue.AppRoleName, ev.ArrayValue.appRoleName, ev.ArrayValue.cloud_RoleName, src.AppRoleName, src.appRoleName, src.cloud_RoleName) AS nvarchar(max))) AS app_role_name,
+        LOWER(CAST(COALESCE(ev.ArrayValue.Level, ev.ArrayValue.level) AS nvarchar(max))) AS log_level,
+        CAST(COALESCE(ev.ArrayValue.StatusCode, ev.ArrayValue.statusCode) AS nvarchar(max)) AS status_code,
+        CAST(COALESCE(ev.ArrayValue.ResultType, ev.ArrayValue.resultType) AS nvarchar(max)) AS result_type
+    FROM [raw-monitoring-input] src
+    CROSS APPLY GetArrayElements(src.records) AS ev
+),
+Tagged AS (
+    SELECT
+        event_time,
+        CASE
+            WHEN app_role_name LIKE '%daagn-crawler%' OR resource_id LIKE '%/sites/daagn-crawler%' THEN 'daagn-crawler'
+            WHEN app_role_name LIKE '%weather-air-func%' OR resource_id LIKE '%/sites/weather-air-func%' THEN 'weather-air-func'
+            WHEN app_role_name LIKE '%lala-db%' OR resource_id LIKE '%/providers/microsoft.dbforpostgresql/flexibleservers/lala-db%' THEN 'lala-db'
+            WHEN app_role_name LIKE '%lala%' OR resource_id LIKE '%/sites/lala%' THEN 'lala'
+            ELSE 'unknown'
+        END AS service_name,
+        CASE
+            WHEN category IS NULL OR LEN(LTRIM(RTRIM(category))) = 0 THEN 'unknown'
+            ELSE category
+        END AS category,
+        log_level,
+        status_code,
+        result_type
+    FROM Flattened
+)
+SELECT
+    System.Timestamp AS window_end_utc,
+    service_name,
+    category,
+    COUNT(*) AS event_count,
+    SUM(CASE WHEN status_code LIKE '5%' THEN 1 ELSE 0 END) AS http5xx_count,
+    SUM(CASE WHEN log_level IN ('error', 'critical') THEN 1 ELSE 0 END) AS error_count,
+    SUM(CASE WHEN LOWER(result_type) = 'success' THEN 1 ELSE 0 END) AS success_count
+INTO [realtime-kpi-output]
+FROM Tagged
+GROUP BY
+    TumblingWindow(minute, 1),
+    service_name,
+    category;

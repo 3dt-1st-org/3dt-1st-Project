@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "SemanticModel",
+    "displayName": "Arem Arem Azure Ops Semantic Model"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "8b4cf065-7fd5-4ccf-9f4c-e1124c77bc94"
+  }
+}

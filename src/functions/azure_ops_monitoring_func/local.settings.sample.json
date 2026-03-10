@@ -1,0 +1,23 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AZ_SUBSCRIPTION_ID": "5bff8a75-037e-4d67-94cf-6fc62202174d",
+    "AZ_RESOURCE_GROUP": "3dt-1st-team2",
+    "LOG_ANALYTICS_WORKSPACE_ID": "3a6ae1f6-a887-4b1f-ad70-56f270c974ca",
+    "KEY_VAULT_URL": "https://kv3dt1stteam2dev01.vault.azure.net/",
+    "DB_DSN": "SET_IN_KEY_VAULT_REFERENCE_OR_LOCAL_ENV",
+    "MONITORING_INVENTORY_CRON": "0 5 0 * * *",
+    "MONITORING_HEALTH_CRON": "0 */5 * * * *",
+    "MONITORING_LOG_KPI_CRON": "20 */5 * * * *",
+    "MONITORING_COST_CRON": "0 */30 * * * *",
+    "MONITORING_EVENTHUB_KPI_ENABLED": "0",
+    "MONITORING_EVENTHUB_KPI_NAME": "azure-ops-kpi",
+    "MONITORING_EVENTHUB_KPI_CONSUMER_GROUP": "ops-realtime-ingest",
+    "MONITORING_EVENTHUB_KPI_CONNECTION_SETTING": "EVENTHUB_KPI_CONNECTION",
+    "EVENTHUB_KPI_CONNECTION": "Endpoint=sb://monitoring-hub.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=<key>",
+    "MONITORING_INIT_SCHEMA": "0",
+    "MONITORING_LOG_LEVEL": "INFO"
+  }
+}

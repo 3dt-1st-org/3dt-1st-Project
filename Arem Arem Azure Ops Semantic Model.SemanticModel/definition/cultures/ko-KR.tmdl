@@ -1,0 +1,1119 @@
+cultureInfo ko-KR
+
+	linguisticMetadata =
+			{
+			  "Version": "2.0.0",
+			  "Language": "en-US",
+			  "Entities": {
+			    "monitoring_vw_overview_latest.m_stream_http5xx_count_1m": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_overview_latest",
+			          "ConceptualProperty": "m_stream_http5xx_count_1m"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "1분 5xx": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_overview_latest.m_mtd_cost_krw": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_overview_latest",
+			          "ConceptualProperty": "m_mtd_cost_krw"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "MTD 비용": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        },
+			        {
+			          "MTD비용": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_overview_latest.m_stream_delay_seconds": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_overview_latest",
+			          "ConceptualProperty": "m_stream_delay_seconds"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "지연(초)": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_overview_latest.m_stream_error_count_1m": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_overview_latest",
+			          "ConceptualProperty": "m_stream_error_count_1m"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "1분 에러": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_overview_latest.m_failed_requests_5m": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_overview_latest",
+			          "ConceptualProperty": "m_failed_requests_5m"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "5분 실패": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_overview_latest.m_stream_event_count_1m": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_overview_latest",
+			          "ConceptualProperty": "m_stream_event_count_1m"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "1분 이벤트": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_overview_latest.m_health_ratio_pct": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_overview_latest",
+			          "ConceptualProperty": "m_health_ratio_pct"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "정상 비율": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        },
+			        {
+			          "정상률": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_overview_latest.m_unhealthy_service_count": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_overview_latest",
+			          "ConceptualProperty": "m_unhealthy_service_count"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "비정상 서비스": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_overview_latest.m_today_cost_krw": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_overview_latest",
+			          "ConceptualProperty": "m_today_cost_krw"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "오늘비용": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_realtime_kpi_1m.service_name": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_realtime_kpi_1m",
+			          "ConceptualProperty": "service_name"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "서비스": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_realtime_kpi_1m.m_http5xx_count": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_realtime_kpi_1m",
+			          "ConceptualProperty": "m_http5xx_count"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "5xx 수": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_realtime_kpi_1m.window_end_utc": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_realtime_kpi_1m",
+			          "ConceptualProperty": "window_end_utc"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "윈도우 종료": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_realtime_kpi_1m.m_error_count": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_realtime_kpi_1m",
+			          "ConceptualProperty": "m_error_count"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "에러 수": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        },
+			        {
+			          "에러": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_realtime_kpi_1m.m_event_count": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_realtime_kpi_1m",
+			          "ConceptualProperty": "m_event_count"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "이벤트 수": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        },
+			        {
+			          "이벤트": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_realtime_kpi_1m.m_http5xx_rate_pct": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_realtime_kpi_1m",
+			          "ConceptualProperty": "m_http5xx_rate_pct"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "5xx율": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_realtime_kpi_1m.m_error_rate_pct": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_realtime_kpi_1m",
+			          "ConceptualProperty": "m_error_rate_pct"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "에러율": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_realtime_kpi_1m.m_success_rate_pct": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_realtime_kpi_1m",
+			          "ConceptualProperty": "m_success_rate_pct"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "성공률": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_realtime_kpi_1m.category": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_realtime_kpi_1m",
+			          "ConceptualProperty": "category"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "범주": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_cost_burn_daily.usage_date": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_cost_burn_daily",
+			          "ConceptualProperty": "usage_date"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "사용일": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_cost_burn_daily.m_cost_amount": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_cost_burn_daily",
+			          "ConceptualProperty": "m_cost_amount"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "일별 비용": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        },
+			        {
+			          "비용": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_cost_burn_daily.m_avg_daily_cost": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_cost_burn_daily",
+			          "ConceptualProperty": "m_avg_daily_cost"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "평균비용": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_cost_burn_daily.m_services_with_cost": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_cost_burn_daily",
+			          "ConceptualProperty": "m_services_with_cost"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "과금서비스": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_cost_burn_daily.service_name": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_cost_burn_daily",
+			          "ConceptualProperty": "service_name"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "서비스": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_cost_burn_daily.resource_type": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_cost_burn_daily",
+			          "ConceptualProperty": "resource_type"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "리소스타입": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        },
+			        {
+			          "리소스 타입": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.service_name": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "service_name"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "서비스": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.m_unhealthy_flag": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "m_unhealthy_flag"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "비정상": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.m_health_score": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "m_health_score"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "헬스점수": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        },
+			        {
+			          "헬스 점수": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.m_http5xx_total": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "m_http5xx_total"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "5xx": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.m_avg_response_sec": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "m_avg_response_sec"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "응답(초)": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        },
+			        {
+			          "응답 시간": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.m_health_risk_score": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "m_health_risk_score"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "리스크점수": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.m_service_http5xx_rate_pct": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "m_service_http5xx_rate_pct"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "5xx율": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.m_active_connections": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "m_active_connections"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "접속수": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.m_db_alive_ratio": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "m_db_alive_ratio"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "DB Alive": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.m_resource_pressure_pct": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "m_resource_pressure_pct"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "리소스 압력": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.m_request_total": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "m_request_total"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "요청 수": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.m_cpu_percent": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "m_cpu_percent"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "CPU": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.metric_timestamp_utc": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "metric_timestamp_utc"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "측정시각": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_service_health_5m.m_memory_percent": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_service_health_5m",
+			          "ConceptualProperty": "m_memory_percent"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "메모리(%)": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_incidents_5m.m_critical_incident_rows": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_incidents_5m",
+			          "ConceptualProperty": "m_critical_incident_rows"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Critical": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_incidents_5m.m_avg_p95_duration_ms": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_incidents_5m",
+			          "ConceptualProperty": "m_avg_p95_duration_ms"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "P95(ms)": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_incidents_5m.m_exception_ratio_pct": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_incidents_5m",
+			          "ConceptualProperty": "m_exception_ratio_pct"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "예외비중": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_incidents_5m.m_incident_rows_valid": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_incidents_5m",
+			          "ConceptualProperty": "m_incident_rows_valid"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "건수": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_incidents_5m.service_name": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_incidents_5m",
+			          "ConceptualProperty": "service_name"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "서비스": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_incidents_5m.m_exception_count_valid": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_incidents_5m",
+			          "ConceptualProperty": "m_exception_count_valid"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "예외 수": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_incidents_5m.incident_type": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_incidents_5m",
+			          "ConceptualProperty": "incident_type"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "타입": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        },
+			        {
+			          "유형": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_incidents_5m.incident_time_utc": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_incidents_5m",
+			          "ConceptualProperty": "incident_time_utc"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "발생시각": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        },
+			        {
+			          "시각": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_incidents_5m.m_failed_count_valid": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_incidents_5m",
+			          "ConceptualProperty": "m_failed_count_valid"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "실패 수": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "monitoring_vw_incidents_5m.severity": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "monitoring vw_incidents_5m",
+			          "ConceptualProperty": "severity"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "심각도": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    }
+			  }
+			}
+		contentType: json
+
