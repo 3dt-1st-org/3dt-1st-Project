@@ -401,6 +401,9 @@ class DailyTravelPlanner:
         category_filter = filters.get(category, "")
         query = f"""
             SELECT g.bizplc_nm as name,
+                   COALESCE(NULLIF(TRIM(g.bizplc_nm_en), ''), g.bizplc_nm) as name_en,
+                   COALESCE(g.refine_roadnm_addr, g.refine_lotno_addr, '') as road_addr,
+                   COALESCE(NULLIF(TRIM(g.refine_roadnm_addr_en), ''), COALESCE(g.refine_roadnm_addr, g.refine_lotno_addr, '')) as road_addr_en,
                    g.refine_wgs84_lat as lat,
                    g.refine_wgs84_logt as lng,
                    'restaurant' as source_type,
@@ -418,6 +421,7 @@ class DailyTravelPlanner:
         """[수정] 실내 명소 조회 시 상점/시장/음식 관련 제외 필터 추가"""
         query = """
             SELECT t.tourist_nm as name,
+                   COALESCE(NULLIF(TRIM(t.tourist_nm_en), ''), t.tourist_nm) as name_en,
                    t.lat as lat,
                    t.lng as lng,
                    'attraction' as source_type,
@@ -438,6 +442,7 @@ class DailyTravelPlanner:
         """쾌적한 날씨에서 우선 추천할 야외 명소 조회"""
         query = """
             SELECT t.tourist_nm as name,
+                   COALESCE(NULLIF(TRIM(t.tourist_nm_en), ''), t.tourist_nm) as name_en,
                    t.lat as lat,
                    t.lng as lng,
                    'attraction' as source_type,
@@ -458,6 +463,7 @@ class DailyTravelPlanner:
         """[수정] 명소 조회 시 상점/시장/음식 관련 제외 필터 추가"""
         query = """
             SELECT t.tourist_nm as name,
+                   COALESCE(NULLIF(TRIM(t.tourist_nm_en), ''), t.tourist_nm) as name_en,
                    t.lat as lat,
                    t.lng as lng,
                    'attraction' as source_type,
@@ -478,6 +484,7 @@ class DailyTravelPlanner:
         """[신규] 음식 관련 명소 조회 (점심/저녁 시간대용)"""
         query = """
             SELECT t.tourist_nm as name,
+                   COALESCE(NULLIF(TRIM(t.tourist_nm_en), ''), t.tourist_nm) as name_en,
                    t.lat as lat,
                    t.lng as lng,
                    'attraction' as source_type,
@@ -582,7 +589,7 @@ class DailyTravelPlanner:
         role_hint = role_hint_ko
 
         system_prompt = f"""
-        당신은 하루 동선 추천 도슨트 '라라'입니다.
+        당신은 하루 동선 추천 도슨트 'LALA'입니다.
         사용자가 바로 이동 결정을 내릴 수 있도록, 사실 기반으로 짧고 정확하게 안내하세요.
 
         출력 규칙:
@@ -663,7 +670,7 @@ def print_daily_plan(plan_result: Dict):
         return
     
     print("\n" + "="*70)
-    print(f"📍 {plan_result['location']} 하루 여행 가이드 (도슨트 라라)")
+    print(f"📍 {plan_result['location']} 하루 여행 가이드 (도슨트 LALA)")
     print("="*70)
     
     w = plan_result['weather']
@@ -692,7 +699,7 @@ def print_daily_plan(plan_result: Dict):
     for idx, item in enumerate(plan_result['plan'], 1):
         print(f"\n{idx}. [{item['time']}] {item['period']}")
         print(f"   📌 장소: {item['place']['name']} ({item['place']['dist']:.0f}m)")
-        print(f"   💬 라라의 추천: {item['script']}")
+        print(f"   💬 LALA의 추천: {item['script']}")
     print("\n" + "="*70)
 
 if __name__ == "__main__":
