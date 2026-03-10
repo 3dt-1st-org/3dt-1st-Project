@@ -126,10 +126,15 @@ struct MainMapView: View {
     }
 
     private func rebuildMapAnnotationItems(span: MKCoordinateSpan, force: Bool = false) {
+        let clusteringEnabled = MapMarkerClusteringPolicy.shouldUseCluster(
+            pointCount: viewModel.places.count,
+            latitudeDelta: span.latitudeDelta
+        )
         let nextKey = MapAnnotationCacheKey(
             placesRenderID: viewModel.placesRenderID,
             selectedPlaceID: viewModel.selectedPlaceID,
-            spanBucket: MapAnnotationSpanBucket(span: span)
+            spanBucket: MapAnnotationSpanBucket(span: span),
+            isClusteringEnabled: clusteringEnabled
         )
         guard force || mapAnnotationCacheKey != nextKey else { return }
         mapAnnotationCacheKey = nextKey
@@ -1478,10 +1483,11 @@ private struct MapAnnotationCacheKey: Equatable {
     let placesRenderID: UUID
     let selectedPlaceID: String?
     let spanBucket: MapAnnotationSpanBucket
+    let isClusteringEnabled: Bool
 }
 
 private struct MapAnnotationSpanBucket: Equatable {
-    private static let precision: CLLocationDegrees = 0.001
+    private static let precision: CLLocationDegrees = 0.0001
     let latitudeBucket: Int
     let longitudeBucket: Int
 
