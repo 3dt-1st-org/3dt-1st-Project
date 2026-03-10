@@ -49,7 +49,7 @@ final class DocentRemoteService: DocentRemoteProviding {
 
     init(
         baseURL: URL? = AppRuntime.apiBaseURL,
-        apiKey: String? = AppRuntime.iosAPIKey,
+        apiKey: String? = nil,
         session: URLSession = DocentRemoteService.makeDefaultSession()
     ) {
         self.baseURL = baseURL
@@ -225,7 +225,6 @@ private struct DocentAudioRequest: Encodable {
 
 enum DocentRemoteError: LocalizedError {
     case missingBaseURL
-    case missingAPIKey
     case localhostNotAllowed
     case invalidBaseURL
     case invalidRequestURL
@@ -236,8 +235,6 @@ enum DocentRemoteError: LocalizedError {
         switch self {
         case .missingBaseURL:
             return "API base URL is missing."
-        case .missingAPIKey:
-            return "iOS API key is missing."
         case .localhostNotAllowed:
             return "localhost is not allowed for API base URL."
         case .invalidBaseURL:

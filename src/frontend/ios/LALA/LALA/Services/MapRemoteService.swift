@@ -38,13 +38,15 @@ struct WeatherSnapshot {
     let dustText: String
     let outdoorStatus: String
     let forecast: [WeatherForecastItem]
+    let source: String
 
     static let placeholder = WeatherSnapshot(
         symbolName: "cloud.sun.fill",
         temperatureText: "--°C",
         dustText: "--",
         outdoorStatus: "",
-        forecast: []
+        forecast: [],
+        source: "placeholder"
     )
 }
 
@@ -120,7 +122,7 @@ final class MapRemoteService: MapDataProviding {
 
     init(
         baseURL: URL? = AppRuntime.apiBaseURL,
-        apiKey: String? = AppRuntime.iosAPIKey,
+        apiKey: String? = nil,
         session: URLSession = MapRemoteService.makeDefaultSession()
     ) {
         self.baseURL = baseURL
@@ -204,6 +206,9 @@ final class MapRemoteService: MapDataProviding {
             let normalizedIcon = decoded.icon.trimmingCharacters(in: .whitespacesAndNewlines)
             let normalizedOutdoorStatus = (decoded.outdoorStatus ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedSource = (decoded.source ?? "unknown")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
             let filteredForecast = Self.filterFutureForecast(decoded.forecast)
             let hasRenderableWeather = !normalizedTemp.isEmpty ||
                 !normalizedIcon.isEmpty ||
@@ -226,7 +231,8 @@ final class MapRemoteService: MapDataProviding {
                 temperatureText: Self.temperatureText(from: decoded.temp),
                 dustText: Self.dustText(from: decoded.dust),
                 outdoorStatus: normalizedOutdoorStatus,
-                forecast: forecast
+                forecast: forecast,
+                source: normalizedSource
             )
         }
         if !force {
@@ -594,7 +600,6 @@ final class MapRemoteService: MapDataProviding {
 
 enum MapServiceError: LocalizedError {
     case missingBaseURL
-    case missingAPIKey
     case localhostNotAllowed
     case invalidBaseURL
     case invalidRequestURL
@@ -605,8 +610,6 @@ enum MapServiceError: LocalizedError {
         switch self {
         case .missingBaseURL:
             return "API base URL is missing."
-        case .missingAPIKey:
-            return "iOS API key is missing."
         case .localhostNotAllowed:
             return "localhost is not allowed for API base URL."
         case .invalidBaseURL:
@@ -637,25 +640,6 @@ enum AppRuntime {
            !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let url = URL(string: custom) {
             return url
-        }
-
-        return nil
-    }
-
-    static var iosAPIKey: String? {
-        if let custom = loadConfigValueFromAppConfig(named: "AppConfig.local", key: "IOS_API_KEY") {
-            return custom
-        }
-
-        if let custom = loadConfigValueFromAppConfig(named: "AppConfig", key: "IOS_API_KEY") {
-            return custom
-        }
-
-        if let custom = Bundle.main.object(forInfoDictionaryKey: "LALA_IOS_API_KEY") as? String {
-            let trimmed = custom.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
         }
 
         return nil
@@ -739,6 +723,7 @@ private struct RemoteWeatherResponse: Decodable {
     let dust: RemoteWeatherDust?
     let forecast: [RemoteWeatherForecast]
     let outdoorStatus: String?
+    let source: String?
 
     enum CodingKeys: String, CodingKey {
         case temp
@@ -746,6 +731,7 @@ private struct RemoteWeatherResponse: Decodable {
         case dust
         case forecast
         case outdoorStatus = "outdoor_status"
+        case source
     }
 
     init(from decoder: Decoder) throws {
@@ -755,6 +741,7 @@ private struct RemoteWeatherResponse: Decodable {
         dust = try container.decodeIfPresent(RemoteWeatherDust.self, forKey: .dust)
         forecast = try container.decodeIfPresent([RemoteWeatherForecast].self, forKey: .forecast) ?? []
         outdoorStatus = try container.decodeLossyString(forKey: .outdoorStatus)
+        source = try container.decodeLossyString(forKey: .source)
     }
 }
 

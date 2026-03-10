@@ -3,12 +3,12 @@ import CoreLocation
 @testable import LALACore
 
 final class MapParityPolicyTests: XCTestCase {
-    func testPlacesQuery_UsesWebDefaults() {
+    func testPlacesQuery_DoesNotHardCapAt100() {
         let query = PlacesReloadPolicy.makeDefaultQuery(category: "restaurant")
 
         XCTAssertEqual(query.scope, "radius")
         XCTAssertEqual(query.radiusMeters, 20_000)
-        XCTAssertEqual(query.limit, 100)
+        XCTAssertEqual(query.limit, 500)
         XCTAssertEqual(query.category, "restaurant")
     }
 

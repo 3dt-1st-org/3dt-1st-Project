@@ -601,7 +601,14 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
             if suppressNextRegionDrivenReload {
                 suppressNextRegionDrivenReload = false
+                return
             }
+
+            if isMapCameraReloadSuppressed {
+                return
+            }
+
+            schedulePlacesReloadForMapCenter(clamped.center)
         }
     }
 
@@ -617,6 +624,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
             lastMapCameraInteractionAt = Date()
             reloadPlaces(force: true, anchorCenter: center)
+            reloadWeather(force: true, coordinateOverride: center)
         }
     }
 
@@ -775,10 +783,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
-    private func reloadWeather(force: Bool) {
+    private func reloadWeather(force: Bool, coordinateOverride: CLLocationCoordinate2D? = nil) {
         guard isAppLocationConsentEnabled else { return }
         guard !hasRuntimeConfigurationError else { return }
-        guard let coordinate = userCoordinate else { return }
+        let coordinate = coordinateOverride ?? userCoordinate ?? region.center
 
         if !force, let failedAt = lastWeatherFailureAt {
             let elapsed = Date().timeIntervalSince(failedAt)
@@ -826,32 +834,74 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 )
                 guard !Task.isCancelled else { return }
 
-                weatherSymbol = weatherResult.symbolName
-                weatherValue = weatherResult.temperatureText
-                weatherDust = weatherResult.dustText
-                weatherOutdoorStatus = weatherResult.outdoorStatus
-                weatherForecast = weatherResult.forecast
+                let resolved = mergedWeatherSnapshotKeepingPreviousIfNeeded(weatherResult)
+
+                weatherSymbol = resolved.snapshot.symbolName
+                weatherValue = resolved.snapshot.temperatureText
+                weatherDust = resolved.snapshot.dustText
+                weatherOutdoorStatus = resolved.snapshot.outdoorStatus
+                weatherForecast = resolved.snapshot.forecast
                 refreshPlannerSnapshotWeatherFromLiveWeather()
                 lastWeatherFetchCoordinate = coordinate
                 lastWeatherFetchAt = Date()
-                lastWeatherFailureAt = nil
-                lastWeatherFailureCoordinate = nil
+
+                if resolved.keptPrevious {
+                    lastWeatherFailureAt = Date()
+                    lastWeatherFailureCoordinate = coordinate
+                    scheduleWeatherRetryAfterCooldown(failedAt: lastWeatherFailureAt ?? Date())
+                } else {
+                    lastWeatherFailureAt = nil
+                    lastWeatherFailureCoordinate = nil
+                }
 
                 refreshIntervention(for: coordinate)
             } catch {
                 guard !Task.isCancelled else { return }
                 lastWeatherFailureAt = Date()
                 lastWeatherFailureCoordinate = coordinate
-                if lastWeatherFetchCoordinate == nil {
-                    weatherSymbol = WeatherSnapshot.placeholder.symbolName
-                    weatherValue = WeatherSnapshot.placeholder.temperatureText
-                    weatherDust = WeatherSnapshot.placeholder.dustText
-                    weatherOutdoorStatus = WeatherSnapshot.placeholder.outdoorStatus
-                    weatherForecast = []
-                }
                 scheduleWeatherRetryAfterCooldown(failedAt: lastWeatherFailureAt ?? Date())
             }
         }
+    }
+
+    private func mergedWeatherSnapshotKeepingPreviousIfNeeded(_ incoming: WeatherSnapshot) -> (snapshot: WeatherSnapshot, keptPrevious: Bool) {
+        guard shouldKeepPreviousWeather(for: incoming),
+              let previous = currentRenderableWeatherSnapshot() else {
+            return (incoming, false)
+        }
+        return (previous, true)
+    }
+
+    private func shouldKeepPreviousWeather(for snapshot: WeatherSnapshot) -> Bool {
+        if isFallbackWeatherSource(snapshot.source) {
+            return true
+        }
+
+        let temperature = snapshot.temperatureText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return temperature.isEmpty || temperature == WeatherSnapshot.placeholder.temperatureText
+    }
+
+    private func isFallbackWeatherSource(_ source: String) -> Bool {
+        let normalized = source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.isEmpty {
+            return false
+        }
+        return normalized.contains("fallback")
+    }
+
+    private func currentRenderableWeatherSnapshot() -> WeatherSnapshot? {
+        guard let temperature = normalizedLiveWeatherTemperature() else {
+            return nil
+        }
+
+        return WeatherSnapshot(
+            symbolName: weatherSymbol,
+            temperatureText: temperature,
+            dustText: weatherDust,
+            outdoorStatus: weatherOutdoorStatus,
+            forecast: weatherForecast,
+            source: "live-cache"
+        )
     }
 
     private func refreshIntervention(for coordinate: CLLocationCoordinate2D) {

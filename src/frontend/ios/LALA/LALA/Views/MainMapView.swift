@@ -1144,9 +1144,9 @@ struct MainMapView: View {
     private var plannerLoadingSubtext: String {
         switch appViewModel.selectedLanguage {
         case .korean:
-            return "처음 방문하는 장소는 최대 30~60초 소요돼요"
+            return "처음 방문하는 장소는 최대 5~10초 소요돼요"
         case .english:
-            return "First-time places can take up to 30–60 seconds."
+            return "First-time places can take up to 5-10 seconds."
         }
     }
 
