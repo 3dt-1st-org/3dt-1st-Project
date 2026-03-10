@@ -21,18 +21,30 @@ struct MainMapView: View {
                 coordinateRegion: boundedRegionBinding,
                 interactionModes: [.pan, .zoom],
                 showsUserLocation: true,
-                annotationItems: viewModel.places
-            ) { place in
-                MapAnnotation(coordinate: place.coordinate) {
-                    PlacePinView(
-                        title: place.name(in: appViewModel.selectedLanguage),
-                        categorySymbol: place.categoryKind.symbolName,
-                        categoryKind: place.categoryKind,
-                        isSelected: viewModel.selectedPlaceID == place.id
-                    )
-                    .onTapGesture {
-                        viewModel.handleMapPinTap(place, language: appViewModel.selectedLanguage)
-                        selectedDetailPlace = place
+                annotationItems: mapAnnotationItems
+            ) { item in
+                MapAnnotation(coordinate: item.coordinate) {
+                    switch item.kind {
+                    case let .place(place):
+                        PlacePinView(
+                            title: place.name(in: appViewModel.selectedLanguage),
+                            categorySymbol: place.categoryKind.symbolName,
+                            categoryKind: place.categoryKind,
+                            isSelected: viewModel.selectedPlaceID == place.id,
+                            showTitle: viewModel.selectedPlaceID == place.id
+                        )
+                        .onTapGesture {
+                            viewModel.handleMapPinTap(place, language: appViewModel.selectedLanguage)
+                            selectedDetailPlace = place
+                        }
+                    case let .cluster(count, categoryKind):
+                        ClusterPinView(
+                            count: count,
+                            categoryKind: categoryKind
+                        )
+                        .onTapGesture {
+                            viewModel.zoomIntoCluster(at: item.coordinate)
+                        }
                     }
                 }
             }
@@ -101,6 +113,51 @@ struct MainMapView: View {
                 viewModel.updateRegionFromMap(newValue)
             }
         )
+    }
+
+    private var mapAnnotationItems: [MapAnnotationDisplayItem] {
+        let markerPoints = viewModel.places.map { place in
+            MapMarkerPoint(
+                id: place.id,
+                latitude: place.coordinate.latitude,
+                longitude: place.coordinate.longitude,
+                categoryKey: place.categoryKind.rawValue
+            )
+        }
+        let presentations = MapMarkerClusteringPolicy.buildPresentations(
+            points: markerPoints,
+            latitudeDelta: viewModel.region.span.latitudeDelta,
+            longitudeDelta: viewModel.region.span.longitudeDelta,
+            selectedPointID: viewModel.selectedPlaceID
+        )
+        let placeByID = Dictionary(
+            viewModel.places.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return presentations.compactMap { item in
+            switch item {
+            case let .place(point):
+                guard let place = placeByID[point.id] else { return nil }
+                return MapAnnotationDisplayItem(
+                    id: "place-\(place.id)",
+                    coordinate: place.coordinate,
+                    kind: .place(place)
+                )
+            case let .cluster(cluster):
+                return MapAnnotationDisplayItem(
+                    id: cluster.id,
+                    coordinate: CLLocationCoordinate2D(
+                        latitude: cluster.latitude,
+                        longitude: cluster.longitude
+                    ),
+                    kind: .cluster(
+                        count: cluster.count,
+                        categoryKind: PlaceCategoryKind.fromRemoteCategory(cluster.categoryKey)
+                    )
+                )
+            }
+        }
     }
 
     private var overlayContent: some View {
@@ -1377,6 +1434,17 @@ private struct PlaceDetailBottomSheet: View {
     }
 }
 
+private struct MapAnnotationDisplayItem: Identifiable {
+    enum Kind {
+        case place(PlaceRecommendation)
+        case cluster(count: Int, categoryKind: PlaceCategoryKind)
+    }
+
+    let id: String
+    let coordinate: CLLocationCoordinate2D
+    let kind: Kind
+}
+
 private struct AnimatedObangBorder: View {
     let cornerRadius: CGFloat
     let isActive: Bool
@@ -1414,27 +1482,72 @@ private struct AnimatedObangBorder: View {
     }
 }
 
+private struct ClusterPinView: View {
+    let count: Int
+    let categoryKind: PlaceCategoryKind
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white.opacity(0.95))
+                .frame(width: 42, height: 42)
+                .shadow(color: .black.opacity(0.18), radius: 5, y: 2)
+
+            Circle()
+                .stroke(clusterColor, lineWidth: 2.2)
+                .frame(width: 42, height: 42)
+
+            Text("\(count)")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(clusterTextColor)
+        }
+    }
+
+    private var clusterColor: Color {
+        switch categoryKind {
+        case .attraction:
+            return Color(AppThemeColor.south.rawValue)
+        case .restaurant:
+            return Color(AppThemeColor.center.rawValue)
+        case .event:
+            return Color(AppThemeColor.east.rawValue)
+        }
+    }
+
+    private var clusterTextColor: Color {
+        switch categoryKind {
+        case .restaurant:
+            return Color(red: 0.42, green: 0.31, blue: 0.05)
+        default:
+            return clusterColor.opacity(0.92)
+        }
+    }
+}
+
 private struct PlacePinView: View {
     let title: String
     let categorySymbol: String
     let categoryKind: PlaceCategoryKind
     let isSelected: Bool
+    let showTitle: Bool
 
     var body: some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .frame(maxWidth: 160)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.black.opacity(0.72))
-                )
+        VStack(spacing: showTitle ? 4 : 0) {
+            if showTitle {
+                Text(title)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: 160)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.black.opacity(0.72))
+                    )
+            }
 
             ZStack {
                 Circle()

@@ -721,8 +721,9 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     private func applyPlacesAfterFetch() {
         let distanceApplied = placesApplyingUserDistance(from: userCoordinate, source: allPlaces)
-        allPlaces = distanceApplied
-        places = distanceApplied
+        let deduplicated = deduplicatedPlacesByID(distanceApplied)
+        allPlaces = deduplicated
+        places = deduplicated
         placesRenderID = UUID()
 
         mapStatus = places.isEmpty ? .noResults : .none
@@ -982,6 +983,24 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
+    func zoomIntoCluster(at coordinate: CLLocationCoordinate2D, animated: Bool = true) {
+        let zoomedSpan = MKCoordinateSpan(
+            latitudeDelta: max(region.span.latitudeDelta * 0.55, 0.002),
+            longitudeDelta: max(region.span.longitudeDelta * 0.55, 0.002)
+        )
+        let focused = MKCoordinateRegion(center: coordinate, span: zoomedSpan)
+        let clamped = clampRegion(focused)
+        deferMapCameraReload()
+        suppressNextRegionDrivenReload = true
+        if animated {
+            withAnimation(.easeInOut(duration: 0.32)) {
+                region = clamped
+            }
+        } else {
+            region = clamped
+        }
+    }
+
     private func isNearlyEqual(_ lhs: MKCoordinateRegion, _ rhs: MKCoordinateRegion) -> Bool {
         abs(lhs.center.latitude - rhs.center.latitude) < 0.000_01 &&
             abs(lhs.center.longitude - rhs.center.longitude) < 0.000_01 &&
@@ -1116,8 +1135,20 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private func refreshDistancesForCurrentLocation(_ coordinate: CLLocationCoordinate2D) {
         guard !allPlaces.isEmpty else { return }
         let distanceApplied = placesApplyingUserDistance(from: coordinate, source: allPlaces)
-        allPlaces = distanceApplied
-        places = distanceApplied
+        let deduplicated = deduplicatedPlacesByID(distanceApplied)
+        allPlaces = deduplicated
+        places = deduplicated
+    }
+
+    private func deduplicatedPlacesByID(_ source: [PlaceRecommendation]) -> [PlaceRecommendation] {
+        var seen = Set<String>()
+        var deduplicated: [PlaceRecommendation] = []
+        deduplicated.reserveCapacity(source.count)
+
+        for place in source where seen.insert(place.id).inserted {
+            deduplicated.append(place)
+        }
+        return deduplicated
     }
 
     private func placesApplyingUserDistance(
