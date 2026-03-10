@@ -46,6 +46,7 @@ struct MainMapView: View {
                         )
                         .onTapGesture {
                             viewModel.zoomIntoCluster(at: item.coordinate)
+                            rebuildMapAnnotationItems(span: viewModel.region.span, force: true)
                         }
                     }
                 }
@@ -74,6 +75,12 @@ struct MainMapView: View {
             rebuildMapAnnotationItems(span: viewModel.region.span, force: true)
         }
         .onChange(of: viewModel.selectedPlaceID) { _, _ in
+            rebuildMapAnnotationItems(span: viewModel.region.span)
+        }
+        .onChange(of: viewModel.region.span.latitudeDelta) { _, _ in
+            rebuildMapAnnotationItems(span: viewModel.region.span)
+        }
+        .onChange(of: viewModel.region.span.longitudeDelta) { _, _ in
             rebuildMapAnnotationItems(span: viewModel.region.span)
         }
         .navigationBarBackButtonHidden(true)
@@ -1487,7 +1494,7 @@ private struct MapAnnotationCacheKey: Equatable {
 }
 
 private struct MapAnnotationSpanBucket: Equatable {
-    private static let precision: CLLocationDegrees = 0.0001
+    private static let precision: CLLocationDegrees = 0.0005
     let latitudeBucket: Int
     let longitudeBucket: Int
 
