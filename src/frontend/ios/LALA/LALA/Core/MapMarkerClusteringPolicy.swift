@@ -30,9 +30,9 @@ enum MapMarkerPresentationItem<ID: Hashable> {
 }
 
 enum MapMarkerClusteringPolicy {
-    static let defaultActivationLatitudeDelta: CLLocationDegrees = 0.012
-    static let defaultMinimumPointCount = 16
-    static let defaultGridDivisions: Double = 7.0
+    static let defaultActivationLatitudeDelta: CLLocationDegrees = 0.01
+    static let defaultMinimumPointCount = 12
+    static let defaultGridDivisions: Double = 5.0
     private static let minimumGridCellDelta: CLLocationDegrees = 0.000_3
 
     static func shouldUseCluster(
