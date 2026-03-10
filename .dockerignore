@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Data directories (exclude raw data from image)
+data/raw/
+data/interim/
+data/processed/
+data/external/
+data/docent/mp3/
+
+# Notebooks
+notebooks/
+TEST/
+
+# Docs
+docs/
+
+# Azure
+.azure/
+
+# Local cache
+.weather_state_cache.json
+
+# Artifacts
+artifacts/
+
+# Azurite
+__blobstorage__/
+
+# SQL scripts (not needed in runtime)
+sql/
+
+# Ingest scripts (batch processing, not web app)
+scripts/ingest/
+
+# Tests
+tests/
+
+# Temp files
+tmp_*.py
+*.tmp
+*.log
+
+# Infrastructure
+infra/
