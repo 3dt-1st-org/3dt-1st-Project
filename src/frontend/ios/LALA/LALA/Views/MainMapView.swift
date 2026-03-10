@@ -18,6 +18,7 @@ struct MainMapView: View {
     @State private var showPlannerRegenerateConfirm = false
     @State private var renderedMapAnnotationItems: [MapAnnotationDisplayItem] = []
     @State private var mapAnnotationCacheKey: MapAnnotationCacheKey?
+    @State private var mapAnnotationRebuildTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -59,9 +60,10 @@ struct MainMapView: View {
             }
             .mapStyle(.standard(pointsOfInterest: .excludingAll))
             .onMapCameraChange(frequency: .onEnd) { context in
-                rebuildMapAnnotationItems(
+                scheduleMapAnnotationRebuild(
                     span: context.region.span,
-                    center: context.region.center
+                    center: context.region.center,
+                    force: true
                 )
                 viewModel.handleMapCameraInteractionEnded(center: context.region.center)
             }
@@ -72,7 +74,7 @@ struct MainMapView: View {
         .onAppear {
             viewModel.updateLanguage(appViewModel.selectedLanguage)
             viewModel.configureLocationUpdates(consentEnabled: appViewModel.isLocationConsentEnabled)
-            rebuildMapAnnotationItems(
+            scheduleMapAnnotationRebuild(
                 span: viewModel.region.span,
                 center: viewModel.region.center,
                 force: true
@@ -90,29 +92,33 @@ struct MainMapView: View {
             }
         }
         .onChange(of: viewModel.placesRenderID) { _, _ in
-            rebuildMapAnnotationItems(
+            scheduleMapAnnotationRebuild(
                 span: viewModel.region.span,
                 center: viewModel.region.center,
                 force: true
             )
         }
         .onChange(of: viewModel.selectedPlaceID) { _, _ in
-            rebuildMapAnnotationItems(
+            scheduleMapAnnotationRebuild(
                 span: viewModel.region.span,
                 center: viewModel.region.center
             )
         }
         .onChange(of: viewModel.region.span.latitudeDelta) { _, _ in
-            rebuildMapAnnotationItems(
+            scheduleMapAnnotationRebuild(
                 span: viewModel.region.span,
                 center: viewModel.region.center
             )
         }
         .onChange(of: viewModel.region.span.longitudeDelta) { _, _ in
-            rebuildMapAnnotationItems(
+            scheduleMapAnnotationRebuild(
                 span: viewModel.region.span,
                 center: viewModel.region.center
             )
+        }
+        .onDisappear {
+            mapAnnotationRebuildTask?.cancel()
+            mapAnnotationRebuildTask = nil
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $showSettings) {
@@ -200,6 +206,28 @@ struct MainMapView: View {
             span: span,
             forceCluster: forceCluster
         )
+    }
+
+    private func scheduleMapAnnotationRebuild(
+        span: MKCoordinateSpan,
+        center: CLLocationCoordinate2D? = nil,
+        force: Bool = false,
+        debounceNanoseconds: UInt64 = 90_000_000
+    ) {
+        let targetCenter = center ?? viewModel.region.center
+        if force {
+            mapAnnotationRebuildTask?.cancel()
+            mapAnnotationRebuildTask = nil
+            rebuildMapAnnotationItems(span: span, center: targetCenter, force: true)
+            return
+        }
+
+        mapAnnotationRebuildTask?.cancel()
+        mapAnnotationRebuildTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: debounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            rebuildMapAnnotationItems(span: span, center: targetCenter)
+        }
     }
 
     private func makeMapAnnotationItems(
