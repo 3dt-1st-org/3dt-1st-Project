@@ -46,14 +46,21 @@ struct MainMapView: View {
                         )
                         .onTapGesture {
                             viewModel.zoomIntoCluster(at: item.coordinate)
-                            rebuildMapAnnotationItems(span: viewModel.region.span, force: true)
+                            rebuildMapAnnotationItems(
+                                span: viewModel.region.span,
+                                center: viewModel.region.center,
+                                force: true
+                            )
                         }
                     }
                 }
             }
             .mapStyle(.standard(pointsOfInterest: .excludingAll))
             .onMapCameraChange(frequency: .onEnd) { context in
-                rebuildMapAnnotationItems(span: context.region.span)
+                rebuildMapAnnotationItems(
+                    span: context.region.span,
+                    center: context.region.center
+                )
                 viewModel.handleMapCameraInteractionEnded(center: context.region.center)
             }
             .ignoresSafeArea()
@@ -63,7 +70,11 @@ struct MainMapView: View {
         .onAppear {
             viewModel.updateLanguage(appViewModel.selectedLanguage)
             viewModel.configureLocationUpdates(consentEnabled: appViewModel.isLocationConsentEnabled)
-            rebuildMapAnnotationItems(span: viewModel.region.span, force: true)
+            rebuildMapAnnotationItems(
+                span: viewModel.region.span,
+                center: viewModel.region.center,
+                force: true
+            )
         }
         .onChange(of: appViewModel.selectedLanguage) { _, newValue in
             viewModel.updateLanguage(newValue)
@@ -72,16 +83,29 @@ struct MainMapView: View {
             viewModel.configureLocationUpdates(consentEnabled: consent)
         }
         .onChange(of: viewModel.placesRenderID) { _, _ in
-            rebuildMapAnnotationItems(span: viewModel.region.span, force: true)
+            rebuildMapAnnotationItems(
+                span: viewModel.region.span,
+                center: viewModel.region.center,
+                force: true
+            )
         }
         .onChange(of: viewModel.selectedPlaceID) { _, _ in
-            rebuildMapAnnotationItems(span: viewModel.region.span)
+            rebuildMapAnnotationItems(
+                span: viewModel.region.span,
+                center: viewModel.region.center
+            )
         }
         .onChange(of: viewModel.region.span.latitudeDelta) { _, _ in
-            rebuildMapAnnotationItems(span: viewModel.region.span)
+            rebuildMapAnnotationItems(
+                span: viewModel.region.span,
+                center: viewModel.region.center
+            )
         }
         .onChange(of: viewModel.region.span.longitudeDelta) { _, _ in
-            rebuildMapAnnotationItems(span: viewModel.region.span)
+            rebuildMapAnnotationItems(
+                span: viewModel.region.span,
+                center: viewModel.region.center
+            )
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $showSettings) {
@@ -132,30 +156,46 @@ struct MainMapView: View {
         )
     }
 
-    private func rebuildMapAnnotationItems(span: MKCoordinateSpan, force: Bool = false) {
-        let clusteringEnabled = MapMarkerClusteringPolicy.shouldUseCluster(
-            pointCount: viewModel.places.count,
+    private func rebuildMapAnnotationItems(
+        span: MKCoordinateSpan,
+        center: CLLocationCoordinate2D? = nil,
+        force: Bool = false
+    ) {
+        let targetCenter = center ?? viewModel.region.center
+        let visiblePlaces = placesForMapAnnotations(
+            places: viewModel.places,
+            selectedPlaceID: viewModel.selectedPlaceID,
+            center: targetCenter,
+            span: span
+        )
+        let forceCluster = visiblePlaces.count > MapAnnotationRenderingPolicy.maximumIndividualPins
+        let clusteringEnabled = forceCluster || MapMarkerClusteringPolicy.shouldUseCluster(
+            pointCount: visiblePlaces.count,
             latitudeDelta: span.latitudeDelta
         )
         let nextKey = MapAnnotationCacheKey(
             placesRenderID: viewModel.placesRenderID,
             selectedPlaceID: viewModel.selectedPlaceID,
             spanBucket: MapAnnotationSpanBucket(span: span),
-            isClusteringEnabled: clusteringEnabled
+            viewportBucket: MapAnnotationViewportBucket(center: targetCenter, span: span),
+            isClusteringEnabled: clusteringEnabled,
+            isForceClusterEnabled: forceCluster
         )
         guard force || mapAnnotationCacheKey != nextKey else { return }
         mapAnnotationCacheKey = nextKey
         renderedMapAnnotationItems = makeMapAnnotationItems(
-            places: viewModel.places,
+            places: visiblePlaces,
             selectedPlaceID: viewModel.selectedPlaceID,
-            span: span
+            span: span,
+            forceCluster: forceCluster
         )
     }
 
     private func makeMapAnnotationItems(
         places: [PlaceRecommendation],
         selectedPlaceID: String?,
-        span: MKCoordinateSpan
+        span: MKCoordinateSpan,
+        forceCluster: Bool
     ) -> [MapAnnotationDisplayItem] {
         let markerPoints = places.map { place in
             MapMarkerPoint(
@@ -169,7 +209,12 @@ struct MainMapView: View {
             points: markerPoints,
             latitudeDelta: span.latitudeDelta,
             longitudeDelta: span.longitudeDelta,
-            selectedPointID: selectedPlaceID
+            selectedPointID: selectedPlaceID,
+            activationLatitudeDelta: forceCluster ? 0.0 : MapMarkerClusteringPolicy.defaultActivationLatitudeDelta,
+            minimumPointCount: forceCluster ? 2 : MapMarkerClusteringPolicy.defaultMinimumPointCount,
+            gridDivisions: forceCluster
+                ? MapAnnotationRenderingPolicy.forceClusterGridDivisions
+                : MapMarkerClusteringPolicy.defaultGridDivisions
         )
         let placeByID = Dictionary(
             places.map { ($0.id, $0) },
@@ -199,6 +244,35 @@ struct MainMapView: View {
                 )
             }
         }
+    }
+
+    private func placesForMapAnnotations(
+        places: [PlaceRecommendation],
+        selectedPlaceID: String?,
+        center: CLLocationCoordinate2D,
+        span: MKCoordinateSpan
+    ) -> [PlaceRecommendation] {
+        let latitudeLimit = max(
+            span.latitudeDelta * MapAnnotationRenderingPolicy.visiblePaddingMultiplier,
+            MapAnnotationRenderingPolicy.minimumVisibleDelta
+        )
+        let longitudeLimit = max(
+            span.longitudeDelta * MapAnnotationRenderingPolicy.visiblePaddingMultiplier,
+            MapAnnotationRenderingPolicy.minimumVisibleDelta
+        )
+
+        var visiblePlaces = places.filter { place in
+            abs(place.coordinate.latitude - center.latitude) <= latitudeLimit &&
+                abs(place.coordinate.longitude - center.longitude) <= longitudeLimit
+        }
+
+        if let selectedPlaceID,
+           let selectedPlace = places.first(where: { $0.id == selectedPlaceID }),
+           !visiblePlaces.contains(where: { $0.id == selectedPlaceID }) {
+            visiblePlaces.append(selectedPlace)
+        }
+
+        return visiblePlaces
     }
 
     private var overlayContent: some View {
@@ -1490,11 +1564,13 @@ private struct MapAnnotationCacheKey: Equatable {
     let placesRenderID: UUID
     let selectedPlaceID: String?
     let spanBucket: MapAnnotationSpanBucket
+    let viewportBucket: MapAnnotationViewportBucket
     let isClusteringEnabled: Bool
+    let isForceClusterEnabled: Bool
 }
 
 private struct MapAnnotationSpanBucket: Equatable {
-    private static let precision: CLLocationDegrees = 0.0005
+    private static let precision: CLLocationDegrees = 0.001
     let latitudeBucket: Int
     let longitudeBucket: Int
 
@@ -1506,6 +1582,29 @@ private struct MapAnnotationSpanBucket: Equatable {
     private static func bucket(from value: CLLocationDegrees) -> Int {
         Int((value / precision).rounded())
     }
+}
+
+private struct MapAnnotationViewportBucket: Equatable {
+    let latitudeBucket: Int
+    let longitudeBucket: Int
+
+    init(center: CLLocationCoordinate2D, span: MKCoordinateSpan) {
+        let latitudePrecision = max(span.latitudeDelta / 5.0, 0.0008)
+        let longitudePrecision = max(span.longitudeDelta / 5.0, 0.0008)
+        latitudeBucket = Self.bucket(from: center.latitude, precision: latitudePrecision)
+        longitudeBucket = Self.bucket(from: center.longitude, precision: longitudePrecision)
+    }
+
+    private static func bucket(from value: CLLocationDegrees, precision: CLLocationDegrees) -> Int {
+        Int((value / precision).rounded())
+    }
+}
+
+private enum MapAnnotationRenderingPolicy {
+    static let visiblePaddingMultiplier: CLLocationDegrees = 0.7
+    static let minimumVisibleDelta: CLLocationDegrees = 0.004
+    static let maximumIndividualPins = 45
+    static let forceClusterGridDivisions: Double = 3.6
 }
 
 private struct AnimatedObangBorder: View {
