@@ -1,0 +1,136 @@
+table '관광지 추천'
+	lineageTag: b067420e-cf0b-400b-a3ce-ebe05df1d0f0
+
+	column tourist_nm
+		dataType: string
+		lineageTag: 9176a4fd-3fad-4024-919f-12c10b96984b
+		summarizeBy: none
+		sourceColumn: tourist_nm
+
+		annotation SummarizationSetBy = Automatic
+
+	column tel_no
+		dataType: string
+		lineageTag: 6620db28-9474-4a80-8e23-fec6670854af
+		summarizeBy: none
+		sourceColumn: tel_no
+
+		annotation SummarizationSetBy = Automatic
+
+	column base_date
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 2cbed52b-946e-4e0f-9e78-e374d61a7601
+		summarizeBy: none
+		sourceColumn: base_date
+
+		variation 변형
+			isDefault
+			relationship: 346211f2-cc64-4018-b616-8b0280c0a3e5
+			defaultHierarchy: LocalDateTable_2d719931-dcf2-4c8b-b87b-33ccdde0b45d.'날짜 계층'
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column road_addr
+		dataType: string
+		lineageTag: cee93a70-ef48-4105-ae87-cd1bd994eac1
+		summarizeBy: none
+		sourceColumn: road_addr
+
+		annotation SummarizationSetBy = Automatic
+
+	column lot_addr
+		dataType: string
+		lineageTag: deb44d55-c9e7-402d-a4c5-0419da410ac6
+		summarizeBy: none
+		sourceColumn: lot_addr
+
+		annotation SummarizationSetBy = Automatic
+
+	column zip_code
+		dataType: string
+		lineageTag: 42ec362e-c656-4001-9a7f-95106dea0851
+		summarizeBy: none
+		sourceColumn: zip_code
+
+		annotation SummarizationSetBy = Automatic
+
+	column 위도
+		dataType: double
+		lineageTag: b4f1eab3-92a3-4178-a593-963be005e9dc
+		summarizeBy: sum
+		sourceColumn: 위도
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column 경도
+		dataType: double
+		lineageTag: afd09aed-65e1-4d15-859d-7cfe389a5832
+		summarizeBy: sum
+		sourceColumn: 경도
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column sigun_nm
+		dataType: string
+		lineageTag: 18f63d0e-2f1e-4461-8427-f2157355b308
+		summarizeBy: none
+		sourceColumn: sigun_nm
+
+		annotation SummarizationSetBy = Automatic
+
+	column tourist_nm_en
+		dataType: string
+		lineageTag: 8e13e332-2b34-41f2-baa9-18aeefab7a55
+		summarizeBy: none
+		sourceColumn: tourist_nm_en
+
+		annotation SummarizationSetBy = Automatic
+
+	column road_addr_en
+		dataType: string
+		lineageTag: a4736444-5952-4f18-8e1d-d9ae119c64f2
+		summarizeBy: none
+		sourceColumn: road_addr_en
+
+		annotation SummarizationSetBy = Automatic
+
+	column is_indoor
+		dataType: boolean
+		formatString: """TRUE"";""TRUE"";""FALSE"""
+		lineageTag: 30f3e323-f745-4da0-8823-a74cc05a1294
+		summarizeBy: none
+		sourceColumn: is_indoor
+
+		annotation SummarizationSetBy = Automatic
+
+	measure m_tourist_spot_count = COUNTROWS('관광지 추천')
+		formatString: #,0
+		lineageTag: fec3a9a3-512a-4172-b245-d6f35b4cf59b
+
+	measure m_indoor_tourist_spot_count = COALESCE(CALCULATE(COUNTROWS('관광지 추천'), '관광지 추천'[is_indoor] = TRUE()), 0)
+		formatString: #,0
+		lineageTag: a20ce98b-60b7-4488-bbcf-e8bd5a9e300a
+
+	partition '관광지 추천' = m
+		mode: import
+		source =
+				let
+				    원본 = PostgreSQL.Database("lala-db.postgres.database.azure.com", "postgres"),
+				    locallink_tourist_spot_info = 원본{[Schema="locallink",Item="tourist_spot_info"]}[Data],
+				    #"이름을 바꾼 열 수" = Table.RenameColumns(locallink_tourist_spot_info,{{"lat", "위도"}, {"lng", "경도"}})
+				in
+				    #"이름을 바꾼 열 수"
+
+	changedProperty = Name
+
+	annotation PBI_NavigationStepName = 탐색
+
+	annotation PBI_ResultType = Table
+

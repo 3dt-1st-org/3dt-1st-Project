@@ -1,0 +1,26 @@
+relationship d6684c9f-7ecb-45a4-bbcf-09e50f4d0629
+	joinOnDateBehavior: datePartOnly
+	fromColumn: '맛집 추천'.suspnbiz_begin_de
+	toColumn: LocalDateTable_57dd35ba-7e9f-4f8d-9217-a18c7226ed7a.Date
+
+relationship 8b6b4525-3ddb-406e-8824-0850d5cd4a1d
+	joinOnDateBehavior: datePartOnly
+	fromColumn: '맛집 추천'.suspnbiz_end_de
+	toColumn: LocalDateTable_6664ca61-c85d-4c03-a106-51f77ff5c8f5.Date
+
+relationship 5ebb0de1-c8ad-4b57-97e9-81437988d359
+	joinOnDateBehavior: datePartOnly
+	fromColumn: '맛집 추천'.reopenbiz_de
+	toColumn: LocalDateTable_abcc2ba0-03ac-4ed0-ad9d-261a610ec17c.Date
+
+relationship 346211f2-cc64-4018-b616-8b0280c0a3e5
+	joinOnDateBehavior: datePartOnly
+	fromColumn: '관광지 추천'.base_date
+	toColumn: LocalDateTable_2d719931-dcf2-4c8b-b87b-33ccdde0b45d.Date
+
+relationship 8b8a248f-1b93-ef46-f688-fe37618e9fd2
+	crossFilteringBehavior: bothDirections
+	toCardinality: many
+	fromColumn: '맛집 추천'.sigun_nm
+	toColumn: '관광지 추천'.sigun_nm
+

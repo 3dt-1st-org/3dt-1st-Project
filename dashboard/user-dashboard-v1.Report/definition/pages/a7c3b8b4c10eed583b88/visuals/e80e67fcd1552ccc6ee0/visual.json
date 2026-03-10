@@ -1,0 +1,135 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.6.0/schema.json",
+  "name": "e80e67fcd1552ccc6ee0",
+  "position": {
+    "x": 0,
+    "y": 161.92164022847956,
+    "z": 0,
+    "height": 473.41496507479189,
+    "width": 432.24844637263607,
+    "tabOrder": 0
+  },
+  "visual": {
+    "visualType": "map",
+    "query": {
+      "queryState": {
+        "X": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "맛집 추천"
+                    }
+                  },
+                  "Property": "경도"
+                }
+              },
+              "queryRef": "locallink gg_restaurant_info.경도",
+              "nativeQueryRef": "경도"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "맛집 추천"
+                    }
+                  },
+                  "Property": "위도"
+                }
+              },
+              "queryRef": "locallink gg_restaurant_info.위도",
+              "nativeQueryRef": "위도"
+            }
+          ]
+        }
+      }
+    },
+    "objects": {
+      "bubbles": [
+        {
+          "properties": {
+            "bubbleSize": {
+              "expr": {
+                "Literal": {
+                  "Value": "-20L"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "dataPoint": [
+        {
+          "properties": {
+            "fill": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#FF2C2C'"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'식당'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "drillFilterOtherVisuals": true
+  },
+  "filterConfig": {
+    "filters": [
+      {
+        "name": "f9a4b9efc6a2ca75a0da",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "맛집 추천"
+              }
+            },
+            "Property": "위도"
+          }
+        },
+        "type": "Advanced"
+      },
+      {
+        "name": "1fa4ea18a74376b3562e",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "맛집 추천"
+              }
+            },
+            "Property": "경도"
+          }
+        },
+        "type": "Advanced"
+      }
+    ]
+  }
+}

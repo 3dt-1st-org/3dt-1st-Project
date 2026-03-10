@@ -1,0 +1,118 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.6.0/schema.json",
+  "name": "d320fac81148d301e02b",
+  "position": {
+    "x": 432.24844637263607,
+    "y": 161.92164022847956,
+    "z": 1000,
+    "height": 473.41496507479189,
+    "width": 432.24844637263607,
+    "tabOrder": 1000
+  },
+  "visual": {
+    "visualType": "map",
+    "query": {
+      "queryState": {
+        "X": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "관광지 추천"
+                    }
+                  },
+                  "Property": "경도"
+                }
+              },
+              "queryRef": "locallink tourist_spot_info.경도",
+              "nativeQueryRef": "경도"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "관광지 추천"
+                    }
+                  },
+                  "Property": "위도"
+                }
+              },
+              "queryRef": "locallink tourist_spot_info.위도",
+              "nativeQueryRef": "위도"
+            }
+          ]
+        }
+      }
+    },
+    "objects": {
+      "bubbles": [
+        {
+          "properties": {
+            "bubbleSize": {
+              "expr": {
+                "Literal": {
+                  "Value": "-20L"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'관광지'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "drillFilterOtherVisuals": true
+  },
+  "filterConfig": {
+    "filters": [
+      {
+        "name": "2df537dfea1e05098246",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "관광지 추천"
+              }
+            },
+            "Property": "경도"
+          }
+        },
+        "type": "Advanced"
+      },
+      {
+        "name": "acb8b885e556dd45aec8",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "관광지 추천"
+              }
+            },
+            "Property": "위도"
+          }
+        },
+        "type": "Advanced"
+      }
+    ]
+  }
+}

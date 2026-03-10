@@ -1,0 +1,183 @@
+table '맛집 추천'
+	lineageTag: 23dcaa3c-315f-4346-80c8-bb8e1b5a06d2
+
+	column bizplc_nm
+		dataType: string
+		lineageTag: 914244eb-a0a4-4421-8ca2-4ac1a9391b87
+		summarizeBy: none
+		sourceColumn: bizplc_nm
+
+		annotation SummarizationSetBy = Automatic
+
+	column refine_roadnm_addr
+		dataType: string
+		lineageTag: d86c954c-8c6a-4bf6-b5a6-e2b56be9d537
+		summarizeBy: none
+		sourceColumn: refine_roadnm_addr
+
+		annotation SummarizationSetBy = Automatic
+
+	column refine_lotno_addr
+		dataType: string
+		lineageTag: be9b9750-109e-42e0-838d-103b96b10c91
+		summarizeBy: none
+		sourceColumn: refine_lotno_addr
+
+		annotation SummarizationSetBy = Automatic
+
+	column 위도
+		dataType: double
+		lineageTag: f4b9593a-98b3-445e-9738-cf58c28871cd
+		summarizeBy: sum
+		sourceColumn: 위도
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column 경도
+		dataType: double
+		lineageTag: b6de40e5-a40c-4941-a711-2a9030ff6c9d
+		summarizeBy: sum
+		sourceColumn: 경도
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column bsn_state_nm
+		dataType: string
+		lineageTag: 56c3f946-5d63-4c78-8d5e-5d2ee8d13df4
+		summarizeBy: none
+		sourceColumn: bsn_state_nm
+
+		annotation SummarizationSetBy = Automatic
+
+	column suspnbiz_begin_de
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 27dc39d4-bf2d-4cf3-9e21-c29c358fb68b
+		summarizeBy: none
+		sourceColumn: suspnbiz_begin_de
+
+		variation 변형
+			isDefault
+			relationship: d6684c9f-7ecb-45a4-bbcf-09e50f4d0629
+			defaultHierarchy: LocalDateTable_57dd35ba-7e9f-4f8d-9217-a18c7226ed7a.'날짜 계층'
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column suspnbiz_end_de
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: c096db83-2790-4db9-ad94-fa4be9c2ce27
+		summarizeBy: none
+		sourceColumn: suspnbiz_end_de
+
+		variation 변형
+			isDefault
+			relationship: 8b6b4525-3ddb-406e-8824-0850d5cd4a1d
+			defaultHierarchy: LocalDateTable_6664ca61-c85d-4c03-a106-51f77ff5c8f5.'날짜 계층'
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column reopenbiz_de
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 0c86839e-041e-46ec-a6da-e8e26c482fc7
+		summarizeBy: none
+		sourceColumn: reopenbiz_de
+
+		variation 변형
+			isDefault
+			relationship: 5ebb0de1-c8ad-4b57-97e9-81437988d359
+			defaultHierarchy: LocalDateTable_abcc2ba0-03ac-4ed0-ad9d-261a610ec17c.'날짜 계층'
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column locplc_faclt_telno
+		dataType: string
+		lineageTag: e761fb39-e1e9-4114-a417-f9b1320aba4a
+		summarizeBy: none
+		sourceColumn: locplc_faclt_telno
+
+		annotation SummarizationSetBy = Automatic
+
+	column bizcond_div_nm_info
+		dataType: string
+		lineageTag: 801af493-9685-4076-841f-4908323100e0
+		summarizeBy: none
+		sourceColumn: bizcond_div_nm_info
+
+		annotation SummarizationSetBy = Automatic
+
+	column x_crdnt_vl
+		dataType: double
+		lineageTag: c12d45cf-d710-4e3d-a795-1ec6f71c1f30
+		summarizeBy: sum
+		sourceColumn: x_crdnt_vl
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column y_crdnt_vl
+		dataType: double
+		lineageTag: e1f9db7e-1754-40aa-8ff5-ceed75bb8188
+		summarizeBy: sum
+		sourceColumn: y_crdnt_vl
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column sigun_nm
+		dataType: string
+		lineageTag: c4bd6cc4-2982-4172-98b3-1a8a8a83c024
+		summarizeBy: none
+		sourceColumn: sigun_nm
+
+		annotation SummarizationSetBy = Automatic
+
+	column bizplc_nm_en
+		dataType: string
+		lineageTag: 4a03b964-b7fd-4893-bd47-2335196f9c93
+		summarizeBy: none
+		sourceColumn: bizplc_nm_en
+
+		annotation SummarizationSetBy = Automatic
+
+	column refine_roadnm_addr_en
+		dataType: string
+		lineageTag: 63ec1928-4eaa-4502-95d1-a81323510a70
+		summarizeBy: none
+		sourceColumn: refine_roadnm_addr_en
+
+		annotation SummarizationSetBy = Automatic
+
+	measure m_restaurant_count = COUNTROWS('맛집 추천')
+		formatString: #,0
+		lineageTag: ebb33362-c19e-4908-babb-8f99e49e1b12
+
+	partition '맛집 추천' = m
+		mode: import
+		source =
+				let
+				    원본 = PostgreSQL.Database("lala-db.postgres.database.azure.com", "postgres"),
+				    locallink_gg_restaurant_info = 원본{[Schema="locallink",Item="gg_restaurant_info"]}[Data],
+				    #"이름을 바꾼 열 수" = Table.RenameColumns(locallink_gg_restaurant_info,{{"refine_wgs84_lat", "위도"}, {"refine_wgs84_logt", "경도"}})
+				in
+				    #"이름을 바꾼 열 수"
+
+	changedProperty = Name
+
+	annotation PBI_NavigationStepName = 탐색
+
+	annotation PBI_ResultType = Table
+

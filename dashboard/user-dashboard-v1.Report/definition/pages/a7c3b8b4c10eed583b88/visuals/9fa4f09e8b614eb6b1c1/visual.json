@@ -1,0 +1,93 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.6.0/schema.json",
+  "name": "9fa4f09e8b614eb6b1c1",
+  "position": {
+    "x": 864,
+    "y": 0,
+    "z": 3000,
+    "height": 330,
+    "width": 416,
+    "tabOrder": 3000
+  },
+  "visual": {
+    "visualType": "clusteredColumnChart",
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "관광지 추천"
+                    }
+                  },
+                  "Property": "sigun_nm"
+                }
+              },
+              "queryRef": "locallink tourist_spot_info.sigun_nm",
+              "nativeQueryRef": "sigun_nm",
+              "active": true,
+              "displayName": "시/군"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "관광지 추천"
+                    }
+                  },
+                  "Property": "m_tourist_spot_count"
+                }
+              },
+              "queryRef": "관광지 추천.m_tourist_spot_count",
+              "displayName": "관광지 수"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'시/군별 관광지 수'"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "general": [
+        {
+          "properties": {
+            "altText": {
+              "expr": {
+                "Literal": {
+                  "Value": "'시/군별 관광지 분포 막대 차트'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "drillFilterOtherVisuals": true
+  }
+}

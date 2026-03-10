@@ -1,0 +1,93 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.6.0/schema.json",
+  "name": "673e8bec0c0072698c13",
+  "position": {
+    "x": 432,
+    "y": 0,
+    "z": 2001,
+    "height": 150,
+    "width": 432,
+    "tabOrder": 2001
+  },
+  "visual": {
+    "visualType": "clusteredColumnChart",
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "맛집 추천"
+                    }
+                  },
+                  "Property": "sigun_nm"
+                }
+              },
+              "queryRef": "locallink gg_restaurant_info.sigun_nm",
+              "nativeQueryRef": "sigun_nm",
+              "active": true,
+              "displayName": "시/군"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "맛집 추천"
+                    }
+                  },
+                  "Property": "m_restaurant_count"
+                }
+              },
+              "queryRef": "맛집 추천.m_restaurant_count",
+              "displayName": "맛집 수"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'시/군별 맛집 수'"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "general": [
+        {
+          "properties": {
+            "altText": {
+              "expr": {
+                "Literal": {
+                  "Value": "'시/군별 맛집 분포 막대 차트'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "drillFilterOtherVisuals": true
+  }
+}

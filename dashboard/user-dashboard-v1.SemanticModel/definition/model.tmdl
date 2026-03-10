@@ -1,0 +1,24 @@
+model Model
+	culture: ko-KR
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	sourceQueryCulture: ko-KR
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation __PBI_TimeIntelligenceEnabled = 1
+
+annotation PBI_QueryOrder = ["맛집 추천","관광지 추천"]
+
+annotation PBI_ProTooling = ["DevMode"]
+
+ref table '맛집 추천'
+ref table DateTableTemplate_bf171f0c-4b1c-4a40-b2fa-b6be12437781
+ref table LocalDateTable_57dd35ba-7e9f-4f8d-9217-a18c7226ed7a
+ref table LocalDateTable_6664ca61-c85d-4c03-a106-51f77ff5c8f5
+ref table LocalDateTable_abcc2ba0-03ac-4ed0-ad9d-261a610ec17c
+ref table '관광지 추천'
+ref table LocalDateTable_2d719931-dcf2-4c8b-b87b-33ccdde0b45d
+
+ref cultureInfo ko-KR
+
