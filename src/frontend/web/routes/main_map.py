@@ -15,7 +15,7 @@ from src.frontend.web.services.map_api_service import (
     create_places_payload,
     create_weather_payload,
 )
-from src.frontend.web.routes.ios_api import _WEATHER_HTTP_CACHE_CONTROL
+from src.frontend.web.routes.map_data_api import _WEATHER_HTTP_CACHE_CONTROL
 
 main_map_bp = Blueprint("main_map", __name__)
 

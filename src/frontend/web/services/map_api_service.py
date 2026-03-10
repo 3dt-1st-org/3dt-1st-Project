@@ -61,8 +61,8 @@ def create_places_payload(
 
     bounded_limit = min(max(limit, 1), MAX_LIMIT)
 
-    # Avoid import-time cycle: ios_api imports this service for route handling.
-    from src.frontend.web.routes import ios_api as ios_helpers
+    # Avoid import-time cycle: map_data_api uses this service for route handling.
+    from src.frontend.web.routes import map_data_api as map_helpers
 
     try:
         if scope == "city":
@@ -71,7 +71,7 @@ def create_places_payload(
                 with get_db_connection() as conn:
                     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                         resolved_city = (
-                            ios_helpers._resolve_city_from_coordinate(
+                            map_helpers._resolve_city_from_coordinate(
                                 cursor=cursor,
                                 lat=lat,
                                 lng=lng,
@@ -87,7 +87,7 @@ def create_places_payload(
                     "city": None,
                 }, 200
 
-            places = ios_helpers._fetch_places_by_city(
+            places = map_helpers._fetch_places_by_city(
                 lat=lat,
                 lng=lng,
                 city=resolved_city,
@@ -102,7 +102,7 @@ def create_places_payload(
                 "city": resolved_city,
             }, 200
 
-        places = ios_helpers._fetch_places(
+        places = map_helpers._fetch_places(
             lat=lat,
             lng=lng,
             radius=radius,
@@ -121,6 +121,6 @@ def create_places_payload(
 
 
 def create_weather_payload(*, lat: float, lng: float, force: bool = False) -> tuple[dict[str, Any], int]:
-    from src.frontend.web.routes import ios_api as ios_helpers
+    from src.frontend.web.routes import map_data_api as map_helpers
 
-    return ios_helpers._weather_snapshot(lat=lat, lng=lng, force=force)
+    return map_helpers._weather_snapshot(lat=lat, lng=lng, force=force)
