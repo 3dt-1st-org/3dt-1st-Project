@@ -253,9 +253,9 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         case .configurationError:
             switch language {
             case .korean:
-                return "API_BASE_URL 또는 IOS_API_KEY 설정이 필요합니다. Key Vault 동기화를 확인하세요."
+                return "API_BASE_URL 설정이 필요합니다. Key Vault 동기화를 확인하세요."
             case .english:
-                return "API_BASE_URL or IOS_API_KEY is missing. Check Key Vault sync."
+                return "API_BASE_URL is missing. Check Key Vault sync."
             }
         }
     }
@@ -1212,7 +1212,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     private func applyRuntimeConfigurationStatus() {
         guard isAppLocationConsentEnabled else { return }
-        if AppRuntime.apiBaseURL == nil || AppRuntime.iosAPIKey == nil {
+        if AppRuntime.apiBaseURL == nil {
             mapStatus = .configurationError
         } else if mapStatus == .configurationError {
             mapStatus = .none

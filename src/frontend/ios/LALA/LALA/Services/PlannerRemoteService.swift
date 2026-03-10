@@ -160,13 +160,12 @@ final class PlannerRemoteService: PlannerDataProviding {
     }
 
     private func makeRequest(url: URL, method: String, timeout: TimeInterval) throws -> URLRequest {
-        guard let apiKey else {
-            throw PlannerRemoteError.missingAPIKey
-        }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = timeout
-        request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        if let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         return request
     }

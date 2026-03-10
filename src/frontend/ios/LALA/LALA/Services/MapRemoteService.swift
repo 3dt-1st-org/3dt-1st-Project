@@ -136,9 +136,6 @@ final class MapRemoteService: MapDataProviding {
         guard baseURL != nil else {
             throw MapServiceError.missingBaseURL
         }
-        guard apiKey != nil else {
-            throw MapServiceError.missingAPIKey
-        }
 
         let query = PlacesReloadPolicy.makeDefaultQuery(category: category.apiValue)
         let boundedRadius = max(1, radiusMeters)
@@ -173,9 +170,6 @@ final class MapRemoteService: MapDataProviding {
     func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot {
         guard baseURL != nil else {
             throw MapServiceError.missingBaseURL
-        }
-        guard apiKey != nil else {
-            throw MapServiceError.missingAPIKey
         }
 
         let cacheKey = Self.weatherCacheKey(for: coordinate)
@@ -241,13 +235,12 @@ final class MapRemoteService: MapDataProviding {
     }
 
     private func performRequest(url: URL) async throws -> (Data, URLResponse) {
-        guard let apiKey else {
-            throw MapServiceError.missingAPIKey
-        }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 15
-        request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        if let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        }
         return try await session.data(for: request)
     }
 
