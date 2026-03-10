@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 
 from src.frontend.web.services.planner_service import (
     create_daily_plan_payload,
@@ -16,9 +16,16 @@ def daily_plan():
     try:
         lat = float(body.get("lat", 37.2636))
         lng = float(body.get("lng", 127.0286))
-        language = str(body.get("language", "Korean")).strip()
     except (TypeError, ValueError):
         return jsonify({"error": "invalid parameters"}), 400
+
+    client_lang = str(body.get("language") or "").strip().lower()
+    session_lang = str(session.get("lang") or "").strip().lower()
+    effective_lang = client_lang if client_lang in ("ko", "en") else session_lang
+    if effective_lang not in ("ko", "en"):
+        effective_lang = "ko"
+
+    language = "English" if effective_lang == "en" else "Korean"
 
     payload, status = create_daily_plan_payload(lat, lng, language=language)
     return jsonify(payload), status

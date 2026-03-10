@@ -561,7 +561,7 @@ class WeatherTravelPlanner:
                 places_summary += f"   - 리뷰: {place['reviews'][:150]}...\n"
         
         system_prompt = f"""
-        당신은 친근한 여행 가이드 '라라'입니다.
+        당신은 친근한 여행 가이드 'LALA'입니다.
         사용자와 함께 있는 친구처럼 자연스럽게 대화하며, 갑자기 변한 날씨 상황을 언급하고 
         여러 장소를 선택지로 제안하세요.
 

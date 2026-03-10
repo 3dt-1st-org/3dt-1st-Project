@@ -5,13 +5,81 @@
 (function () {
   'use strict';
 
+  const TEXT = window.LALA_DASH_TEXT || {};
+  const LANG = (document.documentElement.lang || 'ko').toLowerCase() === 'en' ? 'en' : 'ko';
+
+  const CITY_EN_MAP = {
+    '서울': 'Seoul',
+    '인천': 'Incheon',
+    '수원': 'Suwon',
+    '성남': 'Seongnam',
+    '의정부': 'Uijeongbu',
+    '안양': 'Anyang',
+    '부천': 'Bucheon',
+    '광명': 'Gwangmyeong',
+    '평택': 'Pyeongtaek',
+    '동두천': 'Dongducheon',
+    '안산': 'Ansan',
+    '고양': 'Goyang',
+    '과천': 'Gwacheon',
+    '구리': 'Guri',
+    '남양주': 'Namyangju',
+    '오산': 'Osan',
+    '시흥': 'Siheung',
+    '군포': 'Gunpo',
+    '의왕': 'Uiwang',
+    '하남': 'Hanam',
+    '용인': 'Yongin',
+    '파주': 'Paju',
+    '이천': 'Icheon',
+    '안성': 'Anseong',
+    '김포': 'Gimpo',
+    '화성': 'Hwaseong',
+    '광주': 'Gwangju',
+    '양주': 'Yangju',
+    '포천': 'Pocheon',
+    '여주': 'Yeoju',
+    '연천': 'Yeoncheon',
+    '가평': 'Gapyeong',
+    '양평': 'Yangpyeong',
+    '전체': TEXT.locationAll || 'All Metro Areas',
+  };
+
+  function displayLocation(name) {
+    const raw = String(name || '').trim();
+    if (!raw || LANG !== 'en') return raw;
+    return CITY_EN_MAP[raw] || raw;
+  }
+
+  function statusCategory(status) {
+    const s = String(status || '').toLowerCase();
+    if (!s) return 'fair';
+    if (s.includes('쾌적') || s.includes('comfortable')) return 'good';
+    if (s.includes('비') || s.includes('눈') || s.includes('rain') || s.includes('snow')) return 'rain';
+    if (s.includes('나쁨') || s.includes('매우') || s.includes('poor') || s.includes('bad')) return 'poor';
+    return 'fair';
+  }
+
+  function statusLabel(status) {
+    const cat = statusCategory(status);
+    if (LANG !== 'en') {
+      if (cat === 'good') return TEXT.statusGood || '야외활동 쾌적';
+      if (cat === 'rain') return TEXT.statusRain || '비/눈';
+      if (cat === 'poor') return TEXT.statusPoor || '미세먼지 나쁨';
+      return TEXT.statusFair || '보통';
+    }
+    if (cat === 'good') return TEXT.statusGood || 'Comfortable Outdoors';
+    if (cat === 'rain') return TEXT.statusRain || 'Rain/Snow';
+    if (cat === 'poor') return TEXT.statusPoor || 'Poor Air Quality';
+    return TEXT.statusFair || 'Moderate';
+  }
+
   /* ── 상수 ────────────────────────────────────────────────── */
   const STATUS_COLORS = {
-    '야외활동 쾌적':    '#48BB78',
-    '보통':          '#ECC94B',
-    '미세먼지 나쁨':   '#FC8181',
-    '미세먼지 매우나쁨': '#E53E3E',
-    '비/눈':         '#90CDF4',
+    good: '#48BB78',
+    fair: '#ECC94B',
+    poor: '#FC8181',
+    rain: '#90CDF4',
   };
   const DEFAULT_BUBBLE_COLOR = '#CBD5E0';
 
@@ -51,7 +119,7 @@
     isFetching = true;
     if (refreshBtn) {
       refreshBtn.classList.add('loading');
-      refreshBtn.textContent = '↻ 갱신 중...';
+      refreshBtn.textContent = TEXT.refreshing || '↻ Refreshing...';
     }
 
     const loc = locationSel ? locationSel.value : '';
@@ -72,7 +140,7 @@
         isFetching = false;
         if (refreshBtn) {
           refreshBtn.classList.remove('loading');
-          refreshBtn.textContent = '↻ 새로고침';
+          refreshBtn.textContent = TEXT.refresh || '↻ Refresh';
         }
       });
   }
@@ -86,7 +154,7 @@
     locations.forEach(function (loc) {
       const opt = document.createElement('option');
       opt.value = loc;
-      opt.textContent = loc;
+      opt.textContent = displayLocation(loc);
       if (loc === selectedLoc) opt.selected = true;
       locationSel.appendChild(opt);
     });
@@ -152,13 +220,18 @@
     if (!ctx) return;
     if (donutChart) { donutChart.destroy(); donutChart = null; }
 
+    var labels = (donut.labels || []).map(statusLabel);
+    var colors = (donut.labels || []).map(function (s) {
+      return STATUS_COLORS[statusCategory(s)] || DEFAULT_BUBBLE_COLOR;
+    });
+
     donutChart = new Chart(ctx, {
       type: 'doughnut',
       data: {
-        labels: donut.labels,
+        labels: labels,
         datasets: [{
           data:            donut.data,
-          backgroundColor: donut.colors,
+          backgroundColor: colors,
           borderWidth:     2,
           borderColor:     '#fff',
           hoverOffset:     6,
@@ -182,7 +255,7 @@
               label: function (ctx) {
                 var total = ctx.dataset.data.reduce(function (a, b) { return a + b; }, 0);
                 var pct   = total ? Math.round(ctx.raw / total * 100) : 0;
-                return ' ' + ctx.label + ': ' + ctx.raw + '개 도시 (' + pct + '%)';
+                return ' ' + ctx.label + ': ' + ctx.raw + (TEXT.cityUnit || ' cities') + ' (' + pct + '%)';
               },
             },
           },
@@ -199,6 +272,7 @@
     if (barChart) { barChart.destroy(); barChart = null; }
 
     var labels   = top5.map(function (d) { return d.location; });
+    labels = labels.map(displayLocation);
     var pm10data = top5.map(function (d) { return d.pm10; });
     var pm25data = top5.map(function (d) { return d.pm25; });
 
@@ -262,7 +336,8 @@
 
     var titleEl = document.getElementById('db-trend-title');
     if (titleEl) {
-      titleEl.textContent = '[' + locationLabel + '] 최근 12시간 기온 / PM2.5 추이';
+      const tmpl = TEXT.trendTitleWithLoc || '[{location}] Last 12 Hours: Temperature / PM2.5 Trend';
+      titleEl.textContent = tmpl.replace('{location}', displayLocation(locationLabel));
     }
 
     if (lineChart) { lineChart.destroy(); lineChart = null; }
@@ -273,7 +348,7 @@
         labels: trend.labels,
         datasets: [
           {
-            label:           '기온(°C)',
+            label:           TEXT.lineTemp || 'Temperature (°C)',
             data:            trend.temperature,
             borderColor:     '#4299E1',
             backgroundColor: 'rgba(66,153,225,0.07)',
@@ -283,7 +358,7 @@
             borderWidth:     2,
           },
           {
-            label:           'PM2.5(㎍/㎥)',
+            label:           TEXT.linePm25 || 'PM2.5 (ug/m3)',
             data:            trend.pm25,
             borderColor:     '#FC8181',
             backgroundColor: 'rgba(252,129,129,0.07)',
@@ -329,7 +404,7 @@
     if (!tbody) return;
 
     if (!rawData || rawData.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#A0AEC0;padding:1rem;">데이터 없음</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#A0AEC0;padding:1rem;">' + (TEXT.tableEmpty || 'No data') + '</td></tr>';
       return;
     }
 
@@ -338,13 +413,13 @@
       var timeStr    = formatRecordTime(r.record_time);
       return [
         '<tr>',
-          '<td>', r.location, '</td>',
+          '<td>', displayLocation(r.location), '</td>',
           '<td>', timeStr, '</td>',
           '<td>', r.temperature !== null ? r.temperature + '°' : '—', '</td>',
           '<td>', r.pm10 !== null ? r.pm10 : '—', '</td>',
           '<td>', r.pm25 !== null ? r.pm25 : '—', '</td>',
           '<td>', r.wind_speed !== null ? r.wind_speed : '—', '</td>',
-          '<td><span class="db-badge ', badgeClass, '">', r.outdoor_status || '—', '</span></td>',
+          '<td><span class="db-badge ', badgeClass, '">', statusLabel(r.outdoor_status), '</span></td>',
         '</tr>',
       ].join('');
     }).join('');
@@ -352,9 +427,10 @@
 
   function getStatusBadgeClass(status) {
     if (!status) return 'db-badge--grey';
-    if (status.indexOf('쾌적') !== -1) return 'db-badge--good';
-    if (status.indexOf('나쁨') !== -1 || status.indexOf('매우') !== -1) return 'db-badge--bad';
-    if (status.indexOf('비') !== -1 || status.indexOf('눈') !== -1) return 'db-badge--rain';
+    var cat = statusCategory(status);
+    if (cat === 'good') return 'db-badge--good';
+    if (cat === 'poor') return 'db-badge--bad';
+    if (cat === 'rain') return 'db-badge--rain';
     return 'db-badge--normal';
   }
 
@@ -362,7 +438,7 @@
     if (!isoStr || isoStr === '—') return '—';
     try {
       var d = new Date(isoStr);
-      return d.toLocaleString('ko-KR', {
+      return d.toLocaleString(LANG === 'en' ? 'en-US' : 'ko-KR', {
         timeZone:  'Asia/Seoul',
         month:     '2-digit',
         day:       '2-digit',
@@ -381,11 +457,12 @@
     if (!isoStr || isoStr === '—') { lastRefreshed.textContent = ''; return; }
     try {
       var d = new Date(isoStr);
-      var hhmm = d.toLocaleString('ko-KR', {
+      var hhmm = d.toLocaleString(LANG === 'en' ? 'en-US' : 'ko-KR', {
         timeZone: 'Asia/Seoul',
         hour: '2-digit', minute: '2-digit', hour12: false,
       });
-      lastRefreshed.textContent = '데이터 기준: ' + hhmm + ' (KST) · 15분 전 갱신(개념적, ASA 30분 윈도우)';
+      var tmpl = TEXT.lastRefreshed || 'Data timestamp: {time} (KST) - refreshed every 15 minutes';
+      lastRefreshed.textContent = tmpl.replace('{time}', hhmm);
     } catch (e) {
       lastRefreshed.textContent = isoStr.slice(0, 16);
     }
@@ -412,17 +489,17 @@
     bubbleOverlays = [];
 
     mapData.forEach(function (city) {
-      var color  = STATUS_COLORS[city.outdoor_status] || DEFAULT_BUBBLE_COLOR;
+      var color  = STATUS_COLORS[statusCategory(city.outdoor_status)] || DEFAULT_BUBBLE_COLOR;
       var pm10   = city.pm10 || 0;
       var size   = Math.max(28, Math.min(78, pm10 * 0.65 + 12));
       var font   = Math.max(8, Math.round(size / 4.2));
 
       var tooltipLines = [
-        '<strong>' + city.location + '</strong>',
-        '기온: ' + (city.temperature !== null ? city.temperature + '°C' : '—'),
+        '<strong>' + displayLocation(city.location) + '</strong>',
+        (TEXT.tempLabel || 'Temp') + ': ' + (city.temperature !== null ? city.temperature + '°C' : '—'),
         'PM10: ' + pm10 + ' ㎍/㎥',
         'PM2.5: ' + city.pm25 + ' ㎍/㎥',
-        city.outdoor_status || '',
+        statusLabel(city.outdoor_status),
       ].join('<br>');
 
       var content = [
@@ -433,7 +510,7 @@
             'background:', color, ';',
             'font-size:', font, 'px;',
           '">',
-            city.location,
+            displayLocation(city.location),
           '</div>',
           '<div class="db-bubble-tooltip">', tooltipLines, '</div>',
         '</div>',
@@ -453,7 +530,7 @@
   /* ── Smart Narrative ──────────────────────────────────────── */
   function fetchNarrative(data) {
     if (!narrativeEl) return;
-    narrativeEl.innerHTML = '<span class="db-narrative-spinner">⟳</span> AI 분석 중...';
+    narrativeEl.innerHTML = '<span class="db-narrative-spinner">⟳</span> ' + (TEXT.narrativeLoading || 'Analyzing with AI...');
 
     fetch('/api/dashboard/narrative', {
       method:  'POST',
@@ -463,14 +540,15 @@
         bar_top5:          data.bar_top5,
         donut:             data.donut,
         selected_location: data.selected_location,
+        language:          LANG,
       }),
     })
       .then(function (r) { return r.json(); })
       .then(function (res) {
-        narrativeEl.textContent = res.narrative || '데이터를 분석 중입니다.';
+        narrativeEl.textContent = res.narrative || (TEXT.narrativeDefault || 'Analyzing incoming data.');
       })
       .catch(function () {
-        narrativeEl.textContent = 'AI 요약을 일시적으로 불러오지 못했습니다.';
+        narrativeEl.textContent = TEXT.narrativeError || 'Failed to load AI summary temporarily.';
       });
   }
 

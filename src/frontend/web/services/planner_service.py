@@ -43,7 +43,18 @@ def create_daily_plan_payload(
     def _run():
         from src.services.daily_planner import DailyTravelPlanner
         planner = DailyTravelPlanner(lat, lng)
-        return planner.create_daily_plan(language=language)
+        lang = (language or "").strip().lower()
+        normalized_language = {
+            "en": "English",
+            "english": "English",
+            "ko": "Korean",
+            "korean": "Korean",
+            "kr": "Korean",
+            "ja": "Japanese",
+            "jp": "Japanese",
+            "japanese": "Japanese",
+        }.get(lang, "English")
+        return planner.create_daily_plan(language=normalized_language)
 
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -63,9 +74,13 @@ def create_daily_plan_payload(
         place = item.get("place") or {}
         item["place"] = {
             "name": place.get("name") or place.get("tourist_nm", ""),
+            "name_en": place.get("name_en", ""),
             "lat": place.get("lat"),
             "lng": place.get("lng"),
             "road_addr": place.get("road_addr", ""),
+            "road_addr_en": place.get("road_addr_en", ""),
+            "address": place.get("address") or place.get("road_addr", ""),
+            "address_en": place.get("address_en") or place.get("road_addr_en", ""),
             "source_type": place.get("source_type", "attraction"),
             "itinerary_role": place.get("itinerary_role", ""),
         }

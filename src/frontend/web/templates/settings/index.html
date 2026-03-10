@@ -102,7 +102,7 @@ Article 2 (Purpose of Use)
     });
     applyFont(slider.value);
 
-    const currentLang = S.getString(S.keys.selectedLanguage, 'ko');
+    const currentLang = S.getServerLang ? S.getServerLang() : S.getString(S.keys.selectedLanguage, 'ko');
     function markLang(lang) {
       document.getElementById('lang-ko').classList.toggle('active', lang === 'ko');
       document.getElementById('lang-en').classList.toggle('active', lang === 'en');
