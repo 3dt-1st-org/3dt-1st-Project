@@ -168,7 +168,8 @@ struct MainMapView: View {
             center: targetCenter,
             span: span
         )
-        let forceCluster = visiblePlaces.count > MapAnnotationRenderingPolicy.maximumIndividualPins
+        let forceCluster = visiblePlaces.count > MapAnnotationRenderingPolicy.maximumIndividualPins &&
+            span.latitudeDelta >= MapAnnotationRenderingPolicy.forceClusterMinimumLatitudeDelta
         let clusteringEnabled = forceCluster || MapMarkerClusteringPolicy.shouldUseCluster(
             pointCount: visiblePlaces.count,
             latitudeDelta: span.latitudeDelta
@@ -1602,9 +1603,10 @@ private struct MapAnnotationViewportBucket: Equatable {
 
 private enum MapAnnotationRenderingPolicy {
     static let visiblePaddingMultiplier: CLLocationDegrees = 0.7
-    static let minimumVisibleDelta: CLLocationDegrees = 0.004
+    static let minimumVisibleDelta: CLLocationDegrees = 0.0008
     static let maximumIndividualPins = 45
     static let forceClusterGridDivisions: Double = 3.6
+    static let forceClusterMinimumLatitudeDelta: CLLocationDegrees = 0.006
 }
 
 private struct AnimatedObangBorder: View {
