@@ -67,7 +67,7 @@ protocol MapDataProviding {
         category: MapPlaceFilter
     ) async throws -> PlacesSnapshot
 
-    func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot
+    func fetchWeather(at coordinate: CLLocationCoordinate2D, force: Bool) async throws -> WeatherSnapshot
 }
 
 private actor WeatherSnapshotStore {
@@ -167,25 +167,32 @@ final class MapRemoteService: MapDataProviding {
         }
     }
 
-    func fetchWeather(at coordinate: CLLocationCoordinate2D) async throws -> WeatherSnapshot {
+    func fetchWeather(at coordinate: CLLocationCoordinate2D, force: Bool = false) async throws -> WeatherSnapshot {
         guard baseURL != nil else {
             throw MapServiceError.missingBaseURL
         }
 
         let cacheKey = Self.weatherCacheKey(for: coordinate)
-        if let cached = await Self.weatherCache.cachedSnapshot(for: cacheKey) {
-            return cached
+        if !force {
+            if let cached = await Self.weatherCache.cachedSnapshot(for: cacheKey) {
+                return cached
+            }
+            if let task = await Self.weatherCache.inFlightTask(for: cacheKey) {
+                return try await task.value
+            }
         }
-        if let task = await Self.weatherCache.inFlightTask(for: cacheKey) {
-            return try await task.value
+
+        var queryItems = [
+            URLQueryItem(name: "lat", value: String(coordinate.latitude)),
+            URLQueryItem(name: "lng", value: String(coordinate.longitude))
+        ]
+        if force {
+            queryItems.append(URLQueryItem(name: "force", value: "1"))
         }
 
         let requestURL = try makeURL(
             path: "/api/weather",
-            queryItems: [
-                URLQueryItem(name: "lat", value: String(coordinate.latitude)),
-                URLQueryItem(name: "lng", value: String(coordinate.longitude))
-            ]
+            queryItems: queryItems
         )
 
         let task = Task<WeatherSnapshot, Error> { [self] in
@@ -222,14 +229,18 @@ final class MapRemoteService: MapDataProviding {
                 forecast: forecast
             )
         }
-        await Self.weatherCache.setInFlight(task, for: cacheKey)
+        if !force {
+            await Self.weatherCache.setInFlight(task, for: cacheKey)
+        }
 
         do {
             let snapshot = try await task.value
             await Self.weatherCache.store(snapshot, for: cacheKey)
             return snapshot
         } catch {
-            await Self.weatherCache.clearInFlight(for: cacheKey)
+            if !force {
+                await Self.weatherCache.clearInFlight(for: cacheKey)
+            }
             throw error
         }
     }

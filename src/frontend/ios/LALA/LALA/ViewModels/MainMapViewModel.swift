@@ -820,7 +820,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             }
 
             do {
-                let weatherResult = try await mapDataProvider.fetchWeather(at: coordinate)
+                let weatherResult = try await mapDataProvider.fetchWeather(
+                    at: coordinate,
+                    force: force
+                )
                 guard !Task.isCancelled else { return }
 
                 weatherSymbol = weatherResult.symbolName
