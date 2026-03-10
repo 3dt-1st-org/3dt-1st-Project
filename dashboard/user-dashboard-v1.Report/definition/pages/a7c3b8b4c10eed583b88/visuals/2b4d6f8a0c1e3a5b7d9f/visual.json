@@ -1,39 +1,19 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.6.0/schema.json",
-  "name": "9fa4f09e8b614eb6b1c1",
+  "name": "2b4d6f8a0c1e3a5b7d9f",
   "position": {
-    "x": 850,
+    "x": 490,
     "y": 0,
-    "z": 3000,
-    "height": 180,
-    "width": 430,
-    "tabOrder": 3000
+    "z": 5001,
+    "height": 120,
+    "width": 170,
+    "tabOrder": 5001
   },
   "visual": {
-    "visualType": "clusteredColumnChart",
+    "visualType": "card",
     "query": {
       "queryState": {
-        "Category": {
-          "projections": [
-            {
-              "field": {
-                "Column": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "관광지 추천"
-                    }
-                  },
-                  "Property": "sigun_nm"
-                }
-              },
-              "queryRef": "locallink tourist_spot_info.sigun_nm",
-              "nativeQueryRef": "sigun_nm",
-              "active": true,
-              "displayName": "시/군"
-            }
-          ]
-        },
-        "Y": {
+        "Values": {
           "projections": [
             {
               "field": {
@@ -47,7 +27,7 @@
                 }
               },
               "queryRef": "관광지 추천.m_tourist_spot_count",
-              "displayName": "관광지 수"
+              "displayName": "총 관광지 수"
             }
           ]
         }
@@ -67,14 +47,13 @@
             "text": {
               "expr": {
                 "Literal": {
-                  "Value": "'지역별 장소 분포'"
+                  "Value": "'총 관광지 수'"
                 }
               }
             }
           }
         }
       ]
-    },
-    "drillFilterOtherVisuals": true
+    }
   }
 }

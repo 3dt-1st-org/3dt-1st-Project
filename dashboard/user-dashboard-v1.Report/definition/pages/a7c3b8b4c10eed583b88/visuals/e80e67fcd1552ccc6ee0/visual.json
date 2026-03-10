@@ -3,10 +3,10 @@
   "name": "e80e67fcd1552ccc6ee0",
   "position": {
     "x": 0,
-    "y": 161.92164022847956,
+    "y": 130,
     "z": 0,
-    "height": 473.41496507479189,
-    "width": 432.24844637263607,
+    "height": 590,
+    "width": 300,
     "tabOrder": 0
   },
   "visual": {
@@ -90,7 +90,7 @@
             "text": {
               "expr": {
                 "Literal": {
-                  "Value": "'식당'"
+                  "Value": "'Where: 식당 위치'"
                 }
               }
             }

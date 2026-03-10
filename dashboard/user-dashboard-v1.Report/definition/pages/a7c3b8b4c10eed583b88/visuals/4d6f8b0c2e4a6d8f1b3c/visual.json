@@ -1,20 +1,35 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.6.0/schema.json",
-  "name": "673e8bec0c0072698c13",
+  "name": "4d6f8b0c2e4a6d8f1b3c",
   "position": {
-    "x": 310,
-    "y": 130,
-    "z": 2001,
-    "height": 280,
-    "width": 530,
-    "tabOrder": 2001
+    "x": 640,
+    "y": 420,
+    "z": 6000,
+    "height": 300,
+    "width": 640,
+    "tabOrder": 6000
   },
   "visual": {
-    "visualType": "clusteredColumnChart",
+    "visualType": "tableEx",
     "query": {
       "queryState": {
-        "Category": {
+        "Values": {
           "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "맛집 추천"
+                    }
+                  },
+                  "Property": "sigun_nm"
+                }
+              },
+              "queryRef": "locallink gg_restaurant_info.sigun_nm",
+              "nativeQueryRef": "sigun_nm",
+              "displayName": "시/군"
+            },
             {
               "field": {
                 "Column": {
@@ -28,13 +43,8 @@
               },
               "queryRef": "locallink gg_restaurant_info.bizcond_div_nm_info",
               "nativeQueryRef": "bizcond_div_nm_info",
-              "active": true,
               "displayName": "업종"
-            }
-          ]
-        },
-        "Y": {
-          "projections": [
+            },
             {
               "field": {
                 "Measure": {
@@ -51,6 +61,23 @@
             }
           ]
         }
+      },
+      "sortDefinition": {
+        "sort": [
+          {
+            "field": {
+              "Measure": {
+                "Expression": {
+                  "SourceRef": {
+                    "Entity": "맛집 추천"
+                  }
+                },
+                "Property": "m_restaurant_count"
+              }
+            },
+            "direction": "Descending"
+          }
+        ]
       }
     },
     "visualContainerObjects": {
@@ -67,20 +94,7 @@
             "text": {
               "expr": {
                 "Literal": {
-                  "Value": "'What: 핵심 업종 분포(Proxy)'"
-                }
-              }
-            }
-          }
-        }
-      ],
-      "general": [
-        {
-          "properties": {
-            "altText": {
-              "expr": {
-                "Literal": {
-                  "Value": "'업종별 매장 분포 차트'"
+                  "Value": "'Actionable Insight: 지역·업종 우선순위'"
                 }
               }
             }

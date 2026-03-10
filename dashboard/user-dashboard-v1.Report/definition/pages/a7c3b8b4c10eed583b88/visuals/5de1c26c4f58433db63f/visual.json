@@ -2,11 +2,11 @@
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.6.0/schema.json",
   "name": "5de1c26c4f58433db63f",
   "position": {
-    "x": 864,
-    "y": 350,
+    "x": 310,
+    "y": 420,
     "z": 3001,
-    "height": 340,
-    "width": 416,
+    "height": 300,
+    "width": 320,
     "tabOrder": 3001
   },
   "visual": {
@@ -122,7 +122,7 @@
             "text": {
               "expr": {
                 "Literal": {
-                  "Value": "'실내/실외 관광지 비율'"
+                  "Value": "'Who(Proxy): 실내/실외 비율'"
                 }
               }
             }

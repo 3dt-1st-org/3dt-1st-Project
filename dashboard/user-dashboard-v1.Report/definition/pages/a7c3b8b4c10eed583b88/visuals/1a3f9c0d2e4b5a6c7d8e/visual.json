@@ -1,0 +1,59 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.6.0/schema.json",
+  "name": "1a3f9c0d2e4b5a6c7d8e",
+  "position": {
+    "x": 310,
+    "y": 0,
+    "z": 5000,
+    "height": 120,
+    "width": 170,
+    "tabOrder": 5000
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "맛집 추천"
+                    }
+                  },
+                  "Property": "m_restaurant_count"
+                }
+              },
+              "queryRef": "맛집 추천.m_restaurant_count",
+              "displayName": "총 맛집 수"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'총 맛집 수'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
