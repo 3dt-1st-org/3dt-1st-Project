@@ -168,11 +168,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     func handlePlaceTap(_ place: PlaceRecommendation, language: AppLanguage) {
-        applySelection(for: place, language: language)
+        applySelection(for: place, language: language, shouldCenterMapOnSelection: true)
     }
 
     func handleMapPinTap(_ place: PlaceRecommendation, language: AppLanguage) {
-        applySelection(for: place, language: language)
+        applySelection(for: place, language: language, shouldCenterMapOnSelection: false)
     }
 
     func activatePlaceForDetail(_ place: PlaceRecommendation, language: AppLanguage) {
@@ -525,7 +525,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
-    private func applySelection(for place: PlaceRecommendation, language: AppLanguage) {
+    private func applySelection(
+        for place: PlaceRecommendation,
+        language: AppLanguage,
+        shouldCenterMapOnSelection: Bool
+    ) {
         let result = MapGuidanceLogic.reduceSelection(
             currentSelectedPlaceID: selectedPlaceID,
             tappedPlaceID: place.id,
@@ -548,7 +552,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         if result.shouldStopSpeaking {
             stopNarrationPlayback()
         }
-        if result.shouldCenterMap {
+        if result.shouldCenterMap && shouldCenterMapOnSelection {
             centerOnPlace(place, animated: true)
         }
         if result.selectedPlaceID == place.id {

@@ -14,6 +14,8 @@ struct MainMapView: View {
     @State private var showSettings = false
     @State private var selectedDetailPlace: PlaceRecommendation?
     @State private var showPlannerRegenerateConfirm = false
+    @State private var mapAnnotationItems: [MapAnnotationDisplayItem] = []
+    @State private var clusteringSpan = MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.018)
 
     var body: some View {
         ZStack {
@@ -50,6 +52,8 @@ struct MainMapView: View {
             }
             .mapStyle(.standard(pointsOfInterest: .excludingAll))
             .onMapCameraChange(frequency: .onEnd) { context in
+                clusteringSpan = context.region.span
+                rebuildMapAnnotationItems()
                 viewModel.handleMapCameraInteractionEnded(center: context.region.center)
             }
             .ignoresSafeArea()
@@ -59,12 +63,20 @@ struct MainMapView: View {
         .onAppear {
             viewModel.updateLanguage(appViewModel.selectedLanguage)
             viewModel.configureLocationUpdates(consentEnabled: appViewModel.isLocationConsentEnabled)
+            clusteringSpan = viewModel.region.span
+            rebuildMapAnnotationItems()
         }
         .onChange(of: appViewModel.selectedLanguage) { _, newValue in
             viewModel.updateLanguage(newValue)
         }
         .onChange(of: appViewModel.isLocationConsentEnabled) { _, consent in
             viewModel.configureLocationUpdates(consentEnabled: consent)
+        }
+        .onChange(of: viewModel.placesRenderID) { _, _ in
+            rebuildMapAnnotationItems()
+        }
+        .onChange(of: viewModel.selectedPlaceID) { _, _ in
+            rebuildMapAnnotationItems()
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $showSettings) {
@@ -115,8 +127,20 @@ struct MainMapView: View {
         )
     }
 
-    private var mapAnnotationItems: [MapAnnotationDisplayItem] {
-        let markerPoints = viewModel.places.map { place in
+    private func rebuildMapAnnotationItems() {
+        mapAnnotationItems = makeMapAnnotationItems(
+            places: viewModel.places,
+            selectedPlaceID: viewModel.selectedPlaceID,
+            span: clusteringSpan
+        )
+    }
+
+    private func makeMapAnnotationItems(
+        places: [PlaceRecommendation],
+        selectedPlaceID: String?,
+        span: MKCoordinateSpan
+    ) -> [MapAnnotationDisplayItem] {
+        let markerPoints = places.map { place in
             MapMarkerPoint(
                 id: place.id,
                 latitude: place.coordinate.latitude,
@@ -126,12 +150,12 @@ struct MainMapView: View {
         }
         let presentations = MapMarkerClusteringPolicy.buildPresentations(
             points: markerPoints,
-            latitudeDelta: viewModel.region.span.latitudeDelta,
-            longitudeDelta: viewModel.region.span.longitudeDelta,
-            selectedPointID: viewModel.selectedPlaceID
+            latitudeDelta: span.latitudeDelta,
+            longitudeDelta: span.longitudeDelta,
+            selectedPointID: selectedPlaceID
         )
         let placeByID = Dictionary(
-            viewModel.places.map { ($0.id, $0) },
+            places.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
 
@@ -245,7 +269,7 @@ struct MainMapView: View {
     private var placeCarousel: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
+                LazyHStack(spacing: 12) {
                     ForEach(viewModel.places) { place in
                         Button {
                             viewModel.handlePlaceTap(place, language: appViewModel.selectedLanguage)
