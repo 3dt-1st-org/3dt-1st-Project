@@ -58,7 +58,7 @@ final class PlannerRemoteService: PlannerDataProviding {
 
     init(
         baseURL: URL? = AppRuntime.apiBaseURL,
-        apiKey: String? = AppRuntime.iosAPIKey,
+        apiKey: String? = nil,
         session: URLSession = PlannerRemoteService.makeDefaultSession()
     ) {
         self.baseURL = baseURL
@@ -160,13 +160,12 @@ final class PlannerRemoteService: PlannerDataProviding {
     }
 
     private func makeRequest(url: URL, method: String, timeout: TimeInterval) throws -> URLRequest {
-        guard let apiKey else {
-            throw PlannerRemoteError.missingAPIKey
-        }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = timeout
-        request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        if let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         return request
     }
@@ -223,7 +222,6 @@ final class PlannerRemoteService: PlannerDataProviding {
 
 enum PlannerRemoteError: LocalizedError {
     case missingBaseURL
-    case missingAPIKey
     case localhostNotAllowed
     case invalidBaseURL
     case invalidRequestURL
@@ -234,8 +232,6 @@ enum PlannerRemoteError: LocalizedError {
         switch self {
         case .missingBaseURL:
             return "API base URL is missing."
-        case .missingAPIKey:
-            return "iOS API key is missing."
         case .localhostNotAllowed:
             return "localhost is not allowed for API base URL."
         case .invalidBaseURL:

@@ -61,6 +61,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private let placesLoadingMaxSeconds: Double = 20
     private let placesFailureRetryCooldownSeconds: Double = 8
     private let weatherFailureRetryCooldownSeconds: Double = 8
+    private let appActiveRefreshCooldownSeconds: Double = 2
     private let defaultMapSpan = MKCoordinateSpan(latitudeDelta: 0.018, longitudeDelta: 0.018)
 
     private var hasAppliedInitialUserFocus = false
@@ -100,6 +101,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private var lastMapCameraInteractionAt: Date?
     private var lastUserDrivenPlacesCoordinate: CLLocationCoordinate2D?
     private var lastUserDrivenPlacesReloadAt: Date?
+    private var lastAppActiveRefreshAt: Date?
 
     private let initialRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 37.2636, longitude: 127.0286),
@@ -168,11 +170,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     func handlePlaceTap(_ place: PlaceRecommendation, language: AppLanguage) {
-        applySelection(for: place, language: language)
+        applySelection(for: place, language: language, shouldCenterMapOnSelection: true)
     }
 
     func handleMapPinTap(_ place: PlaceRecommendation, language: AppLanguage) {
-        applySelection(for: place, language: language)
+        applySelection(for: place, language: language, shouldCenterMapOnSelection: false)
     }
 
     func activatePlaceForDetail(_ place: PlaceRecommendation, language: AppLanguage) {
@@ -251,9 +253,9 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         case .configurationError:
             switch language {
             case .korean:
-                return "API_BASE_URL 또는 IOS_API_KEY 설정이 필요합니다. Key Vault 동기화를 확인하세요."
+                return "API_BASE_URL 설정이 필요합니다. Key Vault 동기화를 확인하세요."
             case .english:
-                return "API_BASE_URL or IOS_API_KEY is missing. Check Key Vault sync."
+                return "API_BASE_URL is missing. Check Key Vault sync."
             }
         }
     }
@@ -525,7 +527,11 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
-    private func applySelection(for place: PlaceRecommendation, language: AppLanguage) {
+    private func applySelection(
+        for place: PlaceRecommendation,
+        language: AppLanguage,
+        shouldCenterMapOnSelection: Bool
+    ) {
         let result = MapGuidanceLogic.reduceSelection(
             currentSelectedPlaceID: selectedPlaceID,
             tappedPlaceID: place.id,
@@ -548,7 +554,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         if result.shouldStopSpeaking {
             stopNarrationPlayback()
         }
-        if result.shouldCenterMap {
+        if result.shouldCenterMap && shouldCenterMapOnSelection {
             centerOnPlace(place, animated: true)
         }
         if result.selectedPlaceID == place.id {
@@ -598,6 +604,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
                 return
             }
 
+            if isMapCameraReloadSuppressed {
+                return
+            }
+
             schedulePlacesReloadForMapCenter(clamped.center)
         }
     }
@@ -614,6 +624,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
             lastMapCameraInteractionAt = Date()
             reloadPlaces(force: true, anchorCenter: center)
+            reloadWeather(force: true, coordinateOverride: center)
         }
     }
 
@@ -721,8 +732,9 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     private func applyPlacesAfterFetch() {
         let distanceApplied = placesApplyingUserDistance(from: userCoordinate, source: allPlaces)
-        allPlaces = distanceApplied
-        places = distanceApplied
+        let deduplicated = deduplicatedPlacesByID(distanceApplied)
+        allPlaces = deduplicated
+        places = deduplicated
         placesRenderID = UUID()
 
         mapStatus = places.isEmpty ? .noResults : .none
@@ -771,10 +783,10 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
-    private func reloadWeather(force: Bool) {
+    private func reloadWeather(force: Bool, coordinateOverride: CLLocationCoordinate2D? = nil) {
         guard isAppLocationConsentEnabled else { return }
         guard !hasRuntimeConfigurationError else { return }
-        guard let coordinate = userCoordinate else { return }
+        let coordinate = coordinateOverride ?? userCoordinate ?? region.center
 
         if !force, let failedAt = lastWeatherFailureAt {
             let elapsed = Date().timeIntervalSince(failedAt)
@@ -816,35 +828,80 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
             }
 
             do {
-                let weatherResult = try await mapDataProvider.fetchWeather(at: coordinate)
+                let weatherResult = try await mapDataProvider.fetchWeather(
+                    at: coordinate,
+                    force: force
+                )
                 guard !Task.isCancelled else { return }
 
-                weatherSymbol = weatherResult.symbolName
-                weatherValue = weatherResult.temperatureText
-                weatherDust = weatherResult.dustText
-                weatherOutdoorStatus = weatherResult.outdoorStatus
-                weatherForecast = weatherResult.forecast
+                let resolved = mergedWeatherSnapshotKeepingPreviousIfNeeded(weatherResult)
+
+                weatherSymbol = resolved.snapshot.symbolName
+                weatherValue = resolved.snapshot.temperatureText
+                weatherDust = resolved.snapshot.dustText
+                weatherOutdoorStatus = resolved.snapshot.outdoorStatus
+                weatherForecast = resolved.snapshot.forecast
                 refreshPlannerSnapshotWeatherFromLiveWeather()
                 lastWeatherFetchCoordinate = coordinate
                 lastWeatherFetchAt = Date()
-                lastWeatherFailureAt = nil
-                lastWeatherFailureCoordinate = nil
+
+                if resolved.keptPrevious {
+                    lastWeatherFailureAt = Date()
+                    lastWeatherFailureCoordinate = coordinate
+                    scheduleWeatherRetryAfterCooldown(failedAt: lastWeatherFailureAt ?? Date())
+                } else {
+                    lastWeatherFailureAt = nil
+                    lastWeatherFailureCoordinate = nil
+                }
 
                 refreshIntervention(for: coordinate)
             } catch {
                 guard !Task.isCancelled else { return }
                 lastWeatherFailureAt = Date()
                 lastWeatherFailureCoordinate = coordinate
-                if lastWeatherFetchCoordinate == nil {
-                    weatherSymbol = WeatherSnapshot.placeholder.symbolName
-                    weatherValue = WeatherSnapshot.placeholder.temperatureText
-                    weatherDust = WeatherSnapshot.placeholder.dustText
-                    weatherOutdoorStatus = WeatherSnapshot.placeholder.outdoorStatus
-                    weatherForecast = []
-                }
                 scheduleWeatherRetryAfterCooldown(failedAt: lastWeatherFailureAt ?? Date())
             }
         }
+    }
+
+    private func mergedWeatherSnapshotKeepingPreviousIfNeeded(_ incoming: WeatherSnapshot) -> (snapshot: WeatherSnapshot, keptPrevious: Bool) {
+        guard shouldKeepPreviousWeather(for: incoming),
+              let previous = currentRenderableWeatherSnapshot() else {
+            return (incoming, false)
+        }
+        return (previous, true)
+    }
+
+    private func shouldKeepPreviousWeather(for snapshot: WeatherSnapshot) -> Bool {
+        if isFallbackWeatherSource(snapshot.source) {
+            return true
+        }
+
+        let temperature = snapshot.temperatureText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return temperature.isEmpty || temperature == WeatherSnapshot.placeholder.temperatureText
+    }
+
+    private func isFallbackWeatherSource(_ source: String) -> Bool {
+        let normalized = source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.isEmpty {
+            return false
+        }
+        return normalized.contains("fallback")
+    }
+
+    private func currentRenderableWeatherSnapshot() -> WeatherSnapshot? {
+        guard let temperature = normalizedLiveWeatherTemperature() else {
+            return nil
+        }
+
+        return WeatherSnapshot(
+            symbolName: weatherSymbol,
+            temperatureText: temperature,
+            dustText: weatherDust,
+            outdoorStatus: weatherOutdoorStatus,
+            forecast: weatherForecast,
+            source: "live-cache"
+        )
     }
 
     private func refreshIntervention(for coordinate: CLLocationCoordinate2D) {
@@ -968,6 +1025,29 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         refreshData(forcePlaces: true, forceWeather: true)
     }
 
+    func handleAppDidBecomeActive() {
+        guard isAppLocationConsentEnabled else { return }
+        applyRuntimeConfigurationStatus()
+        guard !hasRuntimeConfigurationError else { return }
+
+        let now = Date()
+        if let lastAppActiveRefreshAt,
+           now.timeIntervalSince(lastAppActiveRefreshAt) < appActiveRefreshCooldownSeconds {
+            return
+        }
+        self.lastAppActiveRefreshAt = now
+
+        locationManager.startUpdatingLocation()
+        reloadPlaces(force: false, anchorCenter: region.center)
+
+        if userCoordinate != nil {
+            reloadWeather(force: true)
+        }
+
+        pendingForceReloadFromLocationRequest = true
+        locationManager.requestLocation()
+    }
+
     func centerOnPlace(_ place: PlaceRecommendation, animated: Bool) {
         let focused = MKCoordinateRegion(center: place.coordinate, span: defaultMapSpan)
         let clamped = clampRegion(focused)
@@ -975,6 +1055,24 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
         suppressNextRegionDrivenReload = true
         if animated {
             withAnimation(.easeInOut(duration: 0.45)) {
+                region = clamped
+            }
+        } else {
+            region = clamped
+        }
+    }
+
+    func zoomIntoCluster(at coordinate: CLLocationCoordinate2D, animated: Bool = true) {
+        let zoomedSpan = MKCoordinateSpan(
+            latitudeDelta: max(region.span.latitudeDelta * 0.55, 0.002),
+            longitudeDelta: max(region.span.longitudeDelta * 0.55, 0.002)
+        )
+        let focused = MKCoordinateRegion(center: coordinate, span: zoomedSpan)
+        let clamped = clampRegion(focused)
+        deferMapCameraReload()
+        suppressNextRegionDrivenReload = true
+        if animated {
+            withAnimation(.easeInOut(duration: 0.32)) {
                 region = clamped
             }
         } else {
@@ -1116,8 +1214,20 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
     private func refreshDistancesForCurrentLocation(_ coordinate: CLLocationCoordinate2D) {
         guard !allPlaces.isEmpty else { return }
         let distanceApplied = placesApplyingUserDistance(from: coordinate, source: allPlaces)
-        allPlaces = distanceApplied
-        places = distanceApplied
+        let deduplicated = deduplicatedPlacesByID(distanceApplied)
+        allPlaces = deduplicated
+        places = deduplicated
+    }
+
+    private func deduplicatedPlacesByID(_ source: [PlaceRecommendation]) -> [PlaceRecommendation] {
+        var seen = Set<String>()
+        var deduplicated: [PlaceRecommendation] = []
+        deduplicated.reserveCapacity(source.count)
+
+        for place in source where seen.insert(place.id).inserted {
+            deduplicated.append(place)
+        }
+        return deduplicated
     }
 
     private func placesApplyingUserDistance(
@@ -1155,7 +1265,7 @@ final class MainMapViewModel: NSObject, ObservableObject, CLLocationManagerDeleg
 
     private func applyRuntimeConfigurationStatus() {
         guard isAppLocationConsentEnabled else { return }
-        if AppRuntime.apiBaseURL == nil || AppRuntime.iosAPIKey == nil {
+        if AppRuntime.apiBaseURL == nil {
             mapStatus = .configurationError
         } else if mapStatus == .configurationError {
             mapStatus = .none

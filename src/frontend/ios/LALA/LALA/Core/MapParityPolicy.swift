@@ -17,7 +17,7 @@ struct PlacesAPIQuery: Equatable {
 
 enum PlacesReloadPolicy {
     static let defaultRadiusMeters = 20_000
-    static let defaultLimit = 100
+    static let defaultLimit = 500
 
     static func makeDefaultQuery(category: String) -> PlacesAPIQuery {
         PlacesAPIQuery(

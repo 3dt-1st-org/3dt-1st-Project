@@ -11,9 +11,14 @@ import MapKit
 struct MainMapView: View {
     @ObservedObject var appViewModel: AppViewModel
     @StateObject private var viewModel = MainMapViewModel()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showSettings = false
     @State private var selectedDetailPlace: PlaceRecommendation?
+    @State private var selectedPlaceDetailDetent: PresentationDetent = .medium
     @State private var showPlannerRegenerateConfirm = false
+    @State private var renderedMapAnnotationItems: [MapAnnotationDisplayItem] = []
+    @State private var mapAnnotationCacheKey: MapAnnotationCacheKey?
+    @State private var mapAnnotationRebuildTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -21,23 +26,45 @@ struct MainMapView: View {
                 coordinateRegion: boundedRegionBinding,
                 interactionModes: [.pan, .zoom],
                 showsUserLocation: true,
-                annotationItems: viewModel.places
-            ) { place in
-                MapAnnotation(coordinate: place.coordinate) {
-                    PlacePinView(
-                        title: place.name(in: appViewModel.selectedLanguage),
-                        categorySymbol: place.categoryKind.symbolName,
-                        categoryKind: place.categoryKind,
-                        isSelected: viewModel.selectedPlaceID == place.id
-                    )
-                    .onTapGesture {
-                        viewModel.handleMapPinTap(place, language: appViewModel.selectedLanguage)
-                        selectedDetailPlace = place
+                annotationItems: renderedMapAnnotationItems
+            ) { item in
+                MapAnnotation(coordinate: item.coordinate) {
+                    switch item.kind {
+                    case let .place(place):
+                        PlacePinView(
+                            title: place.name(in: appViewModel.selectedLanguage),
+                            categorySymbol: place.categoryKind.symbolName,
+                            categoryKind: place.categoryKind,
+                            isSelected: viewModel.selectedPlaceID == place.id,
+                            showTitle: viewModel.selectedPlaceID == place.id
+                        )
+                        .onTapGesture {
+                            viewModel.handleMapPinTap(place, language: appViewModel.selectedLanguage)
+                            selectedDetailPlace = place
+                        }
+                    case let .cluster(count, categoryKind):
+                        ClusterPinView(
+                            count: count,
+                            categoryKind: categoryKind
+                        )
+                        .onTapGesture {
+                            viewModel.zoomIntoCluster(at: item.coordinate)
+                            rebuildMapAnnotationItems(
+                                span: viewModel.region.span,
+                                center: viewModel.region.center,
+                                force: true
+                            )
+                        }
                     }
                 }
             }
             .mapStyle(.standard(pointsOfInterest: .excludingAll))
             .onMapCameraChange(frequency: .onEnd) { context in
+                scheduleMapAnnotationRebuild(
+                    span: context.region.span,
+                    center: context.region.center,
+                    force: true
+                )
                 viewModel.handleMapCameraInteractionEnded(center: context.region.center)
             }
             .ignoresSafeArea()
@@ -47,12 +74,51 @@ struct MainMapView: View {
         .onAppear {
             viewModel.updateLanguage(appViewModel.selectedLanguage)
             viewModel.configureLocationUpdates(consentEnabled: appViewModel.isLocationConsentEnabled)
+            scheduleMapAnnotationRebuild(
+                span: viewModel.region.span,
+                center: viewModel.region.center,
+                force: true
+            )
         }
         .onChange(of: appViewModel.selectedLanguage) { _, newValue in
             viewModel.updateLanguage(newValue)
         }
         .onChange(of: appViewModel.isLocationConsentEnabled) { _, consent in
             viewModel.configureLocationUpdates(consentEnabled: consent)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                viewModel.handleAppDidBecomeActive()
+            }
+        }
+        .onChange(of: viewModel.placesRenderID) { _, _ in
+            scheduleMapAnnotationRebuild(
+                span: viewModel.region.span,
+                center: viewModel.region.center,
+                force: true
+            )
+        }
+        .onChange(of: viewModel.selectedPlaceID) { _, _ in
+            scheduleMapAnnotationRebuild(
+                span: viewModel.region.span,
+                center: viewModel.region.center
+            )
+        }
+        .onChange(of: viewModel.region.span.latitudeDelta) { _, _ in
+            scheduleMapAnnotationRebuild(
+                span: viewModel.region.span,
+                center: viewModel.region.center
+            )
+        }
+        .onChange(of: viewModel.region.span.longitudeDelta) { _, _ in
+            scheduleMapAnnotationRebuild(
+                span: viewModel.region.span,
+                center: viewModel.region.center
+            )
+        }
+        .onDisappear {
+            mapAnnotationRebuildTask?.cancel()
+            mapAnnotationRebuildTask = nil
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(isPresented: $showSettings) {
@@ -70,7 +136,10 @@ struct MainMapView: View {
                     viewModel.playMoreInfo(for: place, language: appViewModel.selectedLanguage)
                 }
             )
-            .presentationDetents([.medium])
+            .onAppear {
+                selectedPlaceDetailDetent = .medium
+            }
+            .presentationDetents([.medium, .large], selection: $selectedPlaceDetailDetent)
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $viewModel.isWeatherDetailPresented) {
@@ -101,6 +170,148 @@ struct MainMapView: View {
                 viewModel.updateRegionFromMap(newValue)
             }
         )
+    }
+
+    private func rebuildMapAnnotationItems(
+        span: MKCoordinateSpan,
+        center: CLLocationCoordinate2D? = nil,
+        force: Bool = false
+    ) {
+        let targetCenter = center ?? viewModel.region.center
+        let visiblePlaces = placesForMapAnnotations(
+            places: viewModel.places,
+            selectedPlaceID: viewModel.selectedPlaceID,
+            center: targetCenter,
+            span: span
+        )
+        let forceCluster = visiblePlaces.count > MapAnnotationRenderingPolicy.maximumIndividualPins &&
+            span.latitudeDelta >= MapAnnotationRenderingPolicy.forceClusterMinimumLatitudeDelta
+        let clusteringEnabled = forceCluster || MapMarkerClusteringPolicy.shouldUseCluster(
+            pointCount: visiblePlaces.count,
+            latitudeDelta: span.latitudeDelta
+        )
+        let nextKey = MapAnnotationCacheKey(
+            placesRenderID: viewModel.placesRenderID,
+            selectedPlaceID: viewModel.selectedPlaceID,
+            spanBucket: MapAnnotationSpanBucket(span: span),
+            viewportBucket: MapAnnotationViewportBucket(center: targetCenter, span: span),
+            isClusteringEnabled: clusteringEnabled,
+            isForceClusterEnabled: forceCluster
+        )
+        guard force || mapAnnotationCacheKey != nextKey else { return }
+        mapAnnotationCacheKey = nextKey
+        renderedMapAnnotationItems = makeMapAnnotationItems(
+            places: visiblePlaces,
+            selectedPlaceID: viewModel.selectedPlaceID,
+            span: span,
+            forceCluster: forceCluster
+        )
+    }
+
+    private func scheduleMapAnnotationRebuild(
+        span: MKCoordinateSpan,
+        center: CLLocationCoordinate2D? = nil,
+        force: Bool = false,
+        debounceNanoseconds: UInt64 = 90_000_000
+    ) {
+        let targetCenter = center ?? viewModel.region.center
+        if force {
+            mapAnnotationRebuildTask?.cancel()
+            mapAnnotationRebuildTask = nil
+            rebuildMapAnnotationItems(span: span, center: targetCenter, force: true)
+            return
+        }
+
+        mapAnnotationRebuildTask?.cancel()
+        mapAnnotationRebuildTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: debounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            rebuildMapAnnotationItems(span: span, center: targetCenter)
+        }
+    }
+
+    private func makeMapAnnotationItems(
+        places: [PlaceRecommendation],
+        selectedPlaceID: String?,
+        span: MKCoordinateSpan,
+        forceCluster: Bool
+    ) -> [MapAnnotationDisplayItem] {
+        let markerPoints = places.map { place in
+            MapMarkerPoint(
+                id: place.id,
+                latitude: place.coordinate.latitude,
+                longitude: place.coordinate.longitude,
+                categoryKey: place.categoryKind.rawValue
+            )
+        }
+        let presentations = MapMarkerClusteringPolicy.buildPresentations(
+            points: markerPoints,
+            latitudeDelta: span.latitudeDelta,
+            longitudeDelta: span.longitudeDelta,
+            selectedPointID: selectedPlaceID,
+            activationLatitudeDelta: forceCluster ? 0.0 : MapMarkerClusteringPolicy.defaultActivationLatitudeDelta,
+            minimumPointCount: forceCluster ? 2 : MapMarkerClusteringPolicy.defaultMinimumPointCount,
+            gridDivisions: forceCluster
+                ? MapAnnotationRenderingPolicy.forceClusterGridDivisions
+                : MapMarkerClusteringPolicy.defaultGridDivisions
+        )
+        let placeByID = Dictionary(
+            places.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return presentations.compactMap { item in
+            switch item {
+            case let .place(point):
+                guard let place = placeByID[point.id] else { return nil }
+                return MapAnnotationDisplayItem(
+                    id: "place-\(place.id)",
+                    coordinate: place.coordinate,
+                    kind: .place(place)
+                )
+            case let .cluster(cluster):
+                return MapAnnotationDisplayItem(
+                    id: cluster.id,
+                    coordinate: CLLocationCoordinate2D(
+                        latitude: cluster.latitude,
+                        longitude: cluster.longitude
+                    ),
+                    kind: .cluster(
+                        count: cluster.count,
+                        categoryKind: PlaceCategoryKind.fromRemoteCategory(cluster.categoryKey)
+                    )
+                )
+            }
+        }
+    }
+
+    private func placesForMapAnnotations(
+        places: [PlaceRecommendation],
+        selectedPlaceID: String?,
+        center: CLLocationCoordinate2D,
+        span: MKCoordinateSpan
+    ) -> [PlaceRecommendation] {
+        let latitudeLimit = max(
+            span.latitudeDelta * MapAnnotationRenderingPolicy.visiblePaddingMultiplier,
+            MapAnnotationRenderingPolicy.minimumVisibleDelta
+        )
+        let longitudeLimit = max(
+            span.longitudeDelta * MapAnnotationRenderingPolicy.visiblePaddingMultiplier,
+            MapAnnotationRenderingPolicy.minimumVisibleDelta
+        )
+
+        var visiblePlaces = places.filter { place in
+            abs(place.coordinate.latitude - center.latitude) <= latitudeLimit &&
+                abs(place.coordinate.longitude - center.longitude) <= longitudeLimit
+        }
+
+        if let selectedPlaceID,
+           let selectedPlace = places.first(where: { $0.id == selectedPlaceID }),
+           !visiblePlaces.contains(where: { $0.id == selectedPlaceID }) {
+            visiblePlaces.append(selectedPlace)
+        }
+
+        return visiblePlaces
     }
 
     private var overlayContent: some View {
@@ -961,9 +1172,9 @@ struct MainMapView: View {
     private var plannerLoadingSubtext: String {
         switch appViewModel.selectedLanguage {
         case .korean:
-            return "처음 방문하는 장소는 최대 30~60초 소요돼요"
+            return "처음 방문하는 장소는 최대 5~10초 소요돼요"
         case .english:
-            return "First-time places can take up to 30–60 seconds."
+            return "First-time places can take up to 5-10 seconds."
         }
     }
 
@@ -1146,64 +1357,68 @@ private struct PlaceDetailBottomSheet: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            heroImage
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                heroImage
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(place.name(in: language))
-                    .font(.system(size: 18 * fontScale, weight: .bold))
-                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(place.name(in: language))
+                        .font(.system(size: 18 * fontScale, weight: .bold))
+                        .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                        .lineLimit(2)
 
-                Text(place.category(in: language))
-                    .font(.system(size: 13 * fontScale, weight: .semibold))
-                    .foregroundStyle(categoryColor(for: place.categoryKind))
+                    Text(place.category(in: language))
+                        .font(.system(size: 13 * fontScale, weight: .semibold))
+                        .foregroundStyle(categoryColor(for: place.categoryKind))
 
-                HStack(spacing: 6) {
-                    Text(place.district(in: language))
-                        .font(.system(size: 12 * fontScale, weight: .medium))
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text(place.district(in: language))
+                            .font(.system(size: 12 * fontScale, weight: .medium))
+                            .foregroundStyle(.secondary)
 
-                    if let distance = place.distanceLabel(in: language) {
-                        Text(distance)
-                            .font(.system(size: 12 * fontScale, weight: .semibold))
-                            .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.75))
+                        if let distance = place.distanceLabel(in: language) {
+                            Text(distance)
+                                .font(.system(size: 12 * fontScale, weight: .semibold))
+                                .foregroundStyle(Color(AppThemeColor.north.rawValue).opacity(0.75))
+                        }
                     }
+
+                    Text(place.address(in: language))
+                        .font(.system(size: 12 * fontScale, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
 
-                Text(place.address(in: language))
-                    .font(.system(size: 12 * fontScale, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
+                Text(recommendationText)
+                    .font(.system(size: 13 * fontScale, weight: .medium))
+                    .foregroundStyle(Color(AppThemeColor.north.rawValue))
+                    .lineLimit(4)
 
-            Text(recommendationText)
-                .font(.system(size: 13 * fontScale, weight: .medium))
-                .foregroundStyle(Color(AppThemeColor.north.rawValue))
-                .lineLimit(4)
-
-            if place.categoryKind == .event {
-                eventInfo
-            }
-
-            if showMoreInfoButton {
-                Button(action: onPlayMoreInfo) {
-                    Text(moreInfoButtonTitle)
-                        .font(.system(size: 14 * fontScale, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color(AppThemeColor.east.rawValue))
-                        )
+                if place.categoryKind == .event {
+                    eventInfo
                 }
-                .buttonStyle(.plain)
+
+                if showMoreInfoButton {
+                    Button(action: onPlayMoreInfo) {
+                        Text(moreInfoButtonTitle)
+                            .font(.system(size: 14 * fontScale, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color(AppThemeColor.east.rawValue))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+            .padding(.bottom, 22)
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 16)
-        .padding(.bottom, 22)
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     private var eventInfo: some View {
@@ -1377,6 +1592,65 @@ private struct PlaceDetailBottomSheet: View {
     }
 }
 
+private struct MapAnnotationDisplayItem: Identifiable {
+    enum Kind {
+        case place(PlaceRecommendation)
+        case cluster(count: Int, categoryKind: PlaceCategoryKind)
+    }
+
+    let id: String
+    let coordinate: CLLocationCoordinate2D
+    let kind: Kind
+}
+
+private struct MapAnnotationCacheKey: Equatable {
+    let placesRenderID: UUID
+    let selectedPlaceID: String?
+    let spanBucket: MapAnnotationSpanBucket
+    let viewportBucket: MapAnnotationViewportBucket
+    let isClusteringEnabled: Bool
+    let isForceClusterEnabled: Bool
+}
+
+private struct MapAnnotationSpanBucket: Equatable {
+    private static let precision: CLLocationDegrees = 0.001
+    let latitudeBucket: Int
+    let longitudeBucket: Int
+
+    init(span: MKCoordinateSpan) {
+        latitudeBucket = Self.bucket(from: span.latitudeDelta)
+        longitudeBucket = Self.bucket(from: span.longitudeDelta)
+    }
+
+    private static func bucket(from value: CLLocationDegrees) -> Int {
+        Int((value / precision).rounded())
+    }
+}
+
+private struct MapAnnotationViewportBucket: Equatable {
+    let latitudeBucket: Int
+    let longitudeBucket: Int
+
+    init(center: CLLocationCoordinate2D, span: MKCoordinateSpan) {
+        let latitudePrecision = max(span.latitudeDelta / 5.0, 0.0008)
+        let longitudePrecision = max(span.longitudeDelta / 5.0, 0.0008)
+        latitudeBucket = Self.bucket(from: center.latitude, precision: latitudePrecision)
+        longitudeBucket = Self.bucket(from: center.longitude, precision: longitudePrecision)
+    }
+
+    private static func bucket(from value: CLLocationDegrees, precision: CLLocationDegrees) -> Int {
+        Int((value / precision).rounded())
+    }
+}
+
+private enum MapAnnotationRenderingPolicy {
+    static let visiblePaddingMultiplier: CLLocationDegrees = 0.7
+    static let minimumVisibleDelta: CLLocationDegrees = 0.0008
+    static let maximumIndividualPins = 45
+    static let forceClusterGridDivisions: Double = 3.6
+    static let forceClusterMinimumLatitudeDelta: CLLocationDegrees = 0.006
+}
+
 private struct AnimatedObangBorder: View {
     let cornerRadius: CGFloat
     let isActive: Bool
@@ -1414,27 +1688,72 @@ private struct AnimatedObangBorder: View {
     }
 }
 
+private struct ClusterPinView: View {
+    let count: Int
+    let categoryKind: PlaceCategoryKind
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white.opacity(0.95))
+                .frame(width: 42, height: 42)
+                .shadow(color: .black.opacity(0.18), radius: 5, y: 2)
+
+            Circle()
+                .stroke(clusterColor, lineWidth: 2.2)
+                .frame(width: 42, height: 42)
+
+            Text("\(count)")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(clusterTextColor)
+        }
+    }
+
+    private var clusterColor: Color {
+        switch categoryKind {
+        case .attraction:
+            return Color(AppThemeColor.south.rawValue)
+        case .restaurant:
+            return Color(AppThemeColor.center.rawValue)
+        case .event:
+            return Color(AppThemeColor.east.rawValue)
+        }
+    }
+
+    private var clusterTextColor: Color {
+        switch categoryKind {
+        case .restaurant:
+            return Color(red: 0.42, green: 0.31, blue: 0.05)
+        default:
+            return clusterColor.opacity(0.92)
+        }
+    }
+}
+
 private struct PlacePinView: View {
     let title: String
     let categorySymbol: String
     let categoryKind: PlaceCategoryKind
     let isSelected: Bool
+    let showTitle: Bool
 
     var body: some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .frame(maxWidth: 160)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.black.opacity(0.72))
-                )
+        VStack(spacing: showTitle ? 4 : 0) {
+            if showTitle {
+                Text(title)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: 160)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.black.opacity(0.72))
+                    )
+            }
 
             ZStack {
                 Circle()
