@@ -131,11 +131,7 @@ struct MainMapView: View {
                 }
             )
             .onAppear {
-                selectedPlaceDetailDetent = preferredDetailDetent(
-                    for: place,
-                    language: appViewModel.selectedLanguage,
-                    showMoreInfoButton: viewModel.canPlayMoreInfo(for: place.id)
-                )
+                selectedPlaceDetailDetent = .medium
             }
             .presentationDetents([.medium, .large], selection: $selectedPlaceDetailDetent)
             .presentationDragIndicator(.visible)
@@ -168,19 +164,6 @@ struct MainMapView: View {
                 viewModel.updateRegionFromMap(newValue)
             }
         )
-    }
-
-    private func preferredDetailDetent(
-        for place: PlaceRecommendation,
-        language: AppLanguage,
-        showMoreInfoButton: Bool
-    ) -> PresentationDetent {
-        let hasEventDetails = place.categoryKind == .event &&
-            (place.eventURL != nil || place.eventStartDate?.isEmpty == false || place.eventEndDate?.isEmpty == false)
-        let hasLongText = place.name(in: language).count >= 22 ||
-            place.address(in: language).count >= 36
-
-        return (hasEventDetails || showMoreInfoButton || hasLongText) ? .large : .medium
     }
 
     private func rebuildMapAnnotationItems(
